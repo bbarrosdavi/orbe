@@ -1,0 +1,15 @@
+# Segredos e estado de máquina nunca entram aqui.
+*.env
+.env
+*token*
+*secret*
+*credential*
+auth.json
+__pycache__/
+*.pyc
+# Áudio e artefatos grandes
+*.wav
+*.onnx
+orb_frames/
+orb/
+mecha_tutor/

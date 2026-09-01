@@ -1,0 +1,20 @@
+[Unit]
+Description=Hermes Voice Daemon (Groq Whisper)
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/home/davi/.hermes/scripts/hermes_voice_daemon.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=5
+KillMode=mixed
+Environment=HOME=/home/davi
+Environment=PATH=/home/davi/.hermes/hermes-agent/venv/bin:/home/davi/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+Environment=WAYLAND_DISPLAY=wayland-1
+
+[Install]
+WantedBy=default.target
