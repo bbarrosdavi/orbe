@@ -1,5 +1,12 @@
 #!/usr/bin/python3
-"""Controle do overlay de voz. Uso: orb_control.py hide|quit|dismiss"""
+"""Controle do overlay de voz.
+
+Uso: orb_control.py hide|quit|dismiss|hold|release
+
+`hold` e `release` são para o próprio Jarvis chamar (skill voice-orb-hold):
+`hold` desliga o timeout de inatividade, e a sessão passa a durar até uma
+dispensa explícita; `release` devolve o timeout sem encerrar a sessão.
+"""
 import os
 import socket
 import sys
@@ -32,7 +39,13 @@ def main():
         CMD.write_text("dismiss\n")
         sock("hide")
         return
-    print("uso: orb_control.py hide|quit|dismiss", file=sys.stderr)
+    if op in ("hold", "segura", "keep"):
+        CMD.write_text("hold\n")
+        return
+    if op in ("release", "solta", "unhold"):
+        CMD.write_text("release\n")
+        return
+    print("uso: orb_control.py hide|quit|dismiss|hold|release", file=sys.stderr)
     sys.exit(2)
 
 

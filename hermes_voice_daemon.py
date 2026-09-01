@@ -119,10 +119,20 @@ AEC_SOURCE_DESC = "HermesMicAEC"
 SILENCE_TIMEOUT = 0.55              # silêncio = fim da fala
 RECORD_MAX_SEC = 12
 SESSION_IDLE_SEC = 10.0             # orb some e a sessão de voz fecha
+# Teto de segurança da sessão travada. Com AEC o risco de auto-disparo é baixo
+# (medido: o eco não sustenta 2 quadros contínuos), mas um hold esquecido
+# deixaria o microfone armado para sempre.
+HOLD_MAX_SEC = 30 * 60.0
+# Janela em que a fala nova ainda conta como continuação do pedido anterior,
+# em vez de turno novo. Ver _emendar_pedido.
+AMEND_WINDOW_SEC = 12.0
+# Narração de ferramenta que não vale falar em voz alta. Encolhido: os verbos
+# soltos ("vou ", "busco ", "lendo ") engoliam resposta legítima, porque o
+# Jarvis anuncia o que vai fazer em português normal ("Vou puxar o tempo
+# agora"). Sobrou o que é jargão de terminal, que nunca é fala natural.
 _NARRATE_RE = re.compile(
-    r"^(vou |carrego |busco |checando |procurando |lendo |resolvendo |"
-    r"montando |confirmo |tem comando|dry-run|pedido explícito|"
-    r"aqui estão todos)",
+    r"^(dry-run|pedido explícito|tem comando|aqui estão todos|"
+    r"executando comando|rodando comando)\b",
     re.I,
 )
 _DISMISS_RE = re.compile(
@@ -159,6 +169,9 @@ if _HERMES_ENV.exists():
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_API_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_MODEL = "whisper-large-v3-turbo"
+
+# HERMES_VOICE_DEBUG=1 liga o rastro de nível no estado listening.
+DEBUG_LEVELS = os.environ.get("HERMES_VOICE_DEBUG") == "1"
 
 LOG = logging.getLogger("hermes-voice")
 
@@ -832,6 +845,11 @@ class Daemon:
 
         self._last_ack = ""
         self._aec_ok = False
+        self._hold_until = 0.0   # >0 = sessão travada; ver HOLD_MAX_SEC
+        self._pedido_aberto = ""  # pedido cuja geração foi abortada no meio
+        self._pedido_ts = 0.0
+        self._continuando = False
+        self._dbg_max, self._dbg_sf, self._dbg_next = 0.0, 0, 0.0
         self.capture_rate, self.capture_block = self._resolve_capture()
         self._check_aec()
 
@@ -868,6 +886,14 @@ class Daemon:
         comportamento antigo: o mic ouve o próprio TTS a ~33 dB acima do
         piso e qualquer resposta longa vira gravação e comando novo.
         """
+        if os.environ.get("HERMES_VOICE_NO_AEC") == "1":
+            # Saída para teste acústico: com AEC ligado, áudio tocado pelo
+            # alto-falante é justamente o que o módulo cancela, então não dá
+            # para exercitar wake e comando por voz sintetizada. Também serve
+            # para comparar A/B o efeito do cancelamento.
+            LOG.warning("HERMES_VOICE_NO_AEC=1: cancelamento de eco IGNORADO "
+                        "(o mic vai ouvir o próprio TTS)")
+            return
         try:
             atual = subprocess.run(
                 ["pactl", "get-default-source"],
@@ -930,7 +956,12 @@ class Daemon:
         self.allow_interrupt = False
         self._chat_id = None
         self._voice_session = None
+        # A trava não sobrevive à sessão: senão a próxima nasceria travada sem
+        # ninguém ter pedido.
+        self._hold_until = 0.0
+        self._pedido_aberto = ""
         self._bump_tts()
+        orb_cmd("hold 0")
         orb_cmd("hide")
 
     def _poll_cmdfile(self):
@@ -940,10 +971,24 @@ class Daemon:
             p.unlink(missing_ok=True)
         except OSError:
             return
-        if "dismiss" in txt.lower():
+        low = txt.lower()
+        if "dismiss" in low:
             LOG.info("dismiss via cmdfile")
             self._kill_active(hide=True)
             self._end_session("dismiss")
+        elif "hold" in low:
+            self._hold_until = time.monotonic() + HOLD_MAX_SEC
+            self._touch_session()
+            orb_cmd("hold 1")
+            LOG.info("Sessão travada a pedido do Jarvis (teto de %d min)",
+                     int(HOLD_MAX_SEC // 60))
+        elif "release" in low:
+            if self._hold_until:
+                self._hold_until = 0.0
+                self._touch_session()
+                orb_cmd("hold 0")
+                LOG.info("Trava de sessão solta; timeout de %.0fs volta a valer",
+                         SESSION_IDLE_SEC)
 
     def _is_dismiss(self, text: str) -> bool:
         return bool(_DISMISS_RE.search(text or ""))
@@ -967,6 +1012,16 @@ class Daemon:
             return False
         if self._busy():
             return False
+        if self._hold_until:
+            # Sessão travada a pedido do Jarvis ("segura a sessão"). O timeout
+            # de inatividade sai de cena, mas não para sempre: sem um teto, um
+            # hold esquecido deixa o microfone armado indefinidamente. Só a
+            # dispensa explícita, o release, ou este teto encerram.
+            if time.monotonic() < self._hold_until:
+                return False
+            LOG.info("Trava de sessão expirou (teto de %d min sem fala)",
+                     int(HOLD_MAX_SEC // 60))
+            self._hold_until = 0.0
         return self._session_expired()
 
     def _bump_tts(self):
@@ -1184,6 +1239,10 @@ class Daemon:
         self._int_frames = 0
         self._tts_barge = False
         self._deaf_until = 0.0
+        # Barge-in de verdade: ele está reagindo à RESPOSTA, então o pedido
+        # anterior está velho e não deve voltar emendado.
+        self._continuando = False
+        self._pedido_aberto = ""
         self._kill_active(hide=False)
         self._processing_thread = None
         self.expecting_command = True
@@ -1197,6 +1256,58 @@ class Daemon:
         self.preroll_buffer.clear()
         for pf, ps in tail:
             self.rec.feed(pf, ps)
+
+    def _do_continuacao(self, rms: float):
+        """Fala durante a GERAÇÃO: o pedido não tinha terminado de ser dito.
+
+        Falando devagar, a pausa entre palavras passa de SILENCE_TIMEOUT e a
+        gravação fecha no meio da frase. O pedido incompleto já disparou a
+        geração, e antes o resto da fala só era ouvido depois que a resposta
+        inteira saísse, virando turno novo. Agora a geração em voo é abortada e
+        a fala nova é gravada para emendar o pedido (ver _emendar_pedido).
+
+        Difere do barge-in por onde semeia o gravador: no barge-in o áudio útil
+        está no anel capturado durante o TTS; aqui está no preroll, porque
+        durante a geração o microfone não estava sendo desviado para o anel.
+        """
+        LOG.info("Fala durante a geração (rms=%.0f, %dms): continuação do pedido",
+                 rms, INTERRUPT_SPEECH_FRAMES * FRAME_MS)
+        self._int_frames = 0
+        self._deaf_until = 0.0
+        self._continuando = True
+        self._kill_active(hide=False)
+        self._processing_thread = None
+        self.expecting_command = True
+        self.allow_interrupt = True
+        self.state = "recording"
+        self.rec = Recorder()
+        self.rec.echo_skip_until = 0
+        self.speech_frames = 0
+        tail = list(self.preroll_buffer)
+        self.preroll_buffer.clear()
+        for pf, ps in tail:
+            self.rec.feed(pf, ps)
+
+    def _emendar_pedido(self, cmd: str) -> str:
+        """Junta a fala nova ao pedido anterior quando ela é continuação.
+
+        O discriminador é ONDE a geração parou. Se nenhuma palavra da resposta
+        chegou a ser falada, o Davi ainda estava formulando e o que ele diz
+        agora é o resto da mesma frase. Se o orbe já estava respondendo, aí é
+        interrupção de verdade: o pedido velho não volta, senão a correção
+        ("na verdade, faz outra coisa") viria grudada no que ela corrige.
+        """
+        pend, self._pedido_aberto = self._pedido_aberto, ""
+        if not pend:
+            return cmd
+        idade = time.monotonic() - self._pedido_ts
+        if idade > AMEND_WINDOW_SEC:
+            LOG.info("Pedido em aberto descartado (%.1fs > %.0fs)",
+                     idade, AMEND_WINDOW_SEC)
+            return cmd
+        emendado = f"{pend.rstrip(' .,;')} {cmd}".strip()
+        LOG.info("Pedido emendado (%.1fs): %r + %r", idade, pend, cmd)
+        return emendado
 
     def _is_tts_echo(self, text: str) -> bool:
         """Rede de segurança para quando NÃO há cancelamento de eco.
@@ -1499,6 +1610,10 @@ class Daemon:
                             self._from_wake = True
                             self._chat_id = None
                             self._voice_session = f"orb-{int(time.time())}"
+                            # Wake novo é turno novo: nada de emendar num
+                            # pedido de uma sessão que já morreu.
+                            self._pedido_aberto = ""
+                            self._continuando = False
                             self._tts_barge = False
                             self._tts_barge_after = 0.0
                             self._touch_session()
@@ -1510,7 +1625,30 @@ class Daemon:
                         self.speech_frames += 1
                         self._touch_session()
                     else:
-                        self.speech_frames = max(0, self.speech_frames - 2)
+                        # Decaimento -1, não -2. Com -2, fala pausada (razão de
+                        # voz ~70%) rende saldo quase nulo e a gravação nunca
+                        # abre: medido, o acumulador empacava em 8 de 15 num
+                        # comando a 154 wpm. Medido nos dois decaimentos:
+                        #   comando pausado 154 wpm: pico 16 (-2) contra 25 (-1)
+                        #   ambiente ruidoso:        pico 10 nos DOIS
+                        # A margem contra ruído não muda; a tolerância a pausa
+                        # entre palavras dobra.
+                        self.speech_frames = max(0, self.speech_frames - 1)
+
+                    if DEBUG_LEVELS:
+                        # Por que a fala não abriu gravação: mostra o nível que
+                        # chegou, se o VAD concordou, e até onde o acumulador
+                        # subiu. Sem isto o sintoma é mudo e só resta supor.
+                        self._dbg_max = max(self._dbg_max, rms)
+                        self._dbg_sf = max(self._dbg_sf, self.speech_frames)
+                        if time.monotonic() >= self._dbg_next:
+                            self._dbg_next = time.monotonic() + 1.0
+                            LOG.info("[dbg] escutando: rms_max=%.0f (piso %d) "
+                                     "speech_frames_max=%d (precisa %d)",
+                                     self._dbg_max, MIN_SPEECH_RMS,
+                                     self._dbg_sf, SUSTAINED_SPEECH_FRAMES)
+                            self._dbg_max = 0.0
+                            self._dbg_sf = 0
 
                     if self.speech_frames >= SUSTAINED_SPEECH_FRAMES:
                         LOG.info("▶ Fala detectada, gravando...")
@@ -1553,6 +1691,15 @@ class Daemon:
                         self._int_frames += 1
                     else:
                         self._int_frames = max(0, self._int_frames - 3)
+
+                    # Esse contador existia e nunca era lido: falar durante a
+                    # geração não produzia efeito nenhum, e o resto da frase só
+                    # era ouvido depois da resposta inteira sair.
+                    if (self._int_frames >= INTERRUPT_SPEECH_FRAMES
+                            and self._processing_thread
+                            and self._processing_thread.is_alive()):
+                        self._do_continuacao(rms)
+                        continue
 
                     # Thread de processamento terminou naturalmente
                     if self._processing_thread and not self._processing_thread.is_alive():
@@ -1642,7 +1789,11 @@ class Daemon:
         if self.expecting_command or from_wake:
             self.expecting_command = False
             cmd_clean = text.lower().strip()
-            if any(escape in cmd_clean for escape in ["cancela", "esquece", "cancelar", "nada não"]):
+            # "nada não" saiu daqui: é a forma mais comum de discordar em
+            # português falado, e o Davi usa isso para contestar e SEGUIR a
+            # conversa, não para cancelar. Sobrou só o que é inequivocamente
+            # um pedido de desistência.
+            if any(escape in cmd_clean for escape in ["cancela", "esquece", "cancelar"]):
                 LOG.info("Comando cancelado pelo usuário")
                 self._speak("Cancelado.")
                 self._end_session("cancel")
@@ -1678,6 +1829,7 @@ class Daemon:
             LOG.info("⚡ Processamento interrompido antes do Hermes")
             return
 
+        cmd = self._emendar_pedido(cmd)
         LOG.info("Comando: \"%s\"", cmd)
         self._touch_session()
         orb_cmd("state thinking")
@@ -1688,6 +1840,12 @@ class Daemon:
 
         if handle_gen != self._tts_gen or self._interrupted.is_set():
             LOG.info("⚡ Processamento interrompido após Hermes")
+            if self._continuando and self._tts_turn_n == 0:
+                # Nenhuma palavra da resposta foi falada: o Davi ainda estava
+                # formulando. Guarda o pedido para a próxima fala emendar.
+                self._pedido_aberto = cmd
+                self._pedido_ts = time.monotonic()
+            self._continuando = False
             return
         if resposta and self._tts_turn_n == 0:
             self._tts_push(resposta)

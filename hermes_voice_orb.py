@@ -50,12 +50,24 @@ PREVIEW = "--preview" in sys.argv
 SFX = "-live" if PREVIEW else ""
 SOCK = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/run/user/1000"),
                     f"hermes-voice-orb{SFX}.sock")
-ORB = 120
+# ART_BOX é o tamanho VISUAL da arte; ORB_BOX é a célula que o overlay reserva
+# para ela. Os dois eram a mesma constante, e por isso aumentar a janela nunca
+# resolvia o recorte: crescia a arte junto. Medido antes de separar, com o raio
+# externo = ART_EDGE * (ART_BOX/256) * env_sc * pulse * s_warp:
+#   repouso 46.9px · thinking no pico 55.6px
+#   speaking lv=0.9 64.3px · speaking durante o pop de entrada 67.9px
+# Contra 60px de meia-altura na janela antiga: em fala alta o anel batia na
+# bounding box e aparecia a borda quadrada. 148 dá 74px de meia-altura.
+ART_BOX = 120
+ORB_BOX = 148
 PANEL = 296   # coluna de texto larga: reasoning legível
-SIZE_W = ORB + PANEL
-SIZE_H = ORB
-MARGIN_TOP = 14 + (136 if PREVIEW else 0)
-MARGIN_RIGHT = 14
+SIZE_W = ORB_BOX + PANEL
+SIZE_H = ORB_BOX
+# A folga é descontada das margens para o anel não mudar de lugar na tela: a
+# célula cresce, o centro da arte fica onde estava.
+_FOLGA = (ORB_BOX - ART_BOX) // 2
+MARGIN_TOP = max(0, 14 - _FOLGA) + (136 if PREVIEW else 0)
+MARGIN_RIGHT = max(0, 14 - _FOLGA)
 LOG = f"/tmp/hermes-voice-orb{SFX}.log"
 STATES = frozenset({"listening", "thinking", "speaking", "tools"})
 FRAME_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "orb_frames")
@@ -69,14 +81,17 @@ ACCENT_CSS = "/home/davi/Projetos/Docs_rice_sistema/main.css"
 # volta ao claro, como na referência.
 GL_CYAN = (0.00, 0.95, 0.95)
 GL_MAG = (1.00, 0.08, 0.55)
-GL_HALF_W = 60.0             # meia-largura da coluna do orbe, em px de tela
+GL_HALF_W = ORB_BOX / 2.0    # meia-largura da célula do orbe, em px de tela
 
 N_W = 36                     # fatias do warp polar
 N_TONGUE = 10
 N_DROP = 7
 SPRING_K = 55.0
 SPRING_C = 6.5
-R_LIM = 57.0                 # teto absoluto em px de tela
+# Teto das línguas e gotas. Sobe junto com ORB_BOX: em 57 elas ficavam
+# DENTRO do anel quando ele passava de 57px em fala alta, e as chamas
+# sumiam justamente no pico. 70 fica abaixo dos 74px de meia-altura.
+R_LIM = 70.0                 # teto absoluto em px de tela
 
 def _log(msg):
     try:
@@ -158,6 +173,29 @@ def _refresh_palette():
     TINT_BASE, TINT_THINK, TINT_TOOLS, TINT_DEEP, TINT_HIGH = _system_palette()
     if TINT_BASE != antes:
         _log(f"paleta atualizada: {antes} -> {TINT_BASE}")
+
+
+def _accent_watcher():
+    """Segue a troca de wallpaper enquanto o orbe está na tela.
+
+    O `show` já relê a paleta, o que cobre "trocou o wallpaper entre sessões".
+    Isto cobre o outro caso: trocar com o orbe visível. Vigia a mtime do CSS do
+    matugen em vez de usar inotify, porque é uma statvez por segundo contra uma
+    dependência a mais, e a troca de wallpaper não é evento de latência.
+    """
+    try:
+        ultima = os.path.getmtime(ACCENT_CSS)
+    except OSError:
+        ultima = 0.0
+    while True:
+        time.sleep(1.0)
+        try:
+            agora = os.path.getmtime(ACCENT_CSS)
+        except OSError:
+            continue
+        if agora != ultima:
+            ultima = agora
+            GLib.idle_add(_refresh_palette)
 
 
 def _load_frames():
@@ -263,6 +301,9 @@ class Ring(Gtk.DrawingArea):
         self.tone_s = 0.5
         self.mic = 0.0
         self.mic_s = 0.0
+        # Sessão travada pelo Jarvis: sem isto não há como distinguir "ele
+        # continua me ouvindo" de "ele esqueceu de fechar".
+        self.held = False
         self.lines = []
         self._rows = None    # cache das linhas quebradas por largura
         # física (convenção de ângulo do cairo: y para baixo, +sin)
@@ -570,7 +611,7 @@ class Ring(Gtk.DrawingArea):
         _om, _ch, _aL, _tg, _fs, tint, bright, pulse = self._pb
         cx = PANEL + (w - PANEL) * 0.50
         cy = h * 0.50
-        scb = (ORB / 256.0) * env_sc * pulse
+        scb = (ART_BOX / 256.0) * env_sc * pulse
         lift = 0.25 * max(0.0, bright - 1.0)
         r = min(1.0, tint[0] * bright + lift)
         g = min(1.0, tint[1] * bright + lift)
@@ -655,6 +696,25 @@ class Ring(Gtk.DrawingArea):
 
         if gl_k > 0.0:
             self._draw_glitch(cr, frame, scb, env_a, gl_k, r, g, b)
+
+        if self.held:
+            # Sessão travada: ponto fixo no topo, fora do giro do anel, com um
+            # respiro lento. Fixo porque precisa ser lido de canto de olho como
+            # estado, e não confundido com a animação; com respiro porque um
+            # ponto parado lê como travamento, e é o oposto do que ele diz.
+            cr.save()
+            cr.rotate(-self.rot)
+            pulso = 0.62 + 0.38 * (0.5 + 0.5 * math.sin(self.t * 2.0))
+            rp = ORB_BOX / 2.0 - 7.0
+            cr.arc(0.0, -rp, 3.0, 0.0, math.tau)
+            cr.set_source_rgba(r, g, b, 0.90 * pulso * env_a)
+            cr.fill()
+            cr.set_operator(cairo.OPERATOR_ADD)
+            cr.arc(0.0, -rp, 6.0, 0.0, math.tau)
+            cr.set_source_rgba(r, g, b, 0.22 * pulso * env_a)
+            cr.fill()
+            cr.set_operator(cairo.OPERATOR_OVER)
+            cr.restore()
 
         max_ext = ART_EDGE * scb * smax
 
@@ -1026,6 +1086,7 @@ class App(Gtk.Application):
                              daemon=True).start()
             threading.Thread(target=_sink_monitor, args=(self.win,),
                              daemon=True).start()
+            threading.Thread(target=_accent_watcher, daemon=True).start()
             if PREVIEW:
                 self.win.show_orb("listening")
                 for t in ("lendo contexto", "chamando tool", "filtrando saida"):
@@ -1097,6 +1158,8 @@ class App(Gtk.Application):
             self.win.ring.push_line(arg)
             if self.win.ring.state not in ("tools", "thinking"):
                 self.win.set_state("tools")
+        elif op == "hold":
+            self.win.ring.held = arg.strip() not in ("", "0", "false", "off")
         elif op == "hide":
             self.win.hide_orb()
         elif op == "quit":
