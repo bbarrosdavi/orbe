@@ -1,0 +1,8 @@
+#!/bin/sh
+# Claude Code com o canal do orbe: o orbe de voz passa a falar com esta sessão.
+# Formas --flag=valor porque essas opções aceitam vários valores e engoliriam "$@".
+exec claude \
+  --mcp-config=/home/davi/.hermes/scripts/orbe-canal.json \
+  --dangerously-load-development-channels=server:orbe \
+  --allowedTools=mcp__orbe__reply \
+  "$@"

@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <radialGradient id="fundo" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#1d2a2b"/>
+      <stop offset="1" stop-color="#0b0f10"/>
+    </radialGradient>
+    <radialGradient id="nucleo" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#e9fbff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#b8cacb" stop-opacity="0"/>
+    </radialGradient>
+    <g id="olho">
+      <path d="M-5 0 C-2.4 -3.4 2.4 -3.4 5 0 C2.4 3.4 -2.4 3.4 -5 0 Z" fill="none" stroke="#e6f6f7" stroke-width="1"/>
+      <circle r="1.5" fill="#e6f6f7"/>
+    </g>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#fundo)"/>
+  <g stroke-linecap="round" fill="none">
+    <!-- raios -->
+    <g stroke="#b8cacb" stroke-opacity="0.22" stroke-width="0.8">
+      <path d="M64 14V26M64 102V114M14 64H26M102 64H114M29 29L37 37M91 91L99 99M99 29L91 37M37 91L29 99"/>
+    </g>
+    <!-- rodas dentro de rodas, com aberração cromática -->
+    <g transform="translate(-1.2 0)" stroke="#ff2e52" stroke-opacity="0.45" stroke-width="2">
+      <ellipse cx="64" cy="64" rx="40" ry="15" transform="rotate(-28 64 64)"/>
+      <ellipse cx="64" cy="64" rx="38" ry="13" transform="rotate(40 64 64)"/>
+      <ellipse cx="64" cy="64" rx="15" ry="37"/>
+    </g>
+    <g transform="translate(1.2 0)" stroke="#26d9ff" stroke-opacity="0.45" stroke-width="2">
+      <ellipse cx="64" cy="64" rx="40" ry="15" transform="rotate(-28 64 64)"/>
+      <ellipse cx="64" cy="64" rx="38" ry="13" transform="rotate(40 64 64)"/>
+      <ellipse cx="64" cy="64" rx="15" ry="37"/>
+    </g>
+    <g stroke="#d4e6e7" stroke-width="2">
+      <ellipse cx="64" cy="64" rx="40" ry="15" transform="rotate(-28 64 64)"/>
+      <ellipse cx="64" cy="64" rx="38" ry="13" transform="rotate(40 64 64)"/>
+      <ellipse cx="64" cy="64" rx="15" ry="37"/>
+    </g>
+  </g>
+  <!-- olhos nos aros -->
+  <use href="#olho" transform="translate(29.5 80) rotate(-28)"/>
+  <use href="#olho" transform="translate(98.5 48) rotate(-28)"/>
+  <use href="#olho" transform="translate(37 39) rotate(40)"/>
+  <use href="#olho" transform="translate(91 89) rotate(40)"/>
+  <use href="#olho" transform="translate(64 27) rotate(90)"/>
+  <use href="#olho" transform="translate(64 101) rotate(90)"/>
+  <!-- olho central -->
+  <circle cx="64" cy="64" r="20" fill="url(#nucleo)"/>
+  <path d="M48 64 C55 53 73 53 80 64 C73 75 55 75 48 64 Z" fill="#0b0f10" stroke="#f1fdff" stroke-width="2.2"/>
+  <circle cx="64" cy="64" r="6.5" fill="#d4e6e7"/>
+  <circle cx="64" cy="64" r="2.8" fill="#0b0f10"/>
+  <!-- glitch -->
+  <rect x="18" y="58" width="22" height="1.6" fill="#26d9ff" fill-opacity="0.55"/>
+  <rect x="86" y="70" width="16" height="1.4" fill="#ff2e52" fill-opacity="0.55"/>
+</svg>
