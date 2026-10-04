@@ -573,7 +573,7 @@ void serafim(inout float A, vec2 p, float aa) {
         vec2 e = c + vec2(0.0, -0.20 * R);
         vec2 dv = olhar - e;
         float dl = length(dv);
-        olho(A, p, e, 0.0, R * 0.17, abre * pisca(77.0), dl > 1e-4 ? dv / dl : vec2(1.0, 0.0),
+        olho(A, p, e, 0.0, R * 0.21, abre * pisca(77.0), dl > 1e-4 ? dv / dl : vec2(1.0, 0.0),
              1.0, 1.0 + 0.5 * est2.y, lw, aa);
     }
 
