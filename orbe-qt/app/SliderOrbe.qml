@@ -60,19 +60,27 @@ Item {
         width: s.width - 28 - s.lado
         y: 72
         height: 6
+        // o trilho abre um vão ao redor do botão, que é só o orbe sobre o vidro
+        readonly property real vao: s.lado / 2 + 6
+        readonly property real pos: s.fracao * width
         Rectangle {
-            anchors.fill: parent
-            radius: 3
-            color: Estilo.alfa(Estilo.texto, 0.12)
-        }
-        Rectangle {
-            width: s.fracao * parent.width
+            // trecho percorrido, até o vão
+            width: Math.max(0, parent.pos - parent.vao)
             height: parent.height
             radius: 3
             color: Estilo.alfa(Estilo.accent, 0.75)
         }
         Rectangle {
-            // marca do tamanho original
+            // trecho restante, depois do vão
+            x: Math.min(parent.width, parent.pos + parent.vao)
+            width: Math.max(0, parent.width - x)
+            height: parent.height
+            radius: 3
+            color: Estilo.alfa(Estilo.texto, 0.12)
+        }
+        Rectangle {
+            // marca do tamanho original (some dentro do vão)
+            visible: Math.abs(x + 1 - parent.pos) > parent.vao
             x: (1.0 - s.de) / (s.ate - s.de) * parent.width - 1
             y: -4
             width: 2
@@ -90,9 +98,10 @@ Item {
         scale: arrasto.pressed ? 1.12 : (hv.hovered ? 1.05 : 1.0)
         Behavior on scale { NumberAnimation { duration: 120 } }
         Rectangle {
+            // só o aro: o orbe fica sobre o vidro da janela, sem disco escuro
             anchors.fill: parent
             radius: width / 2
-            color: Qt.rgba(Estilo.fundo.r, Estilo.fundo.g, Estilo.fundo.b, 0.92)
+            color: "transparent"
             border.width: 1.5
             border.color: Estilo.alfa(Estilo.accent, 0.7)
         }
