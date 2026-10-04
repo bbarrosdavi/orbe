@@ -5,7 +5,7 @@ import Quickshell.Wayland
 import "comum"
 import "orbe"
 
-// Orbe de voz do Hermes no Quickshell: substitui o hermes_voice_orb.py.
+// Orbe de voz do Hermes no Quickshell (substituiu o hermes_voice_orb.py em GTK em 2026-10-04).
 //
 // Mesmo protocolo e mesmos sockets do orbe GTK. O daemon fala por
 // $XDG_RUNTIME_DIR/hermes-voice-orb.sock (show, state, level, mic, line,

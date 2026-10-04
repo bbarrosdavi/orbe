@@ -561,10 +561,8 @@ HERMES_BIN = "/home/davi/.hermes/hermes-agent/venv/bin/hermes"
 HERMES_PROFILE = "jarvis"
 HERMES_SESSION = "Bot Chat"
 HERMES_PATH = "/home/davi/.hermes/hermes-agent/venv/bin:/home/davi/.local/bin:/usr/local/bin:/usr/bin:/bin"
-# Orbe em Quickshell (desenho na GPU). O hermes_voice_orb.py (GTK) continua
-# no disco e entra na faxina de órfãos, para a troca não deixar dois orbes.
+# Orbe em Quickshell (desenho na GPU).
 ORB_QML = str(Path(__file__).resolve().parent / "orbe-qt" / "orbe.qml")
-ORB_PADROES = ("hermes_voice_orb.py", ORB_QML)
 ORB_SOCK = "/run/user/1000/hermes-voice-orb.sock"
 # Entrada de controle do daemon, uma linha por mensagem:
 #   touch down | touch up      dedo no orbe (orbe-qt/orbe.qml)
@@ -702,11 +700,11 @@ def _sock_do_orbe(pid: int):
 
 
 def _reap_orbs() -> None:
-    """Mata overlays zumbis (GTK falhou, nome D-Bus preso, socket ausente)."""
+    """Mata orbes órfãos (socket ausente, daemon anterior morto sem limpar)."""
     me = os.getpid()
     try:
         out = subprocess.check_output(
-            ["pgrep", "-af", "hermes_voice_orb.py|orbe-qt/orbe.qml"], text=True,
+            ["pgrep", "-af", "orbe-qt/orbe.qml"], text=True,
         )
     except (subprocess.CalledProcessError, FileNotFoundError):
         return
@@ -721,7 +719,7 @@ def _reap_orbs() -> None:
         cmd = parts[1]
         if pid == me or "pgrep" in cmd or "pkill" in cmd:
             continue
-        if not any(pd in cmd for pd in ORB_PADROES):
+        if ORB_QML not in cmd:
             continue
         if _sock_do_orbe(pid) not in (None, ORB_SOCK):
             continue    # instância de outro socket (pré-visualização do app, teste)

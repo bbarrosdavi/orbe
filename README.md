@@ -7,7 +7,8 @@ sintetizada e overlay circular no Wayland.
 |---|---|
 | `hermes_voice_daemon.py` | captura, wake, VAD, STT, orquestracao |
 | `hermes_voice_tts.py` | worker de sintese e reproducao |
-| `hermes_voice_orb.py` | overlay GTK4 + Cairo (layer-shell) |
+| `orbe-qt/orbe.qml` | overlay em Quickshell (layer-shell), desenho em shaders na GPU |
+| `orbe-qt/app/` + `hermes_voice_app.py` | app de configuracao (PySide6 + QML) |
 | `orb_control.py` | controle do overlay por socket e cmdfile |
 | `pipewire-hermes-aec.conf` | modulo de cancelamento de eco (monitor.mode) |
 | `*.service.unit` | copias das units systemd de usuario |

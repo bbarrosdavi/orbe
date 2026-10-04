@@ -83,7 +83,7 @@ DEFAULTS = {
         "rastro_niveis": True,
     },
     "orbe": {
-        # ofanim | ofanim_alado | serafim (hermes_voice_avatares.py) | anel (rotoscope)
+        # ofanim | ofanim_alado | serafim (orbe-qt/comum/Figura.qml) | anel (rotoscope)
         "skin": "ofanim",
         "glitch": True,
         # disco translúcido com blur atrás do orbe (ext-background-effect no niri)

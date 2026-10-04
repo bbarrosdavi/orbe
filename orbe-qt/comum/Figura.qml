@@ -5,7 +5,7 @@ import QtQuick
 // O desenho mora em dois shaders: figura.frag pinta a máscara branca da
 // figura (cada traço é uma função de distância) e pos.frag dá a cor, o glitch
 // e o vidro. Aqui fica só o que tem memória entre quadros, portado de
-// hermes_voice_avatares.py: giro das rodas, travas em quarto de volta, ondas
+// hermes_voice_avatares.py (Cairo, aposentado em 2026-10-04): giro das rodas, travas em quarto de volta, ondas
 // da voz, relâmpagos, batida das asas, fogo e brasa do serafim, rajadas de
 // glitch. Quem usa chama avancar(dt) a cada quadro (FrameAnimation).
 //

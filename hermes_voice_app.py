@@ -191,12 +191,6 @@ def _agente_carregado() -> tuple[str, int] | None:
     return None
 
 
-def _orbe_gtk_vivo() -> bool:
-    """O orbe GTK (daemon antigo) não segue o config.json ao vivo."""
-    r = subprocess.run(["pgrep", "-f", "hermes_voice_orb.py"], capture_output=True)
-    return r.returncode == 0
-
-
 def _tema() -> dict:
     cores = {}
     try:
@@ -598,7 +592,7 @@ class Ponte(QObject):
         mudou = sem(novo) != sem(self._cfg)
         # O orbe em Quickshell segue o config.json ao vivo: mudar só a
         # aparência dispensa reiniciar o daemon (e recarregar o agente).
-        so_orbe = mudou and sem(novo, "orbe") == sem(self._cfg, "orbe") and not _orbe_gtk_vivo()
+        so_orbe = mudou and sem(novo, "orbe") == sem(self._cfg, "orbe")
         vcfg.salvar(novo)
         self._cfg = novo
         if erro:
