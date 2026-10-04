@@ -11,6 +11,10 @@ consulta de posição. Este módulo lê os dispositivos de apontar em /dev/input
   sobre o orbe (âncora exata, que também recalibra o ganho).
 
 Só a stdlib; um fio de leitura com select, acordado apenas por eventos.
+
+Com --stdio roda como processo à parte (o orbe em Quickshell): escreve
+"x y" em coordenadas globais a cada mudança, no máximo a 60 Hz, e lê
+"ancora x y" da entrada. Sai quando a entrada fecha.
 """
 from __future__ import annotations
 
@@ -119,6 +123,7 @@ class Ponteiro:
         self._ancora: tuple[float, float] | None = None
         self._trava = threading.Lock()
         self._vivo = True
+        self.mudou = threading.Event()   # acorda quem espera pela posição
 
     def iniciar(self):
         threading.Thread(target=self._rodar, daemon=True, name="ponteiro").start()
@@ -175,6 +180,7 @@ class Ponteiro:
             self._ancora = (x, y)
             self._desde = {"rel": [0.0, 0.0], "touchpad": [0.0, 0.0]}
             self.valido = True
+        self.mudou.set()
 
     def posicao(self) -> tuple[float, float] | None:
         if self.toque is not None:
@@ -192,6 +198,7 @@ class Ponteiro:
             self._desde[tipo][1] += dy * g
             self._prender()
             self.valido = True
+        self.mudou.set()
 
     def _absoluto(self, d: dict, nx: float, ny: float) -> tuple[float, float] | None:
         s = self.saidas.get(SAIDA_TOQUE)
@@ -257,6 +264,7 @@ class Ponteiro:
             self.ancorar(*p)         # a caneta move o cursor do niri
         elif tipo == "toque":
             self.toque = p if e["toca"] else None
+            self.mudou.set()
 
     def _evento(self, e: dict, tipo: int, cod: int, val: int):
         if tipo == EV_REL:
@@ -280,6 +288,7 @@ class Ponteiro:
                 e["toca"] = bool(val)
                 if not val and e["tipo"] == "toque":
                     self.toque = None
+                    self.mudou.set()
         elif tipo == EV_SYN:
             if cod == SYN_REPORT:
                 self._quadro(e)
@@ -330,3 +339,40 @@ class Ponteiro:
                     continue
                 for _s, _us, tipo, cod, val in EVENTO.iter_unpack(dados[: len(dados) // EVENTO.size * EVENTO.size]):
                     self._evento(e, tipo, cod, val)
+
+
+def _stdio():
+    import sys
+    p = Ponteiro()
+    p.iniciar()
+
+    def ler():
+        for linha in sys.stdin:
+            v = linha.split()
+            if len(v) == 3 and v[0] == "ancora":
+                try:
+                    p.ancorar(float(v[1]), float(v[2]))
+                except ValueError:
+                    pass
+        os._exit(0)          # o orbe fechou a entrada: sai junto
+
+    threading.Thread(target=ler, daemon=True, name="entrada").start()
+    ultimo = None
+    while True:
+        p.mudou.wait()
+        p.mudou.clear()
+        pos = p.posicao()
+        if pos is not None and pos != ultimo:
+            ultimo = pos
+            try:
+                sys.stdout.write(f"{pos[0]:.1f} {pos[1]:.1f}\n")
+                sys.stdout.flush()
+            except (BrokenPipeError, OSError):
+                os._exit(0)
+        time.sleep(1 / 60)
+
+
+if __name__ == "__main__":
+    import sys
+    if "--stdio" in sys.argv:
+        _stdio()

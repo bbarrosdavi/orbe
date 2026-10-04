@@ -561,10 +561,13 @@ HERMES_BIN = "/home/davi/.hermes/hermes-agent/venv/bin/hermes"
 HERMES_PROFILE = "jarvis"
 HERMES_SESSION = "Bot Chat"
 HERMES_PATH = "/home/davi/.hermes/hermes-agent/venv/bin:/home/davi/.local/bin:/usr/local/bin:/usr/bin:/bin"
-ORB_BIN = "/home/davi/.hermes/scripts/hermes_voice_orb.py"
+# Orbe em Quickshell (desenho na GPU). O hermes_voice_orb.py (GTK) continua
+# no disco e entra na faxina de órfãos, para a troca não deixar dois orbes.
+ORB_QML = "/home/davi/.hermes/scripts/orbe-qt/orbe.qml"
+ORB_PADROES = ("hermes_voice_orb.py", ORB_QML)
 ORB_SOCK = "/run/user/1000/hermes-voice-orb.sock"
 # Entrada de controle do daemon, uma linha por mensagem:
-#   touch down | touch up      dedo no orbe (hermes_voice_orb.py)
+#   touch down | touch up      dedo no orbe (orbe-qt/orbe.qml)
 #   relato {json}              trabalho despachado terminou (hermes_voice_despacho.py)
 CTL_SOCK = "/run/user/1000/hermes-voice-ctl.sock"
 # Toque mais curto que isto é só "interromper"; mais longo, o dedo segura a
@@ -691,7 +694,7 @@ def _reap_orbs() -> None:
     me = os.getpid()
     try:
         out = subprocess.check_output(
-            ["pgrep", "-af", "hermes_voice_orb.py"], text=True,
+            ["pgrep", "-af", "hermes_voice_orb.py|orbe-qt/orbe.qml"], text=True,
         )
     except (subprocess.CalledProcessError, FileNotFoundError):
         return
@@ -706,7 +709,7 @@ def _reap_orbs() -> None:
         cmd = parts[1]
         if pid == me or "pgrep" in cmd or "pkill" in cmd:
             continue
-        if "hermes_voice_orb.py" not in cmd:
+        if not any(pd in cmd for pd in ORB_PADROES):
             continue
         try:
             os.kill(pid, signal.SIGTERM)
@@ -714,19 +717,41 @@ def _reap_orbs() -> None:
             pass
 
 
+_ORB_CONN = None
+_ORB_CONN_LOCK = threading.Lock()
+
+
 def orb_cmd(line: str) -> None:
-    """Fala com o orbe. Sobe o processo só na primeira chamada (zero idle)."""
+    """Fala com o orbe. Sobe o processo só na primeira chamada (zero idle).
+
+    Uma conexão só, mantida aberta: o SocketServer do Quickshell guarda o
+    objeto de cada conexão até o servidor desligar, e o level da fala chega a
+    dezenas por segundo. Com o orbe morto, o AF_UNIX devolve EPIPE na hora,
+    então a mensagem é reenviada por uma conexão nova em vez de se perder.
+    """
     payload = (line.strip() + "\n").encode()
 
     def _send() -> bool:
-        try:
-            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.settimeout(0.12)
-            s.connect(ORB_SOCK)
-            s.sendall(payload)
-            s.close()
-            return True
-        except OSError:
+        global _ORB_CONN
+        with _ORB_CONN_LOCK:
+            for _ in range(2):
+                if _ORB_CONN is None:
+                    try:
+                        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                        s.settimeout(0.12)
+                        s.connect(ORB_SOCK)
+                    except OSError:
+                        return False
+                    _ORB_CONN = s
+                try:
+                    _ORB_CONN.sendall(payload)
+                    return True
+                except OSError:
+                    try:
+                        _ORB_CONN.close()
+                    except OSError:
+                        pass
+                    _ORB_CONN = None
             return False
 
     if _send():
@@ -751,7 +776,7 @@ def orb_cmd(line: str) -> None:
         try:
             logf = open("/tmp/hermes-voice-orb.log", "ab", buffering=0)
             subprocess.Popen(
-                ["/usr/bin/python3", ORB_BIN],
+                ["/usr/bin/qs", "-p", ORB_QML],
                 env=get_desktop_env(),
                 stdout=logf,
                 stderr=logf,

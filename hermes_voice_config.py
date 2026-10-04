@@ -88,6 +88,8 @@ DEFAULTS = {
         "glitch": True,
         # disco translúcido com blur atrás do orbe (ext-background-effect no niri)
         "vidro": False,
+        # escala do orbe na tela (0.6 a 1.6); 1.0 = célula de 148 px
+        "tamanho": 1.0,
     },
 }
 
