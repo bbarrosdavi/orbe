@@ -3,7 +3,6 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import "comum"
-import "orbe"
 
 // Orbe de voz do Hermes no Quickshell (substituiu o hermes_voice_orb.py em GTK em 2026-10-04).
 //
@@ -57,7 +56,7 @@ ShellRoot {
         onLoadFailed: raiz.lerConfig("")
     }
     FileView {
-        // @accent_bg_color (avatares) e @window_bg_color (vidro), do matugen
+        // @accent_bg_color (avatares) e @window_bg_color (sombra e texto), do matugen
         path: raiz.home + "/.config/gtk-4.0/dank-colors.css"
         watchChanges: true
         printErrors: false
@@ -172,14 +171,6 @@ ShellRoot {
 
         // só o quadrado da arte recebe toque; a coluna de texto deixa passar
         mask: Region { item: alvo }
-
-        BackgroundEffect.blurRegion: conteudo.vidro && conteudo.raioVidro > 1 ? desfoque : null
-        VidroRegiao {
-            id: desfoque
-            cx: conteudo.cx
-            cy: conteudo.cy
-            raio: conteudo.raioVidro
-        }
 
         OrbeConteudo {
             id: conteudo

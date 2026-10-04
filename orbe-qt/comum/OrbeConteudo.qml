@@ -14,12 +14,12 @@ Item {
     // ── aparência (config.json → orbe; cores do matugen) ──
     property string skin: "ofanim"
     property bool glitch: true
-    property bool vidro: false
+    property bool vidro: false             // sombra atrás do orbe (chave antiga do config)
     property real tamanho: 1.0
     property string textoPos: "lado"       // lado | abaixo: onde fica o raciocínio
     property color corTema: "#b8cacb"      // @accent_bg_color: cor dos avatares
     property color accent: "#f3b2e3"       // --colorAccentBg: paleta do anel
-    property color corFundo: "#121414"     // @window_bg_color: tom do vidro
+    property color corFundo: "#121414"     // @window_bg_color: sombra e contorno do texto
 
     readonly property bool avatar: skin === "ofanim" || skin === "ofanim_alado" || skin === "serafim"
     // ART_BOX é o tamanho visual da arte; ORB_BOX, a célula reservada para ela
@@ -29,9 +29,13 @@ Item {
     readonly property real cx: painel + orbBox / 2
     readonly property real cy: orbBox / 2
     readonly property bool textoAbaixo: textoPos === "abaixo"
-    // abaixo, o orbe fica no mesmo lugar e a janela desce 5 linhas de texto
+    // abaixo, o texto começa onde a figura termina (medido nos renders, em
+    // fração da célula a partir do centro): a linha mais antiga some ali
+    readonly property var pes: ({ ofanim: 0.39, ofanim_alado: 0.29, serafim: 0.34, anel: 0.35 })
+    readonly property real yTexto: Math.round(cy + orbBox * (pes[skin] || 0.35))
+    // abaixo, o orbe fica no mesmo lugar e a janela desce até a 5ª linha
     width: painel + orbBox
-    height: orbBox + (textoAbaixo ? 5 * 17 + 8 : 0)
+    height: textoAbaixo ? Math.max(orbBox, yTexto + 5 * 17 + 4) : orbBox
 
     // ── estado ──
     readonly property var estados: ["idle", "listening", "thinking", "speaking", "tools"]
@@ -58,7 +62,7 @@ Item {
     property real envAlfa: 1
     readonly property real toqueCresce: 0.12
 
-    readonly property real raioVidro: envAlfa < 0.05 ? 0 : (orbBox / 2 - 3) * Math.min(1, envEscBase)
+    readonly property real raioSombra: envAlfa < 0.05 ? 0 : (orbBox / 2 - 3) * Math.min(1, envEscBase)
     property real envEscBase: 1
 
     signal saiu()                          // a saída acabou: a janela pode sumir
@@ -220,11 +224,11 @@ Item {
             alfa: orbe.envAlfa
             olharAlvo: orbe.olhar
             mix: orbe.mix
+            sombraLigada: orbe.vidro
+            sombraRaio: orbe.raioSombra
+            sombraCor: orbe.corFundo
             voz: orbe.nivelS
             mic: orbe.micS
-            vidroLigado: orbe.vidro
-            vidroRaio: orbe.raioVidro
-            vidroCor: orbe.corFundo
         }
     }
 
@@ -232,6 +236,9 @@ Item {
         id: compAnel
         Anel {
             mix: orbe.mix
+            sombraLigada: orbe.vidro
+            sombraRaio: orbe.raioSombra
+            sombraCor: orbe.corFundo
             estado: orbe.estado
             nivel: orbe.nivel
             nivelS: orbe.nivelS
@@ -243,9 +250,6 @@ Item {
             esc: orbe.tamanho
             glitch: orbe.glitch
             accent: orbe.accent
-            vidroLigado: orbe.vidro
-            vidroRaio: orbe.raioVidro
-            vidroCor: orbe.corFundo
         }
     }
 
@@ -274,9 +278,10 @@ Item {
         font.pixelSize: 11
     }
     // ao lado: coluna fixa à esquerda do orbe (não respira com o anel);
-    // abaixo: alinhado pela borda direita da arte, que encosta no canto da tela
-    readonly property real textoDireita: textoAbaixo ? cx + artBox / 2 : cx - 66 * tamanho
-    readonly property var linhasQuebradas: quebrar(linhas, Math.min(textoDireita - 4, cx - 66 * tamanho - 4))
+    // abaixo: coluna da largura da imagem (a célula de orbBox), sob o orbe
+    readonly property real larguraTexto: textoAbaixo ? orbBox - 8 : cx - 66 * tamanho - 4
+    readonly property real textoDireita: textoAbaixo ? cx + larguraTexto / 2 : cx - 66 * tamanho
+    readonly property var linhasQuebradas: quebrar(linhas, larguraTexto)
     function quebrar(ls, larg) {
         var rows = []
         for (var i = 0; i < ls.length; i++) {
@@ -302,17 +307,25 @@ Item {
     Item {
         id: texto
         visible: orbe.linhasQuebradas.length > 0 && orbe.envAlfa >= 0.5
-        readonly property var alfas: [0.16, 0.28, 0.42, 0.62, 0.92]
+        // a mais nova inteira e as mais antigas esmaecendo; abaixo, em degradê
+        // até quase sumir no pé da figura
+        readonly property var alfas: orbe.textoAbaixo ? [0.10, 0.24, 0.42, 0.66, 0.92]
+                                                      : [0.16, 0.28, 0.42, 0.62, 0.92]
         Repeater {
             model: orbe.linhasQuebradas
             Text {
                 readonly property int n: orbe.linhasQuebradas.length
+                readonly property real a: texto.alfas[5 - n + index] * orbe.envAlfa
                 text: modelData
                 font: fm.font
                 renderType: Text.NativeRendering
-                color: Qt.rgba(0.88, 0.84, 0.92, texto.alfas[5 - n + index] * orbe.envAlfa)
+                color: Qt.rgba(0.88, 0.84, 0.92, a)
+                // o texto fica direto sobre o que estiver atrás (janela, foto):
+                // contorno no tom do fundo do tema para não sumir no claro
+                style: Text.Outline
+                styleColor: Qt.rgba(orbe.corFundo.r, orbe.corFundo.g, orbe.corFundo.b, 0.8 * a)
                 x: Math.max(2, orbe.textoDireita - fm.advanceWidth(modelData))
-                y: orbe.textoAbaixo ? orbe.orbBox + 4 + index * 17
+                y: orbe.textoAbaixo ? orbe.yTexto + index * 17
                                     : orbe.cy - (n - 1) * 8.5 + index * 17 - fm.ascent
             }
         }

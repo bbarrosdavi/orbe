@@ -1,7 +1,7 @@
 import QtQuick
 import "../comum"
 
-// Vidro sobre um fundo de texto claro, para ver o degradê da tintura.
+// Sombra sobre um fundo de texto claro, para ver o degradê.
 Rectangle {
     id: f
     width: 444; height: 148

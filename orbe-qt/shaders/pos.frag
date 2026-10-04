@@ -2,8 +2,8 @@
 // Segundo passe das figuras e do anel: lê a máscara desenhada no primeiro
 // passe (camada do item) e pinta a cor, a aberração cromática, as faixas
 // arrancadas, os cacos e as linhas de varredura, sempre recortadas da figura
-// e nunca do fundo. Atrás de tudo, o vidro fosco opcional: tinta radial que
-// enfraquece até sumir na borda.
+// e nunca do fundo. Atrás de tudo, a sombra opcional: degradê radial que
+// some até zero na borda, sem degrau (o blur do niri é binário).
 //
 // Máscara dos avatares: canal r = cobertura. Máscara do anel: r = alfa,
 // g = intensidade / 2 (ADD sobre área opaca passa de 1), b = só o quadro.
@@ -21,8 +21,8 @@ layout(std140, binding = 0) uniform buf {
     vec4 corB;       // aberração: cópia deslocada para a direita
     vec4 glt;        // separação (px), rajada (0/1), semente, escala k
     vec4 geo2;       // R, lim, deslocamento das linhas de varredura, linhas ligadas
-    vec4 vidro;      // raio, alfa no centro, início da queda (fração do raio), ligado
-    vec4 corVidro;   // rgb
+    vec4 sombra;     // raio, alfa no centro, -, ligada
+    vec4 corSombra;  // rgb
     vec4 modo;       // 0 avatar | 1 anel; escala de tamanho do orbe
     vec4 banda0; vec4 banda1; vec4 banda2; vec4 banda3;   // anel: y0, altura, desloc., ligada
 };
@@ -94,10 +94,10 @@ void main() {
                 if (i >= nb) break;
                 float fi = float(i) * 7.0 + s;
                 float y0 = centro.y + (hash(fi + 0.1) * 2.0 - 1.0) * lim;
-                float fh = (2.0 + 12.0 * hash(fi + 0.2)) * max(0.5, k);
+                float fh = (3.0 + 15.0 * hash(fi + 0.2)) * max(0.5, k);
                 float cb = faixa(p.y, y0, y0 + fh);
                 if (cb <= 0.0) continue;
-                float sx = (hash(fi + 0.3) * 52.0 - 26.0) * k;
+                float sx = (hash(fi + 0.3) * 72.0 - 36.0) * k;
                 float mb = masc(p - vec2(sx, 0.0)).r * scan_ * cb;
                 c += claro * 0.9 * env * mb; a += 0.9 * env * mb;
             }
@@ -145,15 +145,12 @@ void main() {
     a = min(a, 1.0);
     c = min(c, vec3(1.0));
 
-    if (vidro.w > 0.5 && vidro.x > 1.0) {
-        // vidro: tintura cheia só no miolo (até início*raio), caindo em
-        // degradê até zero na borda, com o fundo aparecendo; o blur binário
-        // do niri fica num disco menor, encoberto pela parte forte da tintura
-        float r = length(p - centro) / vidro.x;
-        float q = sat((r - vidro.z) / max(1.0 - vidro.z, 1e-3));
-        float ga = vidro.y * pow(1.0 - q, 1.6) * env;
-        ga *= step(r, 1.0);
-        c += corVidro.rgb * ga * (1.0 - a);
+    if (sombra.w > 0.5 && sombra.x > 1.0) {
+        // (1 - r²)²: cheia no meio, chega a zero na borda com inclinação zero
+        float r = length(p - centro) / sombra.x;
+        float k = max(1.0 - r * r, 0.0);
+        float ga = sombra.y * k * k * env;
+        c += corSombra.rgb * ga * (1.0 - a);
         a += ga * (1.0 - a);
     }
 

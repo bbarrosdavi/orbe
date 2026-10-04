@@ -21,8 +21,8 @@ Rectangle {
                 estado: est
                 mix: { var m = { idle: 0, listening: 0, thinking: 0, tools: 0, speaking: 0 }; m[est] = 1; return m }
                 accent: "#f3b2e3"
-                vidroLigado: index >= folha.estados.length
-                vidroRaio: folha.lado / 2 - 3
+                sombraLigada: index >= folha.estados.length
+                sombraRaio: folha.lado / 2 - 3
                 property real syl: Math.abs(Math.sin(folha.t * 4.6)) * (0.62 + 0.38 * Math.sin(folha.t * 1.3))
                 nivel: est === "speaking" ? Math.max(0, Math.min(1, 0.12 + 0.85 * syl)) : 0
                 nivelS: nivel

@@ -315,12 +315,11 @@ Item {
         property vector4d tempo
     }
 
-    // vidro (no passe de pós, atrás do anel)
-    property bool vidroLigado: false
-    property real vidroRaio: 0
-    property real vidroAlfa: 0.58
-    property real vidroInicio: 0.20    // tintura cheia só até aqui; degradê até a borda
-    property color vidroCor: "#121414"
+    // sombra atrás do anel, no passe de pós
+    property bool sombraLigada: false
+    property real sombraRaio: 0
+    property real sombraAlfa: 0.45
+    property color sombraCor: "#121414"
 
     layer.enabled: true
     layer.effect: ShaderEffect {
@@ -333,8 +332,8 @@ Item {
         property vector4d corB: Qt.vector4d(1.00, 0.08, 0.55, 0.60)
         property vector4d glt: raiz._glt
         property vector4d geo2: Qt.vector4d(0, 0, 0, 0)
-        property vector4d vidro: Qt.vector4d(raiz.vidroRaio, raiz.vidroAlfa, raiz.vidroInicio, raiz.vidroLigado ? 1 : 0)
-        property vector4d corVidro: Qt.vector4d(raiz.vidroCor.r, raiz.vidroCor.g, raiz.vidroCor.b, 1)
+        property vector4d sombra: Qt.vector4d(raiz.sombraRaio, raiz.sombraAlfa, 0, raiz.sombraLigada ? 1 : 0)
+        property vector4d corSombra: Qt.vector4d(raiz.sombraCor.r, raiz.sombraCor.g, raiz.sombraCor.b, 1)
         property vector4d modo: Qt.vector4d(1, raiz.esc, 0, 0)
         property vector4d banda0: raiz._bandas[0]
         property vector4d banda1: raiz._bandas[1]

@@ -3,8 +3,8 @@ import QtQuick
 // Ophanim, Ophanim com asas e Seraphim desenhados na GPU.
 //
 // O desenho mora em dois shaders: figura.frag pinta a máscara branca da
-// figura (cada traço é uma função de distância) e pos.frag dá a cor, o glitch
-// e o vidro. Aqui fica só o que tem memória entre quadros, portado de
+// figura (cada traço é uma função de distância) e pos.frag dá a cor e o
+// glitch. Aqui fica só o que tem memória entre quadros, portado de
 // hermes_voice_avatares.py (Cairo, aposentado em 2026-10-04): giro das rodas, travas em quarto de volta, ondas
 // da voz, relâmpagos, batida das asas, fogo e brasa do serafim, rajadas de
 // glitch. Quem usa chama avancar(dt) a cada quadro (FrameAnimation).
@@ -34,12 +34,11 @@ Item {
     property real mic: 0
     property real desperto: 1
 
-    // vidro fosco pintado atrás da figura, no passe de pós
-    property bool vidroLigado: false
-    property real vidroRaio: 0
-    property real vidroAlfa: 0.58
-    property real vidroInicio: 0.20    // tintura cheia só até aqui; degradê até a borda
-    property color vidroCor: "#121414"
+    // sombra atrás da figura, no passe de pós
+    property bool sombraLigada: false
+    property real sombraRaio: 0
+    property real sombraAlfa: 0.45
+    property color sombraCor: "#121414"
 
     readonly property real rRef: 82.0      // raio em que o glitch foi afinado
     readonly property var alcances: ({
@@ -220,17 +219,18 @@ Item {
         var ouvir = p("listening"), pensar = p("thinking"), ferr = p("tools")
         var falar = p("speaking") * voz
 
-        // rajadas de glitch
+        // rajadas de glitch; pensando, na cadência do anel: curtas e em sequência
         var rajada = false, sep = 0
         if (glitch) {
             if (t >= s.proxGlitch) {
-                s.glitchAte = t + uni(0.08, 0.28)
-                s.proxGlitch = t + uni(0.9, 3.6) / (1 + 3 * agitacao())
+                var ag = agitacao()
+                s.glitchAte = t + (ag > 0.25 ? uni(0.05, 0.20) : uni(0.08, 0.28))
+                s.proxGlitch = s.glitchAte + (ag > 0.25 ? uni(0.06, 0.75) / (0.4 + ag) : uni(0.9, 3.6))
                 if (Math.random() < 0.5 && skin !== "serafim")
                     s.salto[sorteia(4)] += (Math.random() < 0.5 ? -1 : 1) * uni(0.4, 1.4)
             }
             rajada = t < s.glitchAte
-            sep = (rajada ? uni(2.5, 6.0) : 0.8 + 0.5 * Math.abs(ruido(t, 1))) * Math.max(0.6, k)
+            sep = (rajada ? uni(4.0, 11.0) : 0.8 + 0.5 * Math.abs(ruido(t, 1))) * Math.max(0.6, k)
         }
 
         var R, gaze, i
@@ -411,12 +411,14 @@ Item {
         property vector2d tam: Qt.vector2d(raiz.width, raiz.height)
         property vector2d centro: raiz._centroPos
         property vector4d cor: Qt.vector4d(raiz.cor.r, raiz.cor.g, raiz.cor.b, raiz.alfa)
-        property vector4d corA: raiz.glitch ? Qt.vector4d(1.0, 0.18, 0.32, 0.40) : Qt.vector4d(0, 0, 0, 0)
-        property vector4d corB: raiz.glitch ? Qt.vector4d(0.15, 0.85, 1.0, 0.40) : Qt.vector4d(0, 0, 0, 0)
+        // ciano e magenta do anel; na rajada, tão opacos quanto os dele
+        readonly property real alfaGl: raiz._glt.y > 0.5 ? 0.60 : 0.40
+        property vector4d corA: raiz.glitch ? Qt.vector4d(0.00, 0.95, 0.95, alfaGl) : Qt.vector4d(0, 0, 0, 0)
+        property vector4d corB: raiz.glitch ? Qt.vector4d(1.00, 0.08, 0.55, alfaGl) : Qt.vector4d(0, 0, 0, 0)
         property vector4d glt: raiz._glt
         property vector4d geo2: raiz._geo2
-        property vector4d vidro: Qt.vector4d(raiz.vidroRaio, raiz.vidroAlfa, raiz.vidroInicio, raiz.vidroLigado ? 1 : 0)
-        property vector4d corVidro: Qt.vector4d(raiz.vidroCor.r, raiz.vidroCor.g, raiz.vidroCor.b, 1)
+        property vector4d sombra: Qt.vector4d(raiz.sombraRaio, raiz.sombraAlfa, 0, raiz.sombraLigada ? 1 : 0)
+        property vector4d corSombra: Qt.vector4d(raiz.sombraCor.r, raiz.sombraCor.g, raiz.sombraCor.b, 1)
         property vector4d modo: Qt.vector4d(0, 1, 0, 0)
         property vector4d banda0
         property vector4d banda1

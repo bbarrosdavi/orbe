@@ -457,8 +457,8 @@ Item {
                     }
                     LinhaSwitch {
                         id: rVidro
-                        titulo: "Fundo de vidro fosco"
-                        subtitulo: "disco translúcido com blur atrás do orbe, como esta janela"
+                        titulo: "Sombra atrás do orbe"
+                        subtitulo: "degradê escuro que some até a borda, para a figura destacar do fundo"
                     }
                     LinhaCombo {
                         id: rTexto
