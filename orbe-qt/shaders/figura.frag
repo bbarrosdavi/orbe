@@ -32,7 +32,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 w0a; vec4 w0b; vec4 w1a; vec4 w1b; vec4 w2a; vec4 w2b;   // asas: raiz, ângulo, L;
     vec4 w3a; vec4 w3b; vec4 w4a; vec4 w4b; vec4 w5a; vec4 w5b;   //   lado, abertura, olhos, ocultar
     vec4 sera;       // fogo, trisagion, abertura do rosto, brasa
-    vec4 sera2;      // ângulo da brasa, olhos (0 de cima, 1 do meio, 2 os dois), —, —
+    vec4 sera2;      // ângulo da brasa, arranjo dos olhos (0 a 4), penas encorpadas, —
     vec4 lacos;      // nº de olhos (30), vagas de brasa (24), vagas de fumaça (10), asas
 };
 
@@ -461,9 +461,30 @@ void asa(inout float A, vec2 p, vec4 wa, vec4 wb, float slot, float lw, float aa
         A *= 1.0 - 0.92 * cobre(sdPoly14(q, poly, 14), aa);
     }
 
-    // osso (a bézier cúbica em 8 segmentos)
+    // penas encorpadas (sera2.z, só no Seraphim): lâmina em lente ao longo da
+    // raque, fina na base e na ponta; cada uma cobre a de trás, em camadas
+    bool encorpada = sera2.z > 0.5;
     float dmin = 1e9;
     vec2 ant = vec2(0.0);
+    if (encorpada) {
+        for (int k = 0; k < 9; k++) {
+            vec2 b = B[k], tp = T[k];
+            vec2 m = (b + tp) * 0.5;
+            vec2 ctl = m + 1.5 * (C[k] - m);
+            vec2 bt = tp - b;
+            float sk = sat(dot(q - b, bt) / max(dot(bt, bt), 1e-6));
+            float meia = L * (0.045 + 0.025 * float(k) / 8.0) * sqrt(max(0.0, sin(PI * sk)));
+            float d = bezq(q, b, ctl, tp);
+            float sd = d - meia;
+            float dentro = cobre(sd, aa);
+            A *= 1.0 - 0.85 * dentro;
+            sobre(A, dentro * pa(0.16));
+            sobre(A, traco(abs(sd), 0.9 * lw, aa) * pa(0.70));
+            sobre(A, traco(d, 0.7 * lw, aa) * dentro * pa(0.45));
+        }
+    }
+
+    // osso (a bézier cúbica em 8 segmentos); nas encorpadas, por cima delas
     for (int k = 1; k <= 8; k++) {
         vec2 o = ossoP(float(k) / 8.0, L);
         dmin = min(dmin, segd(q, ant, o));
@@ -471,22 +492,24 @@ void asa(inout float A, vec2 p, vec4 wa, vec4 wb, float slot, float lw, float aa
     }
     sobre(A, traco(dmin, 1.5 * lw, aa) * pa(0.9));
 
-    // penas: a cúbica do Cairo tem os dois controles no mesmo ponto; a
-    // quadrática equivalente põe o controle 1,5x mais longe da corda
-    dmin = 1e9;
-    for (int k = 0; k < 9; k++) {
-        vec2 m = (B[k] + T[k]) * 0.5;
-        dmin = min(dmin, bezq(q, B[k], m + 1.5 * (C[k] - m), T[k]));
-    }
-    sobre(A, traco(dmin, 1.0 * lw, aa) * pa(0.55));
+    if (!encorpada) {
+        // penas: a cúbica do Cairo tem os dois controles no mesmo ponto; a
+        // quadrática equivalente põe o controle 1,5x mais longe da corda
+        dmin = 1e9;
+        for (int k = 0; k < 9; k++) {
+            vec2 m = (B[k] + T[k]) * 0.5;
+            dmin = min(dmin, bezq(q, B[k], m + 1.5 * (C[k] - m), T[k]));
+        }
+        sobre(A, traco(dmin, 1.0 * lw, aa) * pa(0.55));
 
-    // borda de fuga recortada entre as pontas das penas
-    dmin = 1e9;
-    for (int k = 0; k < 8; k++) {
-        vec2 mu = (T[k] + T[k + 1]) * 0.5;
-        dmin = min(dmin, bezq(q, T[k], mu + vec2(0.0, 0.06 * L), T[k + 1]));
+        // borda de fuga recortada entre as pontas das penas
+        dmin = 1e9;
+        for (int k = 0; k < 8; k++) {
+            vec2 mu = (T[k] + T[k + 1]) * 0.5;
+            dmin = min(dmin, bezq(q, T[k], mu + vec2(0.0, 0.06 * L), T[k + 1]));
+        }
+        sobre(A, traco(dmin, 0.8 * lw, aa) * pa(0.28));
     }
-    sobre(A, traco(dmin, 0.8 * lw, aa) * pa(0.28));
 
     // coberteiras: penas curtas junto ao osso
     float phic = 1.25 * (0.4 + 0.6 * abert);
@@ -512,7 +535,14 @@ void asa(inout float A, vec2 p, vec4 wa, vec4 wb, float slot, float lw, float aa
             vec2 dir = e1 * cos(PH[k]) + e2 * sin(PH[k]);
             float a = atan(dir.y, dir.x);
             float ab = pisca(100.0 + slot * 10.0 + float(j)) * sat(abert * 1.4);
-            olho(A, p, pos, a, L * 0.07, ab, olharPara(pos, a, 1.0, 0.0), pa(0.85), 1.0, lw, aa);
+            float tamO = encorpada ? L * 0.13 : L * 0.07;
+            if (encorpada) {
+                vec2 de = p - pos;
+                float ca = cos(a), sa = sin(a);
+                vec2 dq = vec2(ca * de.x + sa * de.y, -sa * de.x + ca * de.y) / vec2(tamO * 1.08, tamO * 0.55);
+                A *= 1.0 - cobre((length(dq) - 1.0) * tamO * 0.55, aa);
+            }
+            olho(A, p, pos, a, tamO, ab, olharPara(pos, a, 1.0, 0.0), pa(encorpada ? 1.0 : 0.85), 1.0, lw, aa);
         }
     }
 }
@@ -560,12 +590,16 @@ void serafim(inout float A, vec2 p, float aa) {
     for (int i = 0; i < na; i++) { if (i >= 2) break; asa(A, p, asaA(i), asaB(i), float(i), lw, aa); }
     chamas(A, p, c, R, sera.x, lw, aa);
 
-    // olhos: sera2.y = 0 só o de cima, 1 só o do meio, 2 os dois
+    // olhos (sera2.y): 0 só o de cima, 1 só o do meio, 2 os dois,
+    // 3 só o do meio na vertical, 4 os dois com o do meio na vertical
     int modoOlhos = int(sera2.y + 0.5);
+    bool olhoCima = modoOlhos == 0 || modoOlhos == 2 || modoOlhos == 4;
+    bool olhoMeio = modoOlhos != 0;
+    float angMeio = modoOlhos >= 3 ? 0.5 * PI : 0.0;
 
     // o rosto (olho de cima): só aparece quando as asas da frente se abrem para ouvir
     float abre = sera.z;
-    if (modoOlhos != 1 && abre > 0.05) {
+    if (olhoCima && abre > 0.05) {
         vec2 e = c + vec2(0.0, -0.20 * R);
         vec2 dv = olhar - e;
         float dl = length(dv);
@@ -577,15 +611,17 @@ void serafim(inout float A, vec2 p, float aa) {
     for (int i = 2; i < na; i++) asa(A, p, asaA(i), asaB(i), float(i), lw, aa);
 
     // olho do meio, sempre à vista: na frente das asas, com o fundo limpo atrás
-    if (modoOlhos != 0) {
+    if (olhoMeio) {
         float tam_ = R * 0.22;
         float de = ofa2.y;
-        vec2 m = c + vec2(0.0, 0.07 * R);     // um pouco abaixo: respiro para o de cima
-        vec2 dv = olhar - m;
-        float dl = length(dv);
-        vec2 dq = (p - m) / vec2(tam_ * 1.08, tam_ * 0.52);
+        // um pouco abaixo do centro: respiro para o de cima; o vertical desce
+        // mais porque ocupa a altura que o horizontal ocupa na largura
+        vec2 m = c + vec2(0.0, (angMeio > 0.0 ? 0.14 : 0.07) * R);
+        float ca = cos(angMeio), sa = sin(angMeio);
+        vec2 dm = p - m;
+        vec2 dq = vec2(ca * dm.x + sa * dm.y, -sa * dm.x + ca * dm.y) / vec2(tam_ * 1.08, tam_ * 0.52);
         A *= 1.0 - cobre((length(dq) - 1.0) * tam_ * 0.52, aa) * de;
-        olho(A, p, m, 0.0, tam_, pisca(78.0) * de, dl > 1e-4 ? dv / dl : vec2(1.0, 0.0),
+        olho(A, p, m, angMeio, tam_, pisca(78.0) * de, olharPara(m, angMeio, 1.0, 0.0),
              1.0, 1.0 + 0.5 * est2.y, lw, aa);
     }
 
