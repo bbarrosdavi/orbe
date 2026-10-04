@@ -146,7 +146,8 @@ void main() {
     c = min(c, vec3(1.0));
 
     if (vidro.w > 0.5 && vidro.x > 1.0) {
-        // vidro: cheio no meio, cai suave a partir de início*raio e some na borda
+        // vidro: cheio até início*raio (onde o blur binário do niri termina),
+        // cai suave dali e some na borda
         float r = length(p - centro) / vidro.x;
         float q = sat((r - vidro.z) / max(1.0 - vidro.z, 1e-3));
         float ga = vidro.y * (1.0 - q * q * (3.0 - 2.0 * q)) * env;

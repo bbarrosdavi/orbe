@@ -328,7 +328,7 @@ Item {
     property bool vidroLigado: false
     property real vidroRaio: 0
     property real vidroAlfa: 0.58
-    property real vidroInicio: 0.30
+    property real vidroInicio: 0.82    // cheio até a borda do blur (VidroRegiao.fracao), some na borda
     property color vidroCor: "#121414"
 
     layer.enabled: true

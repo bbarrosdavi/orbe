@@ -179,7 +179,6 @@ ShellRoot {
             cx: conteudo.cx
             cy: conteudo.cy
             raio: conteudo.raioVidro
-            raioMax: conteudo.orbBox / 2 - 3
         }
 
         OrbeConteudo {
