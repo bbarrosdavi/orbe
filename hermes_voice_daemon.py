@@ -175,6 +175,8 @@ if _HERMES_ENV.exists():
             elif line.startswith("GOOGLE_API_KEY=") and not os.environ.get("GOOGLE_API_KEY"):
                 os.environ["GOOGLE_API_KEY"] = line.split("=", 1)[1].strip("\"'")
 
+MAC = vcfg.MAC
+
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_API_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_MODEL = "whisper-large-v3-turbo"
@@ -183,6 +185,10 @@ GROQ_MODEL = "whisper-large-v3-turbo"
 DEBUG_LEVELS = os.environ.get("HERMES_VOICE_DEBUG") == "1"
 
 LOG = logging.getLogger("hermes-voice")
+
+
+class _SemMixer(Exception):
+    """Plataforma sem wpctl/pactl."""
 
 
 def _resample_frame(frame, output_length: int):
@@ -305,7 +311,7 @@ class SherpaEar:
         d = Path(pasta)
         toks = text2token([frase.strip().upper()], tokens=str(d / "tokens.txt"),
                           tokens_type="bpe", bpe_model=str(d / "bpe.model"))[0]
-        kw = Path(f"/run/user/{os.getuid()}/hermes-voice-kws.txt")
+        kw = vcfg.RUNTIME / "hermes-voice-kws.txt"
         kw.write_text(" ".join(toks) + " @WAKE\n", encoding="utf-8")
 
         def arq(parte: str) -> str:
@@ -431,8 +437,70 @@ ACK_PHRASES: tuple[str, ...] = ()
 _ACK_NORMS = frozenset(_normalize_utterance(p) for p in ACK_PHRASES)
 
 
+def _stt_provedor() -> str:
+    """groq | gemini: o do app, ou o que tiver chave (Groq primeiro)."""
+    p = STT_PROVEDOR
+    if p in ("groq", "gemini"):
+        return p
+    if GROQ_API_KEY:
+        return "groq"
+    return "gemini" if _gemini_key() else "groq"
+
+
+def _gemini_key() -> str:
+    return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
+
+
+_STT_GEMINI_PROMPT = (
+    "Transcreva literalmente a fala deste áudio, no idioma falado. Responda só com "
+    "a transcrição, sem aspas nem comentários. Se não houver fala, responda vazio."
+)
+
+
+def transcribe_gemini(wav_path: str) -> str:
+    """Mesmo contrato do transcribe_groq, pelo Gemini (áudio inline).
+
+    Para quem não tem chave do Groq: o Gemini já é a voz padrão do orbe, então
+    a mesma chave cobre a ida e a volta. O filtro de fantasmas vale aqui
+    também; o Gemini inventa menos em silêncio, mas não nunca.
+    """
+    key = _gemini_key()
+    if not key:
+        LOG.error("sem GROQ_API_KEY nem GEMINI_API_KEY para a transcrição")
+        return ""
+    try:
+        import base64
+        import requests
+        audio = base64.b64encode(Path(wav_path).read_bytes()).decode()
+        resp = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{STT_GEMINI_MODELO}:generateContent",
+            headers={"x-goog-api-key": key},
+            json={
+                "contents": [{"parts": [
+                    {"text": _STT_GEMINI_PROMPT + f" Idioma esperado: {STT_IDIOMA}."},
+                    {"inline_data": {"mime_type": "audio/wav", "data": audio}},
+                ]}],
+                # sem thinkingConfig: os modelos novos recusam o thinkingBudget
+                "generationConfig": {"temperature": 0.0},
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        partes = (resp.json().get("candidates") or [{}])[0].get("content", {}).get("parts", [])
+        text = " ".join(p.get("text", "") for p in partes if not p.get("thought")).strip().strip('"')
+        if _is_whisper_phantom(text):
+            LOG.info("STT descartado (fantasma): %r", text)
+            return ""
+        return text
+    except Exception as e:
+        LOG.error("Gemini STT: %s", e)
+        return ""
+
+
 def transcribe_groq(wav_path: str) -> str:
     """Envia WAV para Groq Whisper API, retorna texto transcrito."""
+    if _stt_provedor() == "gemini":
+        return transcribe_gemini(wav_path)
     if not GROQ_API_KEY:
         LOG.error("GROQ_API_KEY não definida")
         return ""
@@ -448,8 +516,9 @@ def transcribe_groq(wav_path: str) -> str:
                 "temperature": 0.0,
                 # Lista pura de vocabulário, sem frase em volta: prosa aqui
                 # vira semente de alucinação (ver _WHISPER_PHANTOMS).
-                "prompt": "Hermes, Jarvis, daemon, Docker, Python, Niri, "
-                          "Wayland, API, front-end, back-end, output.",
+                "prompt": "Hermes, Jarvis, daemon, Docker, Python, "
+                          + ("macOS, " if MAC else "Niri, Wayland, ")
+                          + "API, front-end, back-end, output.",
             }
             resp = requests.post(
                 GROQ_API_URL,
@@ -567,17 +636,30 @@ def _gen_beep(path: str, freq: float, duration: float):
     from scipy.io.wavfile import write as wav_write
     wav_write(path, SAMPLE_RATE, data)
 
-_gen_beep("/tmp/hv_beep_ack.wav", 1100, 0.13)
-_gen_beep("/tmp/hv_beep_done.wav", 440, 0.12)
+_gen_beep(str(vcfg.RUNTIME / "hv_beep_ack.wav"), 1100, 0.13)
+_gen_beep(str(vcfg.RUNTIME / "hv_beep_done.wav"), 440, 0.12)
+
+
+def _tocar_cmd(path: str) -> list[str]:
+    """Toca um arquivo de áudio: pw-play no PipeWire, afplay no macOS."""
+    return ["afplay", path] if MAC else ["pw-play", path]
 
 HERMES_BIN = str(Path.home() / ".hermes/hermes-agent/venv/bin/hermes")
 HERMES_PROFILE = "jarvis"
 HERMES_SESSION = "Bot Chat"
 HERMES_PATH = f"{Path.home()}/.hermes/hermes-agent/venv/bin:{Path.home()}/.local/bin:/usr/local/bin:/usr/bin:/bin"
+if MAC:
+    # launchd entrega um PATH mínimo; os agentes (node, opencode, gemini)
+    # costumam viver no Homebrew e nas pastas de usuário.
+    HERMES_PATH = ":".join(dict.fromkeys(
+        HERMES_PATH.split(":") + ["/opt/homebrew/bin", "/opt/homebrew/sbin",
+                                  f"{Path.home()}/.opencode/bin", f"{Path.home()}/.bun/bin"]
+        + os.environ.get("PATH", "").split(":")))
 # sockets e barramento da sessão gráfica do usuário
-RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
-# Orbe em Quickshell (desenho na GPU).
-ORB_QML = str(Path(__file__).resolve().parent / "orbe-qt" / "orbe.qml")
+RUNTIME = str(vcfg.RUNTIME)
+# Orbe: Quickshell no Wayland; no macOS, uma janela PySide6 com o mesmo
+# OrbeConteudo (orbe-qt/orbe_mac.py). Os dois desenham na GPU.
+ORB_QML = str(Path(__file__).resolve().parent / "orbe-qt" / ("orbe_mac.py" if MAC else "orbe.qml"))
 ORB_SOCK = f"{RUNTIME}/hermes-voice-orb.sock"
 # Entrada de controle do daemon, uma linha por mensagem:
 #   touch down | touch up      dedo no orbe (orbe-qt/orbe.qml)
@@ -632,6 +714,10 @@ def get_desktop_env():
     env = os.environ.copy()
     env["HOME"] = str(Path.home())
     env["PATH"] = HERMES_PATH
+    if MAC:
+        # o player do TTS (hermes_voice_play.py) precisa do sounddevice daqui
+        env["ORBE_PY"] = sys.executable
+        return env
     env["XDG_RUNTIME_DIR"] = RUNTIME
     env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={RUNTIME}/bus"
     env["WAYLAND_DISPLAY"] = "wayland-1"
@@ -699,6 +785,8 @@ _ORB_LOCK = threading.Lock()
 
 
 def _compositor_ready() -> bool:
+    if MAC:
+        return True
     env = get_desktop_env()
     return os.path.exists(os.path.join(env["XDG_RUNTIME_DIR"], env["WAYLAND_DISPLAY"]))
 
@@ -719,9 +807,8 @@ def _reap_orbs() -> None:
     """Mata orbes órfãos (socket ausente, daemon anterior morto sem limpar)."""
     me = os.getpid()
     try:
-        out = subprocess.check_output(
-            ["pgrep", "-af", "orbe-qt/orbe.qml"], text=True,
-        )
+        # ps em vez de pgrep -a: o pgrep do macOS não tem -a
+        out = subprocess.check_output(["ps", "-axo", "pid=,command="], text=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
         return
     for line in out.splitlines():
@@ -737,7 +824,9 @@ def _reap_orbs() -> None:
             continue
         if ORB_QML not in cmd:
             continue
-        if _sock_do_orbe(pid) not in (None, ORB_SOCK):
+        if MAC and "--sock" in cmd:
+            continue    # pré-visualização do app (socket próprio)
+        if not MAC and _sock_do_orbe(pid) not in (None, ORB_SOCK):
             continue    # instância de outro socket (pré-visualização do app, teste)
         try:
             os.kill(pid, signal.SIGTERM)
@@ -803,8 +892,12 @@ def orb_cmd(line: str) -> None:
         time.sleep(0.15)
         try:
             logf = open("/tmp/hermes-voice-orb.log", "ab", buffering=0)
+            # no Mac o orbe morre junto com o daemon (--pai), como o hotkey
+            # que ele registra
+            argv = ([sys.executable, ORB_QML, "--pai", str(os.getpid())] if MAC
+                    else ["/usr/bin/qs", "-p", ORB_QML])
             subprocess.Popen(
-                ["/usr/bin/qs", "-p", ORB_QML],
+                argv,
                 env=get_desktop_env(),
                 stdout=logf,
                 stderr=logf,
@@ -838,12 +931,12 @@ def frame_rms(frame: bytes) -> float:
 
 
 def play_beep(name: str):
-    path = f"/tmp/hv_beep_{name}.wav"
+    path = str(vcfg.RUNTIME / f"hv_beep_{name}.wav")
     if os.path.exists(path):
         try:
             # fire-and-forget: o beep não pode atrasar o resto do fluxo
             subprocess.Popen(
-                ["pw-play", path],
+                _tocar_cmd(path),
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 env=get_desktop_env(),
             )
@@ -888,7 +981,7 @@ def speak(text: str):
             if os.path.exists(mp3_out) and os.path.getsize(mp3_out) > 0:
                 play_timeout = max(45, (len(text) // 10) + 30)
                 subprocess.run(
-                    ["pw-play", mp3_out],
+                    _tocar_cmd(mp3_out),
                     capture_output=True, timeout=play_timeout, env=env
                 )
             try:
@@ -915,7 +1008,7 @@ def speak(text: str):
         proc.communicate(input=text.strip().encode("utf-8"), timeout=25)
         if os.path.exists(wav_out) and os.path.getsize(wav_out) > 0:
             play_timeout = max(45, (len(text) // 10) + 30)
-            subprocess.run(["pw-play", wav_out], capture_output=True, timeout=play_timeout, env=env)
+            subprocess.run(_tocar_cmd(wav_out), capture_output=True, timeout=play_timeout, env=env)
     except Exception as e:
         LOG.warning("Piper TTS: %s", e)
     finally:
@@ -1088,7 +1181,7 @@ def _aplicar_config():
     global SILENCE_TIMEOUT, MIN_SPEECH_RMS, SUSTAINED_SPEECH_FRAMES, BARGE_IN
     global INTERRUPT_SPEECH_FRAMES, INTERRUPT_MIN_RMS, RECORD_MAX_SEC
     global SESSION_IDLE_SEC, TOQUE_SEGURAR_SEC, RECORD_MAX_TOQUE_SEC
-    global GROQ_MODEL, STT_IDIOMA, DEBUG_LEVELS
+    global GROQ_MODEL, STT_IDIOMA, DEBUG_LEVELS, STT_PROVEDOR, STT_GEMINI_MODELO
     c, t, v = VCFG["conversa"], VCFG["toque"], VCFG["voz"]
     SILENCE_TIMEOUT = float(c["silencio_fim_s"])
     MIN_SPEECH_RMS = int(c["fala_rms"])
@@ -1102,11 +1195,15 @@ def _aplicar_config():
     RECORD_MAX_TOQUE_SEC = float(t["gravacao_max_s"])
     GROQ_MODEL = str(v["stt_modelo"]) or GROQ_MODEL
     STT_IDIOMA = str(v["stt_idioma"]) or "pt"
+    STT_PROVEDOR = str(v.get("stt_provedor") or "")
+    STT_GEMINI_MODELO = str(v.get("stt_gemini_modelo") or "gemini-flash-lite-latest")
     DEBUG_LEVELS = DEBUG_LEVELS or bool(VCFG["diagnostico"]["rastro_niveis"])
 
 
 BARGE_IN = True
 STT_IDIOMA = "pt"
+STT_PROVEDOR = ""
+STT_GEMINI_MODELO = "gemini-flash-lite-latest"
 _aplicar_config()
 
 
@@ -1177,7 +1274,9 @@ class Daemon:
         self._last_spoken = collections.deque(maxlen=8)
         self.oww = self._criar_ouvido()
 
-        if not GROQ_API_KEY:
+        if _stt_provedor() == "gemini":
+            LOG.info("STT: Gemini (%s)", STT_GEMINI_MODELO)
+        elif not GROQ_API_KEY:
             LOG.warning("GROQ_API_KEY não definida! STT via Groq não funcionará.")
 
         self._last_ack = ""
@@ -1246,6 +1345,10 @@ class Daemon:
         desktop: o daemon amarra PIPEWIRE_NODE só no pw-record.
         """
         self._aec_ok = False
+        if MAC:
+            # Sem PipeWire: o cancelamento de eco do PipeWire não existe aqui.
+            LOG.info("AEC: indisponível no macOS; barge-in usa o microfone cru")
+            return
         for _ in range(3):
             try:
                 r = subprocess.run(
@@ -1347,7 +1450,7 @@ class Daemon:
             self._tts_push(ack)
 
     def _poll_cmdfile(self):
-        p = Path(f"/run/user/{os.getuid()}/hermes-voice.cmd")
+        p = vcfg.RUNTIME / "hermes-voice.cmd"
         try:
             txt = p.read_text()
             p.unlink(missing_ok=True)
@@ -2191,6 +2294,8 @@ class Daemon:
         # Inicializa volume de áudio do sistema (sink e source) no máximo (100%)
         env = get_desktop_env()
         try:
+            if MAC:
+                raise _SemMixer
             subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "1.0"], capture_output=True, env=env)
             subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SOURCE@", "1.0"], capture_output=True, env=env)
             subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", "100%"], capture_output=True, env=env)
@@ -2199,6 +2304,8 @@ class Daemon:
                 subprocess.run(["pactl", "set-source-volume", AEC_SOURCE_NODE, "100%"], capture_output=True, env=env)
                 subprocess.run(["pactl", "set-source-mute", AEC_SOURCE_NODE, "0"], capture_output=True, env=env)
             LOG.info("Volume de áudio inicializado no máximo (100%).")
+        except _SemMixer:
+            pass    # no Mac o volume é do usuário; o daemon não mexe
         except Exception as e:
             LOG.warning("Erro ao inicializar volume de áudio: %s", e)
 
@@ -2311,7 +2418,59 @@ class Daemon:
                     LOG.warning("Fluxo de áudio pw-record desconectado; reconectando em %.1fs...", backoff)
                     time.sleep(backoff)
 
-        threading.Thread(target=_capture_worker, daemon=True).start()
+        def _capture_worker_mac():
+            """CoreAudio pelo sounddevice: o mesmo ciclo do pw-record.
+
+            O stream só fica aberto enquanto o microfone é necessário (o
+            indicador laranja do macOS some com o orbe inativo), e reabre
+            sozinho se o dispositivo cair (fone desconectado etc.).
+            """
+            backoff = 0.5
+            while self.running.is_set():
+                if not self._mic_necessario() and not self._mic_evento.is_set():
+                    self._mic_evento.wait(0.5)
+                    continue
+                self._mic_evento.clear()
+                try:
+                    # o dispositivo padrão pode ter mudado desde a última vez
+                    self.capture_rate, self.capture_block = self._resolve_capture()
+                    stream = sd.InputStream(
+                        device=self.device, samplerate=self.capture_rate, channels=1,
+                        dtype="int16", blocksize=self.capture_block,
+                        latency="low", callback=self._callback)
+                    stream.start()
+                except Exception as e:
+                    LOG.warning("microfone indisponível (%s); nova tentativa em %.1fs", e, backoff)
+                    time.sleep(backoff)
+                    backoff = min(8.0, backoff * 2)
+                    continue
+                LOG.info("Captura ativa via CoreAudio (%d Hz, bloco %d)",
+                         self.capture_rate, self.capture_block)
+                backoff = 0.5
+                aberto_em = self._last_audio_t = time.monotonic()
+                fechou = False
+                while self.running.is_set() and stream.active:
+                    time.sleep(0.1)
+                    agora = time.monotonic()
+                    if (agora - aberto_em > 1.0 and not self._mic_necessario()
+                            and not self._mic_evento.is_set()):
+                        fechou = True
+                        break
+                    if agora - self._last_audio_t > 3.0:
+                        LOG.warning("CoreAudio parou de entregar áudio; reabrindo")
+                        break
+                try:
+                    stream.stop()
+                    stream.close()
+                except Exception:
+                    pass
+                if fechou:
+                    LOG.info("Microfone fechado: orbe inativo")
+                elif self.running.is_set():
+                    time.sleep(backoff)
+
+        threading.Thread(target=_capture_worker_mac if MAC else _capture_worker,
+                         daemon=True).start()
 
         while self.running.is_set():
             try:
@@ -2683,6 +2842,11 @@ class Daemon:
 # ═══════════════════════════════════════════
 def install_systemd():
     """Instala a unit do usuário a partir do modelo ao lado deste arquivo."""
+    if MAC:
+        aqui = Path(__file__).resolve().parent
+        subprocess.run(["sh", str(aqui / "install-mac.sh")], check=True,
+                       env=dict(os.environ, ORBE_PY=sys.executable))
+        return
     aqui = Path(__file__).resolve().parent
     unit = (aqui / "hermes-voice.service.unit").read_text()
     unit = unit.replace("@ORBE@", str(aqui)).replace("@PY@", sys.executable)
@@ -2751,7 +2915,9 @@ if __name__ == "__main__":
     # PipeWire default — never raw ALSA hw:*. Native-16kHz ALSA nodes skip
     # resampling and often bind a silent capture while the real mic is the
     # Digital Microphone source.
-    if args.device is None:
+    # No macOS o dispositivo fica None: segue a entrada padrão do sistema,
+    # mesmo se ela mudar com o daemon rodando (AirPods etc.).
+    if args.device is None and not MAC:
         try:
             devices = sd.query_devices()
             # Sempre pelo nó genérico do PipeWire, nunca pelo nó da fonte AEC

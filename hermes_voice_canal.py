@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 """Canal do orbe para uma sessão aberta do Claude Code.
 
 Dois papéis no mesmo arquivo, só com a stdlib:
@@ -26,7 +26,10 @@ import time
 import uuid
 from pathlib import Path
 
-PASTA = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}") / "hermes-voice" / "claude"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import hermes_voice_config as vcfg  # noqa: E402  (só stdlib)
+
+PASTA = vcfg.RUNTIME / "hermes-voice" / "claude"
 NOME = "orbe"
 
 INSTRUCOES = (
@@ -96,8 +99,6 @@ class Canal:
 
     def _instrucoes(self) -> str:
         try:
-            sys.path.insert(0, str(Path(__file__).resolve().parent))
-            import hermes_voice_config as vcfg
             voz = (vcfg.carregar()["agente"].get("instrucao_voz") or "").strip()
         except Exception:
             voz = ""

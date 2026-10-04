@@ -2,8 +2,11 @@
 # Claude Code com o canal do orbe: o orbe de voz passa a falar com esta sessão.
 # Formas --flag=valor porque essas opções aceitam vários valores e engoliriam "$@".
 ORBE=$(dirname "$(readlink -f "$0")")
+# o canal só usa a stdlib: o Python do venv do orbe, ou qualquer python3
+PY=$ORBE/.venv/bin/python
+[ -x "$PY" ] || PY=$(command -v python3)
 exec claude \
-  --mcp-config="{\"mcpServers\":{\"orbe\":{\"type\":\"stdio\",\"command\":\"/usr/bin/python3\",\"args\":[\"$ORBE/hermes_voice_canal.py\"]}}}" \
+  --mcp-config="{\"mcpServers\":{\"orbe\":{\"type\":\"stdio\",\"command\":\"$PY\",\"args\":[\"$ORBE/hermes_voice_canal.py\"]}}}" \
   --dangerously-load-development-channels=server:orbe \
   --allowedTools=mcp__orbe__reply \
   "$@"

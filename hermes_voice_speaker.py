@@ -81,12 +81,19 @@ def _gravar(segundos: float) -> np.ndarray:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from hermes_voice_daemon import _resample_frame  # noqa: E402
 
-    raw = subprocess.run(
-        ["timeout", str(segundos), "pw-record", "--target", MIC, "--rate", "48000",
-         "--channels", "1", "--format", "s16", "--container", "raw", "-"],
-        capture_output=True,
-    ).stdout
-    a48 = np.frombuffer(raw, dtype=np.int16)
+    if sys.platform == "darwin":
+        # CoreAudio, entrada padrão, a 48 kHz como o daemon abre o mic do Mac
+        import sounddevice as sd
+        a48 = sd.rec(int(segundos * 48000), samplerate=48000, channels=1, dtype="int16")
+        sd.wait()
+        a48 = a48.reshape(-1)
+    else:
+        raw = subprocess.run(
+            ["timeout", str(segundos), "pw-record", "--target", MIC, "--rate", "48000",
+             "--channels", "1", "--format", "s16", "--container", "raw", "-"],
+            capture_output=True,
+        ).stdout
+        a48 = np.frombuffer(raw, dtype=np.int16)
     blocos = [a48[i:i + 1440] for i in range(0, len(a48) - 1439, 1440)]
     return np.concatenate([_resample_frame(b, 480) for b in blocos]) if blocos else a48[:0]
 

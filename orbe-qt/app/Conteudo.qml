@@ -32,11 +32,11 @@ Item {
         }
     }
 
-    // ── fundo de vidro (o blur é do niri) ──
+    // ── fundo de vidro (o blur é do niri; no Mac fica quase opaco) ──
     Rectangle {
         anchors.fill: parent
         radius: 18
-        color: Estilo.alfa(Estilo.fundo, 0.58)
+        color: Estilo.alfa(Estilo.fundo, ponte.tema.opacidade || 0.58)
     }
     HoverHandler {
         onPointChanged: {

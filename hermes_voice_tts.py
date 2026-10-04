@@ -2,6 +2,7 @@
 """TTS do orb. Segue tts.provider do perfil Jarvis a cada frase.
 xAI = mesmo OAuth da GUI (wss://api.x.ai/v1/tts → PCM 24 kHz).
 CANCEL em thread — corta pw-cat no meio da frase.
+No macOS o pw-cat é o hermes_voice_play.py (sounddevice) e o pw-play, o afplay.
 """
 from __future__ import annotations
 
@@ -23,6 +24,21 @@ HERMES_AGENT = Path.home() / ".hermes" / "hermes-agent"
 PIPER_BIN = str(Path.home() / ".hermes/hermes-agent/venv/bin/piper")
 PIPER_MODEL = str(Path.home() / ".hermes/piper_models/pt_BR-faber-medium.onnx")
 RATE = 24000
+MAC = sys.platform == "darwin"
+AQUI = Path(__file__).resolve().parent
+
+
+def _player(rate: int) -> list[str]:
+    """Toca PCM s16 mono do stdin: pw-cat, ou o player próprio no macOS.
+
+    O worker pode rodar no venv do Hermes, que não tem sounddevice; o daemon
+    passa o Python dele em ORBE_PY.
+    """
+    if MAC:
+        py = os.environ.get("ORBE_PY") or sys.executable
+        return [py, str(AQUI / "hermes_voice_play.py"), str(rate)]
+    return ["pw-cat", "-p", "-a", "--format", "s16", "--rate", str(rate),
+            "--channels", "1", "-"]
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 ACK_DIR = Path.home() / ".hermes" / "cache" / "voice_ack"
 ACK_PHRASES = (
@@ -146,8 +162,7 @@ class Worker:
     def _open_play(self, rate: int) -> subprocess.Popen:
         self._kill_play()
         proc = subprocess.Popen(
-            ["pw-cat", "-p", "-a", "--format", "s16", "--rate", str(rate),
-             "--channels", "1", "-"],
+            _player(rate),
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
@@ -603,7 +618,7 @@ class Worker:
                 return False
             if self.cancel.is_set():
                 return True
-            subprocess.run(["pw-play", wav], timeout=30, capture_output=True)
+            subprocess.run(["afplay" if MAC else "pw-play", wav], timeout=30, capture_output=True)
             return True
         finally:
             try:
@@ -680,6 +695,11 @@ class Worker:
                 continue
             if line.startswith("SAY "):
                 self._cmds.put(line[4:])
+        # stdin fechado = o daemon morreu: sai como num QUIT, em vez de ficar
+        # órfão (o systemd matava o grupo; o launchd nem sempre)
+        self.cancel.set()
+        self._kill_play()
+        self._cmds.put(None)
 
     def run(self):
         threading.Thread(target=self._stdin, daemon=True).start()

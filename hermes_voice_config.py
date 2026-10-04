@@ -7,11 +7,81 @@ worker de TTS e o app rodam em Pythons diferentes.
 import copy
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
+
+MAC = sys.platform == "darwin"
 
 CONFIG_PATH = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "hermes-voice" / "config.json"
 # Estado que o daemon publica para o app (modelos que o agente oferece etc.).
 STATE_PATH = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "hermes-voice" / "agente.json"
+
+
+def _runtime() -> Path:
+    """Pasta dos sockets e arquivos de comando da sessão do usuário.
+
+    No Linux é o XDG_RUNTIME_DIR (/run/user/UID). O macOS não tem um; a
+    pasta temporária por usuário do Darwin (/var/folders/.../T) é o
+    equivalente: só do usuário, a mesma para o launchd e o Terminal, limpa
+    no boot e curta o bastante para o limite de 104 bytes do AF_UNIX.
+    """
+    if os.environ.get("XDG_RUNTIME_DIR"):
+        return Path(os.environ["XDG_RUNTIME_DIR"])
+    linux = Path(f"/run/user/{os.getuid()}")
+    if not MAC and linux.is_dir():
+        return linux
+    try:
+        # _CS_DARWIN_USER_TEMP_DIR (o Python não exporta o nome)
+        base = Path((os.confstr(65537) if MAC else "") or "/tmp")
+    except (ValueError, OSError):
+        base = Path("/tmp")
+    pasta = base / f"orbe-{os.getuid()}"
+    pasta.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return pasta
+
+
+RUNTIME = _runtime()
+
+# Serviço do daemon: unit do systemd no Linux, LaunchAgent no macOS.
+SERVICO = "hermes-voice"
+LAUNCHD_LABEL = "io.hermes.orbe"
+LAUNCHD_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
+
+
+def _launchd_alvo() -> str:
+    return f"gui/{os.getuid()}/{LAUNCHD_LABEL}"
+
+
+def servico_estado() -> str:
+    """'active', 'inactive' ou o que o gerenciador disser."""
+    try:
+        if MAC:
+            r = subprocess.run(["launchctl", "print", _launchd_alvo()],
+                               capture_output=True, text=True, timeout=2)
+            if r.returncode != 0:
+                return "inactive"
+            return "active" if "state = running" in r.stdout else "inactive"
+        return subprocess.run(["systemctl", "--user", "is-active", SERVICO + ".service"],
+                              capture_output=True, text=True, timeout=2).stdout.strip() or "?"
+    except Exception:
+        return "?"
+
+
+def servico_iniciar(reiniciar: bool = False) -> None:
+    """Sobe (ou reinicia) o daemon sem esperar por ele."""
+    if MAC:
+        if not LAUNCHD_PLIST.exists():
+            return
+        r = subprocess.run(["launchctl", "print", _launchd_alvo()], capture_output=True, timeout=2)
+        if r.returncode != 0:
+            subprocess.run(["launchctl", "bootstrap", f"gui/{os.getuid()}", str(LAUNCHD_PLIST)],
+                           capture_output=True, timeout=5)
+        argv = ["launchctl", "kickstart"] + (["-k"] if reiniciar else []) + [_launchd_alvo()]
+    else:
+        argv = ["systemctl", "--user", "restart" if reiniciar else "start", SERVICO + ".service"]
+    subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
 
 INSTRUCAO_VOZ = (
     "Você é um assistente de voz. A mensagem do usuário é a transcrição automática "
@@ -54,10 +124,15 @@ DEFAULTS = {
         "limiar_mww": 0.45,
         # Quadros seguidos acima do limiar (openWakeWord e microWakeWord).
         "confirmacao": 2,
-        "atalho": "Mod+A",
+        # Mod = Super no niri, Command no macOS. No Mac, Cmd+A é "selecionar
+        # tudo" e Ctrl+Space troca o teclado; Ctrl+Alt+O não briga com nada.
+        "atalho": "Ctrl+Alt+O" if MAC else "Mod+A",
     },
     "voz": {
+        # groq | gemini | "" (Groq se houver GROQ_API_KEY, senão Gemini)
+        "stt_provedor": "",
         "stt_modelo": "whisper-large-v3-turbo",
+        "stt_gemini_modelo": "gemini-flash-lite-latest",
         "stt_idioma": "pt",
         # Vazio = segue tts.provider do perfil jarvis.
         "tts_provedor": "",
