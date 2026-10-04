@@ -7,7 +7,19 @@ em voz, e um orbe animado no canto da tela mostra o estado da conversa
 Funciona com qualquer agente que fale ACP (Agent Client Protocol), como
 Hermes Agent, OpenCode e Gemini CLI, e com o Claude Code por um canal MCP.
 
-![Os quatro avatares em cada estado](imagens/skins.png)
+<table>
+<tr>
+<td align="center"><img src="imagens/orbe-ofanim.gif" width="400" alt="Ophanim"><br>Ophanim</td>
+<td align="center"><img src="imagens/orbe-ofanim-alado.gif" width="400" alt="Ophanim com asas"><br>Ophanim com asas</td>
+</tr>
+<tr>
+<td align="center"><img src="imagens/orbe-serafim.gif" width="400" alt="Seraphim"><br>Seraphim</td>
+<td align="center"><img src="imagens/orbe-anel.gif" width="400" alt="Anel de energia"><br>Anel de energia</td>
+</tr>
+</table>
+
+Cada avatar passa por ouvindo, pensando (com as linhas do raciocínio ao lado)
+e respondendo, gravado na área de trabalho.
 
 ## O que ele faz
 
@@ -23,9 +35,13 @@ Hermes Agent, OpenCode e Gemini CLI, e com o Claude Code por um canal MCP.
   abaixo do orbe.
 - **App de configuração** com prévia ao vivo que passa por todos os estados.
 
-![App de configuração: agente, voz e aparência](imagens/menu.png)
-
-![Texto do raciocínio ao lado e abaixo do orbe](imagens/texto.png)
+<p align="center">
+<img src="imagens/menu-agente.gif" width="260" alt="App: aba Agente">
+<img src="imagens/menu-ativacao.gif" width="260" alt="App: aba Ativação">
+<img src="imagens/menu-voz.gif" width="260" alt="App: aba Voz">
+<img src="imagens/menu-conversa.gif" width="260" alt="App: aba Conversa">
+<img src="imagens/menu-aparencia.gif" width="260" alt="App: aba Aparência">
+</p>
 
 ## Requisitos
 
@@ -146,9 +162,9 @@ ativação própria a partir de gravações e de vozes do Piper.
 | `skills/` | skills do Hermes para segurar e dispensar a sessão |
 | `*.service.unit`, `orbe.desktop.in` | modelos preenchidos pelo `install.sh` |
 
-Os renders das imagens acima saem de `orbe-qt/teste/render.py`, que desenha
-qualquer cena de `orbe-qt/teste/` fora da tela:
+Para testar os shaders sem abrir nada na tela, `orbe-qt/teste/render.py`
+desenha qualquer cena de `orbe-qt/teste/` num PNG:
 
 ```sh
-QT_QPA_PLATFORM=wayland python3 orbe-qt/teste/render.py orbe-qt/teste/vitrine.qml skins.png
+QT_QPA_PLATFORM=wayland python3 orbe-qt/teste/render.py orbe-qt/teste/vitrine.qml vitrine.png
 ```
