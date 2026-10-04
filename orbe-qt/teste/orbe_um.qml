@@ -5,7 +5,7 @@ Rectangle {
     id: f
     width: 444; height: 148
     color: "#1d2324"
-    property string skin: "serafim"
+    property string skin: "serafim_gravura"
     property string estado: "speaking"
     property bool vidro: false
     property real t: 0

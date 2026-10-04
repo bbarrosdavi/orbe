@@ -9,17 +9,16 @@ Hermes Agent, OpenCode e Gemini CLI, e com o Claude Code por um canal MCP.
 
 <table align="center">
 <tr>
-<td align="center"><img src="imagens/orbe-ofanim.gif" width="250" alt="Ophanim"><br>Ophanim</td>
-<td align="center"><img src="imagens/orbe-ofanim-alado.gif" width="250" alt="Ophanim com asas"><br>Ophanim com asas</td>
+<td align="center"><img src="imagens/orbe-ofanim.gif" width="400" alt="Ophanim"><br>Ophanim</td>
+<td align="center"><img src="imagens/orbe-ofanim-alado.gif" width="400" alt="Ophanim com asas"><br>Ophanim com asas</td>
 </tr>
 <tr>
-<td align="center"><img src="imagens/orbe-serafim.gif" width="250" alt="Seraphim"><br>Seraphim</td>
-<td align="center"><img src="imagens/orbe-anel.gif" width="250" alt="Anel de energia"><br>Anel de energia</td>
+<td align="center" colspan="2"><img src="imagens/orbe-anel.gif" width="400" alt="Anel de energia"><br>Anel de energia</td>
 </tr>
 </table>
 
-Cada avatar passa por ouvindo, pensando e respondendo, gravado na área de
-trabalho.
+Cada avatar passa por ouvindo, pensando (com as linhas do raciocínio ao lado)
+e respondendo, gravado na área de trabalho.
 
 ## O que ele faz
 
@@ -31,8 +30,8 @@ trabalho.
 - **Conversa por voz**: falar por cima interrompe (opcional), "tchau"
   dispensa o orbe, "fica" trava a sessão aberta e "pode soltar" destrava.
   Dois toques (ou cliques) no orbe também travam.
-- **Avatares desenhados na GPU**: Ophanim, Ophanim com asas, Seraphim e anel
-  de energia, com glitch, sombra opcional e o texto do raciocínio ao lado ou
+- **Avatares desenhados na GPU**: Ophanim, Ophanim com asas e anel de
+  energia, com glitch, sombra opcional e o texto do raciocínio ao lado ou
   abaixo do orbe.
 - **App de configuração** com prévia ao vivo que passa por todos os estados.
 

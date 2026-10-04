@@ -78,7 +78,7 @@ GEMINI_VOZES = [
     "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Achird", "Zubenelgenubi",
     "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat",
 ]
-NOMES_SKIN = {"ofanim": "Ophanim", "ofanim_alado": "Ophanim com asas", "serafim": "Seraphim",
+NOMES_SKIN = {"ofanim": "Ophanim", "ofanim_alado": "Ophanim com asas", "shoggoth": "Shoggoth", "serafim_gravura": "Seraphim (gravura)", "entidade": "Entidade",
               "anel": "Anel de energia"}
 
 
@@ -617,8 +617,31 @@ def _preparar_app(argv):
     return app
 
 
+def _trazer_para_ca():
+    """Leva a janela do app para a área de trabalho em foco (no niri, ativar uma
+    janela de outro workspace troca de workspace em vez de trazê-la)."""
+    def niri(*args):
+        return subprocess.run(["niri", "msg", *args], capture_output=True, text=True, timeout=2)
+    try:
+        wss = json.loads(niri("-j", "workspaces").stdout)
+        foco = next(w for w in wss if w["is_focused"])
+        jan = next(w for w in json.loads(niri("-j", "windows").stdout) if w.get("pid") == os.getpid())
+    except (OSError, ValueError, StopIteration, subprocess.SubprocessError):
+        return
+    if jan.get("workspace_id") == foco["id"]:
+        return
+    onde = next((w for w in wss if w["id"] == jan.get("workspace_id")), None)
+    if onde is None or onde["output"] != foco["output"]:
+        # noutro monitor: vai para o workspace ativo dele, que é o em foco
+        niri("action", "move-window-to-monitor", "--id", str(jan["id"]), foco["output"])
+    else:
+        niri("action", "move-window-to-workspace", "--window-id", str(jan["id"]),
+             "--focus", "false", str(foco["idx"]))
+
+
 def _instancia_unica(ponte) -> QLocalServer | None:
-    """Segundo lançamento só traz a janela da primeira para a frente."""
+    """Segundo lançamento traz a janela da primeira para a área de trabalho
+    atual e para a frente."""
     s = QLocalSocket()
     s.connectToServer(APP_ID)
     if s.waitForConnected(150):
@@ -629,7 +652,7 @@ def _instancia_unica(ponte) -> QLocalServer | None:
     QLocalServer.removeServer(APP_ID)
     srv = QLocalServer()
     srv.listen(APP_ID)
-    srv.newConnection.connect(lambda: (srv.nextPendingConnection(), ponte.apresentar.emit()))
+    srv.newConnection.connect(lambda: (srv.nextPendingConnection(), _trazer_para_ca(), ponte.apresentar.emit()))
     return srv
 
 

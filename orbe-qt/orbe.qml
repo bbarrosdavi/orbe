@@ -35,12 +35,14 @@ ShellRoot {
     function lerConfig(texto) {
         var o = {}
         try { o = (JSON.parse(texto) || {}).orbe || {} } catch (e) { o = {} }
-        conteudo.skin = String(o.skin || "ofanim")
+        // o Seraphim desenhado saiu; quem o tinha fica com o da gravura
+        conteudo.skin = o.skin === "serafim" ? "serafim_gravura" : String(o.skin || "ofanim")
         conteudo.glitch = o.glitch === undefined ? true : !!o.glitch
         conteudo.vidro = !!o.vidro
         var tam = parseFloat(o.tamanho)
         conteudo.tamanho = isNaN(tam) ? 1.0 : Math.min(1.6, Math.max(0.6, tam))
         conteudo.textoPos = o.texto === "abaixo" ? "abaixo" : "lado"
+        raiz.mover = !!o.mover
     }
     function corCss(texto, re, padrao) {
         var m = re.exec(texto || "")
@@ -55,6 +57,37 @@ ShellRoot {
         onLoaded: raiz.lerConfig(text())
         onLoadFailed: raiz.lerConfig("")
     }
+    // ── posição: travado (padrão), o orbe fica onde está, no canto se nunca
+    //    foi movido; destravado, arrastar move. Só o orbe de verdade lembra a
+    //    posição (a prévia do app e os testes ficam no canto) ──
+    property bool mover: false
+    property real margemX: 0               // distância da borda direita
+    property real margemY: 0               // distância do topo
+    readonly property bool lembraPosicao: !Quickshell.env("HERMES_ORB_SOCK")
+    function limitar() {
+        if (!tela) return
+        margemX = Math.max(0, Math.min(tela.width - janela.width, margemX))
+        margemY = Math.max(0, Math.min(tela.height - janela.height, margemY))
+    }
+    FileView {
+        id: arqPosicao
+        path: raiz.lembraPosicao ? raiz.home + "/.config/hermes-voice/orbe-posicao.json" : ""
+        printErrors: false
+        atomicWrites: true
+        onLoaded: {
+            try {
+                var o = JSON.parse(text()) || {}
+                raiz.margemX = parseFloat(o.x) || 0
+                raiz.margemY = parseFloat(o.y) || 0
+                raiz.limitar()
+            } catch (e) {}
+        }
+    }
+    function salvarPosicao() {
+        if (lembraPosicao)
+            arqPosicao.setText(JSON.stringify({ x: Math.round(margemX), y: Math.round(margemY) }) + "\n")
+    }
+
     FileView {
         // @accent_bg_color (avatares) e @window_bg_color (sombra e texto), do matugen
         path: raiz.home + "/.config/gtk-4.0/dank-colors.css"
@@ -136,8 +169,8 @@ ShellRoot {
     //    hermes_voice_ponteiro (evdev), só enquanto o orbe está na tela ──
     property var olharLocal: null
     property var olharGlobal: null
-    readonly property real origemX: tela ? tela.x + tela.width - janela.width : 0
-    readonly property real origemY: tela ? tela.y : 0
+    readonly property real origemX: tela ? tela.x + tela.width - janela.width - margemX : 0
+    readonly property real origemY: tela ? tela.y + margemY : 0
     Process {
         id: ponteiro
         running: janela.visible && conteudo.avatar
@@ -161,6 +194,8 @@ ShellRoot {
         color: "transparent"
         anchors.top: true
         anchors.right: true
+        margins.top: raiz.margemY
+        margins.right: raiz.margemX
         implicitWidth: conteudo.width
         implicitHeight: conteudo.height
         exclusionMode: ExclusionMode.Normal
@@ -185,12 +220,60 @@ ShellRoot {
             width: conteudo.artBox
             height: conteudo.artBox
             MouseArea {
+                id: area
                 anchors.fill: parent
                 hoverEnabled: true
-                onPressed: raiz.tocar(true)
-                onReleased: raiz.tocar(false)
-                onCanceled: raiz.tocar(false)
+                // destravado, o toque só vai ao daemon quando fica claro que
+                // não é arrasto: solto antes de andar, toque curto; parado
+                // além do tempo de segurar, segurar para falar
+                property point inicio
+                property bool arrastando: false
+                Timer {
+                    id: segurar
+                    interval: 350
+                    onTriggered: if (area.pressed && !area.arrastando) raiz.tocar(true)
+                }
+                onPressed: mouse => {
+                    if (!raiz.mover) { raiz.tocar(true); return }
+                    inicio = Qt.point(mouse.x, mouse.y)
+                    arrastando = false
+                    segurar.restart()
+                }
+                onReleased: {
+                    if (!raiz.mover) { raiz.tocar(false); return }
+                    segurar.stop()
+                    if (arrastando) {
+                        arrastando = false
+                        raiz.salvarPosicao()
+                    } else if (conteudo.toque) {
+                        raiz.tocar(false)
+                    } else {
+                        raiz.tocar(true)
+                        raiz.tocar(false)
+                    }
+                }
+                onCanceled: {
+                    segurar.stop()
+                    if (arrastando) raiz.salvarPosicao()
+                    arrastando = false
+                    raiz.tocar(false)
+                }
                 onPositionChanged: mouse => {
+                    if (raiz.mover && pressed && !conteudo.toque) {
+                        var dx = mouse.x - inicio.x, dy = mouse.y - inicio.y
+                        if (!arrastando && dx * dx + dy * dy > 36) {
+                            arrastando = true
+                            segurar.stop()
+                        }
+                        if (arrastando) {
+                            // a janela anda com o dedo, e o ponto tocado volta
+                            // para baixo dele: o delta é sempre desde o início
+                            raiz.margemX -= dx
+                            raiz.margemY += dy
+                            raiz.limitar()
+                            return
+                        }
+                    }
                     var x = mouse.x + alvo.x, y = mouse.y + alvo.y
                     raiz.olharLocal = Qt.point(x - conteudo.painel, y)
                     if (ponteiro.running)

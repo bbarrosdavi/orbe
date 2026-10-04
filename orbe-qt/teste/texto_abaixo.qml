@@ -10,7 +10,7 @@ Rectangle {
     Row {
         Repeater {
             id: rep
-            model: ["ofanim", "ofanim_alado", "serafim", "anel"]
+            model: ["ofanim", "ofanim_alado", "serafim_gravura", "anel"]
             Item {
                 width: 148; height: 240
                 clip: true

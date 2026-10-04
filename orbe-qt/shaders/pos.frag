@@ -5,7 +5,8 @@
 // e nunca do fundo. Atrás de tudo, a sombra opcional: degradê radial que
 // some até zero na borda, sem degrau (o blur do niri é binário).
 //
-// Máscara dos avatares: canal r = cobertura. Máscara do anel: r = alfa,
+// Máscara dos avatares: canal r = cobertura do traço; g = massa escura (só o
+// Shoggoth), pintada no tom do fundo do tema por baixo do traço. Máscara do anel: r = alfa,
 // g = intensidade / 2 (ADD sobre área opaca passa de 1), b = só o quadro.
 
 layout(location = 0) in vec2 qt_TexCoord0;
@@ -115,6 +116,11 @@ void main() {
                 c += cor.rgb * al; a += al;
             }
         }
+        // massa escura por baixo de tudo que é traço
+        float e0 = masc(p).g * env;
+        a = min(a, 1.0);
+        c += corSombra.rgb * e0 * (1.0 - a);
+        a += e0 * (1.0 - a);
     } else {
         // ── anel de energia ──
         // a entrada/saída já veio composta no primeiro passe

@@ -11,7 +11,7 @@ Rectangle {
         spacing: 30
         Repeater {
             id: rep
-            model: [["serafim", "lado"], ["anel", "abaixo"]]
+            model: [["serafim_gravura", "lado"], ["anel", "abaixo"]]
             OrbeConteudo {
                 skin: modelData[0]
                 textoPos: modelData[1]

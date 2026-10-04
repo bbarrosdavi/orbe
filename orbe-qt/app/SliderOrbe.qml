@@ -116,6 +116,7 @@ Item {
         preventStealing: true
         onPressed: mouse => s.definir(s.de + (mouse.x - trilho.x) / trilho.width * (s.ate - s.de))
         onPositionChanged: mouse => { if (pressed) s.definir(s.de + (mouse.x - trilho.x) / trilho.width * (s.ate - s.de)) }
-        onWheel: wheel => s.definir(s.valor + (wheel.angleDelta.y > 0 ? s.passo : -s.passo))
+        // a rolagem é da página: o slider só muda arrastando
+        onWheel: wheel => wheel.accepted = false
     }
 }

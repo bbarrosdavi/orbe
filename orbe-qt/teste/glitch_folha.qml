@@ -6,7 +6,7 @@ import "../comum"
 Rectangle {
     id: folha
     property int lado: 148
-    readonly property var skins: ["ofanim", "ofanim_alado", "serafim"]
+    readonly property var skins: ["ofanim", "ofanim_alado", "serafim_gravura"]
     readonly property var pensar: ({ idle: 0, listening: 0, thinking: 1, speaking: 0, tools: 0 })
     width: lado * 5
     height: lado * 4
@@ -34,7 +34,7 @@ Rectangle {
         }
     }
     // fração dos quadros em rajada, por skin (anjos: _glt.y; anel: _glt.w)
-    property var emRajada: ({ ofanim: 0, ofanim_alado: 0, serafim: 0, anel: 0 })
+    property var emRajada: ({ ofanim: 0, ofanim_alado: 0, serafim_gravura: 0, anel: 0 })
     property int quadros: 0
     readonly property string info: {
         var r = [], n = Math.max(1, quadros * 5)

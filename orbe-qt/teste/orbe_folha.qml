@@ -10,7 +10,7 @@ Rectangle {
     property real t: 0
     property var casos: [
         { skin: "ofanim", cmds: ["show thinking", "line lendo o contexto do pedido", "line chamando a ferramenta de busca nos arquivos do projeto com um texto bem longo para quebrar"], vidro: false, tam: 1.0 },
-        { skin: "serafim", cmds: ["show speaking", "hold 1"], vidro: true, tam: 1.0 },
+        { skin: "serafim_gravura", cmds: ["show speaking", "hold 1"], vidro: true, tam: 1.0 },
         { skin: "ofanim_alado", cmds: ["show listening"], vidro: true, tam: 1.3 },
         { skin: "anel", cmds: ["show speaking", "hold 1"], vidro: true, tam: 0.8 },
         { skin: "anel", cmds: ["show tools", "line filtrando a saída"], vidro: false, tam: 1.0 }

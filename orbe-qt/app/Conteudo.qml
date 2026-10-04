@@ -432,7 +432,7 @@ Item {
                         spacing: 10
                         Repeater {
                             id: cartoes
-                            model: ["ofanim", "ofanim_alado", "serafim", "anel"]
+                            model: ["ofanim", "ofanim_alado", "shoggoth", "serafim_gravura", "entidade", "anel"]
                             Cartao {
                                 width: (parent.width - 10) / 2
                                 skin: modelData
@@ -465,6 +465,11 @@ Item {
                         titulo: "Texto do raciocínio"
                         subtitulo: "onde aparecem as linhas do agente"
                         itens: [{ id: "lado", nome: "Ao lado do orbe" }, { id: "abaixo", nome: "Abaixo do orbe" }]
+                    }
+                    LinhaSwitch {
+                        id: rMover
+                        titulo: "Mover o orbe pela tela"
+                        subtitulo: "destravado, arrastar o orbe muda o lugar dele; travado, ele fica onde está"
                     }
                 }
             }
@@ -696,10 +701,13 @@ Item {
         rRastro.ligado = !!c.diagnostico.rastro_niveis
 
         var o = c.orbe
-        skin = ["ofanim", "ofanim_alado", "serafim", "anel"].indexOf(o.skin) >= 0 ? o.skin : "ofanim"
+        // o Seraphim desenhado saiu; quem o tinha fica com o da gravura
+        var sk = o.skin === "serafim" ? "serafim_gravura" : o.skin
+        skin = ["ofanim", "ofanim_alado", "shoggoth", "serafim_gravura", "entidade", "anel"].indexOf(sk) >= 0 ? sk : "ofanim"
         rGlitch.ligado = !!o.glitch
         rVidro.ligado = !!o.vidro
         rTexto.valor = o.texto || "lado"
+        rMover.ligado = !!o.mover
         tamanho.definir(o.tamanho === undefined ? 1.0 : o.tamanho)
         mudouAgente(true)
         mudouWake()
@@ -743,6 +751,7 @@ Item {
         cfg.orbe.vidro = rVidro.ligado
         cfg.orbe.tamanho = tamanho.valor
         cfg.orbe.texto = rTexto.efetivo
+        cfg.orbe.mover = rMover.ligado
         return cfg
     }
     function aplicar() {

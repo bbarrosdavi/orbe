@@ -1,23 +1,33 @@
 import QtQuick
 
-// Ophanim, Ophanim com asas e Seraphim desenhados na GPU.
+// Ophanim, Ophanim com asas e Shoggoth desenhados na GPU.
 //
 // O desenho mora em dois shaders: figura.frag pinta a máscara branca da
 // figura (cada traço é uma função de distância) e pos.frag dá a cor e o
 // glitch. Aqui fica só o que tem memória entre quadros, portado de
 // hermes_voice_avatares.py (Cairo, aposentado em 2026-10-04): giro das rodas, travas em quarto de volta, ondas
-// da voz, relâmpagos, batida das asas, fogo e brasa do serafim, rajadas de
-// glitch. Quem usa chama avancar(dt) a cada quadro (FrameAnimation).
+// da voz, relâmpagos, batida das asas, rajadas de glitch. Quem usa chama avancar(dt) a cada quadro (FrameAnimation).
 //
 // Reações por estado (pesos de mix, os mesmos do anel de energia):
 // ouvindo, as rodas quase param e todos os olhos se voltam para quem fala;
-// pensando, turbilhão, fogo entre as rodas e pulso triplo no serafim;
+// pensando, turbilhão;
 // ferramentas, rodas travadas nos eixos em quartos de volta, com relâmpagos;
 // falando, ondas a cada sílaba; ao despertar, as rodas desdobram de um ponto.
+// Shoggoth: monte de massas e tentáculos em 3D; a cabeça usa a máscara
+// sorridente, que inclina para ouvir e escorrega quando ele pensa; as bocas
+// de dentes escancaram pensando e batem com a voz; os olhos seguem o cursor.
+// Skins de imagem (imagem.frag): a ilustração recortada em camadas num atlas
+// (arte/<skin>.png); as asas giram em volta da raiz e as íris seguem o olhar.
+// Seraphim (gravura): parado, meio recolhido; ouvindo, aberto como desenhado;
+// pensando, as asas batem; falando, tremulam com a voz.
+// Entidade: parada, o halo esmorece; ouvindo, acende inteiro; pensando, uma
+// onda de luz corre pelo crescente e a boca da barriga gira mais rápido;
+// falando, o halo pulsa com a voz. A luz escorre pelos filetes e as estrelas
+// cintilam sempre.
 Item {
     id: raiz
 
-    property string skin: "ofanim"         // ofanim | ofanim_alado | serafim
+    property string skin: "ofanim"         // ofanim | ofanim_alado | serafim | shoggoth | serafim_gravura | entidade
     property bool glitch: true
     property real peso: 1.0                // traço mais grosso e opaco (o orbe usa mais)
     property color cor: "white"
@@ -26,13 +36,11 @@ Item {
     property real zoom: 1.0
     property real alfa: 1.0
     property var olharAlvo: null           // Qt.point no item, ou null (olhos vagam)
-    // Seraphim: 0 só o olho de cima, 1 só o do meio, 2 os dois, 3 só o do
-    // meio na vertical, 4 os dois com o do meio na vertical
-    property int olhosSerafim: 0
     property var mix: ({ idle: 1.0 })      // pesos por estado
     property real voz: 0
     property real mic: 0
     property real desperto: 1
+    property bool repouso: false           // skins de imagem: pose desenhada, parada (teste pixel a pixel)
 
     // sombra atrás da figura, no passe de pós
     property bool sombraLigada: false
@@ -44,8 +52,12 @@ Item {
     readonly property var alcances: ({
         ofanim: [1.55, 1.55, 1.25],
         ofanim_alado: [2.1, 1.55, 2.08],
-        serafim: [2.0, 1.6, 1.95]
+        shoggoth: [1.6, 1.6, 1.4],
+        serafim_gravura: [1.15, 1.3, 1.4],
+        entidade: [0.85, 1.03, 1.12]
     })
+    // skins de imagem: o atlas mora em arte/<skin>.png
+    readonly property var imagens: ({ serafim_gravura: true, entidade: true })
 
     function raioQueCabe(w, h, d) {
         var al = alcances[skin] || alcances.ofanim
@@ -87,7 +99,10 @@ Item {
             foco: 0.3, trava: 0, quarto: 0, quartoAlvo: 0, proxQuarto: 0,
             ondas: [], ultimaOnda: -1, relampagos: [],
             giroRaios: 0, pupila: 1, clarao: 0,
-            faseAsa: 0, fogo: 1, tri: 0, abre: 0, brasaAng: 0, brasa: 0
+            faseAsa: 0,
+            faseT: 0, alcance: 1, boca: 0, deslize: 0, inclina: 0, mascSalto: [0, 0], goela: 0.1,
+            abreAsa: 0.2, ampAsa: 0,
+            brilho: 0.8, faseRunas: 0, forcaRunas: 0, faseFil: 0, forcaFil: 0.3, faseVort: 0, forcaVort: 0.3
         }
     }
 
@@ -102,7 +117,9 @@ Item {
             s.ultimaOnda = s.t
         }
         s.ondas = s.ondas.filter(function (o) { return s.t - o[0] < 1.3 })
-        if (skin === "serafim") evoluirSerafim(dt)
+        if (skin === "shoggoth") evoluirShoggoth(dt)
+        else if (skin === "serafim_gravura") evoluirGravura(dt)
+        else if (skin === "entidade") evoluirEntidade(dt)
         else {
             evoluirOfanim(dt)
             if (skin === "ofanim_alado") {
@@ -140,21 +157,60 @@ Item {
         s.pupila += (alvoP - s.pupila) * Math.min(1, dt * 8)
     }
 
-    function evoluirSerafim(dt) {
-        var s = st, t = s.t
+    function evoluirShoggoth(dt) {
+        var s = st
         var ouvir = p("listening"), pensar = p("thinking"), ferr = p("tools")
         var falar = p("speaking") * voz
-        s.faseAsa += dt * tau * (mistura({ idle: 0.5, listening: 0.3, thinking: 2.2, tools: 1.4, speaking: 1.2 }) + 0.8 * falar)
-        // "Santo, santo, santo": três pulsos de luz a cada ciclo, pensando
-        var ciclo = t % 2.6
-        var g = 0
-        for (var c of [0.2, 0.55, 0.9]) g = Math.max(g, Math.exp(-Math.pow((ciclo - c) / 0.07, 2)))
-        s.tri = pensar * g
-        var alvo = mistura({ idle: 1.0, listening: 0.85, thinking: 1.4, tools: 1.15, speaking: 1.0 }) + 0.6 * falar + 0.5 * s.tri
-        s.fogo += (alvo - s.fogo) * Math.min(1, dt * (alvo > s.fogo ? 10 : 3))
-        s.abre += (ouvir - s.abre) * Math.min(1, dt * 4)
-        s.brasaAng += dt * 2.4
-        s.brasa += (ferr - s.brasa) * Math.min(1, dt * 4)
+        // ouvindo, quase parado; pensando, os tentáculos se reviram
+        s.faseT += dt * (mistura({ idle: 0.7, listening: 0.35, thinking: 2.4, tools: 1.7, speaking: 1.0 })
+                         + 1.4 * falar + (1 - desperto) * 3.0)
+        var alc = mistura({ idle: 1.0, listening: 0.9, thinking: 1.06, tools: 1.15, speaking: 1.03 })
+        s.alcance += (alc - s.alcance) * Math.min(1, dt * 4)
+        var boca = lim01(falar * 1.6)
+        s.boca += (boca - s.boca) * Math.min(1, dt * (boca > s.boca ? 18 : 8))
+        // a fachada escorrega quando ele pensa
+        var desl = mistura({ idle: 0, listening: 0, thinking: 1, tools: 0.55, speaking: 0 })
+        s.deslize += (desl - s.deslize) * Math.min(1, dt * 2.5)
+        s.inclina += (ouvir - s.inclina) * Math.min(1, dt * 4)
+        // as bocas de dentes: entreabertas paradas, escancaradas pensando, batem com a voz
+        var goela = mistura({ idle: 0.1, listening: 0.05, thinking: 0.75, tools: 0.55, speaking: 0.2 }) + 0.6 * falar
+        s.goela += (goela - s.goela) * Math.min(1, dt * (goela > s.goela ? 14 : 6))
+        var q = Math.max(0, 1 - dt * 6)
+        s.mascSalto = [s.mascSalto[0] * q, s.mascSalto[1] * q]
+        var alvoP = 1.0 + 0.25 * ouvir + 0.6 * ouvir * mic - 0.25 * pensar
+        s.pupila += (alvoP - s.pupila) * Math.min(1, dt * 8)
+    }
+
+    function evoluirGravura(dt) {
+        var s = st
+        var falar = p("speaking") * voz
+        // a pose desenhada é a de ouvir; parado, as asas se recolhem
+        var ab = mistura({ idle: 0.55, listening: 1.0, thinking: 0.85, tools: 0.9, speaking: 0.95 })
+        s.abreAsa += (ab - s.abreAsa) * Math.min(1, dt * 3)
+        var amp = mistura({ idle: 0.06, listening: 0.0, thinking: 0.35, tools: 0.22, speaking: 0.12 }) + 0.3 * falar
+        s.ampAsa += (amp - s.ampAsa) * Math.min(1, dt * 3)
+        s.faseAsa += dt * tau * (mistura({ idle: 0.2, listening: 0.1, thinking: 0.9, tools: 1.6, speaking: 0.6 }) + 0.8 * falar)
+    }
+
+    function evoluirEntidade(dt) {
+        var s = st
+        var falar = p("speaking") * voz
+        var aprox = Math.min(1, dt * 3)
+        // o halo: esmorecido parado, inteiro ouvindo, pulsando com a voz
+        var br = Math.min(1, mistura({ idle: 0.78, listening: 1.0, thinking: 0.92, tools: 0.95, speaking: 0.86 }) + 0.14 * falar)
+        s.brilho += (br - s.brilho) * Math.min(1, dt * (br > s.brilho ? 14 : 4))
+        // a onda de luz pelo crescente, pensando
+        s.faseRunas += dt * (mistura({ idle: 0.3, listening: 0.2, thinking: 1.4, tools: 2.6, speaking: 0.6 }))
+        var fr = mistura({ idle: 0.1, listening: 0.0, thinking: 0.85, tools: 1.0, speaking: 0.3 })
+        s.forcaRunas += (fr - s.forcaRunas) * aprox
+        // a luz que escorre das lâminas (px da imagem por segundo)
+        s.faseFil += dt * (mistura({ idle: 30, listening: 45, thinking: 70, tools: 95, speaking: 60 }) + 90 * falar)
+        var ff = mistura({ idle: 0.25, listening: 0.35, thinking: 0.5, tools: 0.55, speaking: 0.45 }) + 0.3 * falar
+        s.forcaFil += (ff - s.forcaFil) * aprox
+        // a boca da barriga (voltas do redemoinho por segundo)
+        s.faseVort += dt * (mistura({ idle: 0.06, listening: 0.08, thinking: 0.4, tools: 0.55, speaking: 0.2 }) + 0.25 * falar)
+        var fv = mistura({ idle: 0.4, listening: 0.5, thinking: 1.0, tools: 1.0, speaking: 0.7 })
+        s.forcaVort += (fv - s.forcaVort) * aprox
     }
 
     // base (u, v) do plano do anel i, girando em eixos diferentes
@@ -226,50 +282,63 @@ Item {
                 var ag = agitacao()
                 s.glitchAte = t + (ag > 0.25 ? uni(0.05, 0.20) : uni(0.08, 0.28))
                 s.proxGlitch = s.glitchAte + (ag > 0.25 ? uni(0.06, 0.75) / (0.4 + ag) : uni(0.9, 3.6))
-                if (Math.random() < 0.5 && skin !== "serafim")
+                if (skin === "shoggoth")
+                    s.mascSalto = [uni(-0.18, 0.18) * Rb, uni(-0.08, 0.08) * Rb]   // a máscara pula
+                else if (Math.random() < 0.5)
                     s.salto[sorteia(4)] += (Math.random() < 0.5 ? -1 : 1) * uni(0.4, 1.4)
             }
             rajada = t < s.glitchAte
-            sep = (rajada ? uni(4.0, 11.0) : 0.8 + 0.5 * Math.abs(ruido(t, 1))) * Math.max(0.6, k)
+            // na entidade a rajada não abre a aberração: a hachura densa dobrada a
+            // 4-11 px parece desfoque; as faixas arrancadas e os cacos continuam
+            var abreAb = rajada && skin !== "entidade"
+            sep = (abreAb ? uni(4.0, 11.0) : 0.8 + 0.5 * Math.abs(ruido(t, 1))) * Math.max(0.6, k)
         }
 
         var R, gaze, i
-        if (skin === "serafim") {
-            var de = suave(desperto)
-            R = Rb * (0.3 + 0.7 * de)
-            var kk = R / 40
-            // "os umbrais tremeram à voz" (Is 6:4)
-            cx += ruido(t * 40, 1) * 2.2 * kk * falar
-            cy += ruido(t * 37, 5) * 2.2 * kk * falar
+if (skin === "serafim_gravura") {
+            var dG = suave(desperto)
+            R = Rb * (0.3 + 0.7 * dG)
             gaze = olharAlvo ? [olharAlvo.x, olharAlvo.y] : vagar(cx, cy, R)
-            fx.raios = v4(24, t * 0.05, 1.35 + 0.4 * falar, (0.05 + 0.10 * s.tri + 0.06 * falar) * de)
-            var ele = mistura({ idle: 0.20, listening: 0.10, thinking: 0.35, tools: 0.25, speaking: 0.30 })
-            var amp = mistura({ idle: 0.16, listening: 0.05, thinking: 0.38, tools: 0.25, speaking: 0.18 }) + 0.3 * falar
-            var abert = mistura({ idle: 0.75, listening: 0.6, thinking: 1.0, tools: 0.9, speaking: 0.9 }) * de
-            var bat = Math.sin(s.faseAsa)
-            asaVec(0, cx - 0.22 * R, cy - 0.02 * R, ele + amp * bat, R * de, -1, abert, 3, false)
-            asaVec(1, cx + 0.22 * R, cy - 0.02 * R, ele + amp * bat, R * de, 1, abert, 3, false)
-            var respira = 0.04 * Math.sin(s.faseAsa * 0.5)
-            asaVec(2, cx + 0.10 * R, cy + 0.34 * R, -0.95 + respira, 0.72 * R * de, -1, 0.85 * de, 0, true)
-            asaVec(3, cx - 0.10 * R, cy + 0.34 * R, -0.95 + respira, 0.72 * R * de, 1, 0.85 * de, 0, true)
-            // Fechadas, as penas pendem para dentro, sobre o rosto; abertas, para
-            // fora. A troca de lado acontece com a asa em pé: lê como leque.
-            var a = suave(s.abre)
-            for (var lado of [-1, 1]) {
-                var ang, para, ab, q
-                if (a < 0.5) {
-                    q = a / 0.5
-                    ang = 1.05 + (Math.PI / 2 - 1.05) * q; para = lado; ab = 0.85 - 0.75 * q
-                } else {
-                    q = (a - 0.5) / 0.5
-                    ang = Math.PI / 2 - 0.55 * q; para = -lado; ab = 0.10 + 0.65 * q
-                }
-                asaVec(lado < 0 ? 4 : 5, cx - lado * (0.10 + 0.12 * a) * R, cy - 0.30 * R, ang + respira,
-                       0.85 * R * de, para, ab * de, 0, true)
+            if (pensar > 0.05) {
+                // pensando, o olho do meio vasculha para cima
+                var vgG = [cx + ruido(t * 1.7, 21) * R * 2, cy - R * (0.6 + 0.6 * Math.abs(ruido(t * 1.1, 4)))]
+                gaze = [gaze[0] * (1 - pensar) + vgG[0] * pensar, gaze[1] * (1 - pensar) + vgG[1] * pensar]
             }
-            fx.sera = v4(s.fogo, s.tri, s.abre, s.brasa)
-            fx.sera2 = v4(s.brasaAng, olhosSerafim, 0, 0)
-            fx.ofa2 = v4(0, de, 6, 0)
+            if (repouso) {
+                gaze = [cx, cy]
+                fx.img = v4(1, 0, 0, 0)
+            } else {
+                fx.img = v4(s.abreAsa * dG, s.ampAsa * Math.sin(s.faseAsa), 0.025 * falar, 0)
+            }
+        } else if (skin === "entidade") {
+            var dE = suave(desperto)
+            R = Rb * (0.3 + 0.7 * dE)
+            gaze = [cx, cy]
+            if (repouso) {
+                fx.img = v4(1, 0, 0, 0)
+                fx.img2 = zero4
+                fx.img3 = zero4
+            } else {
+                fx.img = v4(s.brilho * (0.4 + 0.6 * dE), s.faseRunas, s.forcaRunas, 0.02 * falar)
+                fx.img2 = v4(s.faseFil, s.forcaFil, s.faseVort, s.forcaVort)
+                fx.img3 = v4(1, 0, 0, 0)
+            }
+        } else if (skin === "shoggoth") {
+            var dS = suave(desperto)
+            R = Rb * (0.25 + 0.75 * dS)
+            gaze = olharAlvo ? [olharAlvo.x, olharAlvo.y] : vagar(cx, cy, R)
+            // a máscara na ponta da cabeça (o shader acha a ponta): inclina para
+            // quem fala, escorrega pensando e balança com as sílabas
+            var sl = s.deslize
+            var mx = sl * 0.22 * R * ruido(t * 0.9, 31) + s.mascSalto[0]
+            var my = sl * 0.10 * R * ruido(t * 0.7, 37) + s.mascSalto[1] - 0.03 * R * falar
+            var inc = s.inclina * Math.max(-0.28, Math.min(0.28, (gaze[0] - cx) / R * 0.18))
+                      + sl * 0.35 * ruido(t * 0.8, 41)
+            fx.sho = v4(s.faseT, s.alcance, s.boca, falar)
+            fx.sho2 = v4(mx, my, inc, suave((desperto - 0.55) / 0.35))
+            fx.sho3 = v4(s.inclina, 0, 0, suave((desperto - 0.2) / 0.6))
+            fx.sho4 = v4(0, 0, s.goela, 0)
+            fx.ofa = v4(1, s.pupila, 0, 1)
         } else {
             var d = desperto
             R = Rb * (0.25 + 0.75 * suave(d))
@@ -352,11 +421,12 @@ Item {
 
         fx.geo = v4(R, lim, t, peso)
         fx.est = v4(ouvir, pensar, ferr, falar)
-        fx.est2 = v4(voz, mic, desperto, skin === "serafim" ? 2 : (skin === "ofanim_alado" ? 1 : 0))
+        fx.est2 = v4(voz, mic, desperto, ({ ofanim_alado: 1, shoggoth: 3 })[skin] || 0)
 
         _centroPos = Qt.vector2d(w / 2, h / 2)
         _glt = v4(sep, rajada ? 1 : 0, rajada ? Math.random() * 1000 : 0, k)
-        _geo2 = v4(Rb, lim, (t * 18) % 3, glitch ? 1 : 0)
+        // linhas de varredura só nas desenhadas: na imagem elas riscam a hachura
+        _geo2 = v4(Rb, lim, (t * 18) % 3, glitch && !(skin in imagens) ? 1 : 0)
     }
 
     ShaderEffect {
@@ -400,9 +470,25 @@ Item {
         property vector4d w4b
         property vector4d w5a
         property vector4d w5b
-        property vector4d sera
-        property vector4d sera2
-        property vector4d lacos: Qt.vector4d(30, 24, 10, raiz.skin === "serafim" ? 6 : (raiz.skin === "ofanim_alado" ? 4 : 0))
+        property vector4d sho
+        property vector4d sho2
+        property vector4d sho3
+        property vector4d sho4
+        property vector4d img                 // skins de imagem: estado de cada uma (ver imagem.frag)
+        property vector4d img2
+        property vector4d img3
+        property var arte: arteImg
+        // no Shoggoth: massas do monte, —, tentáculos (o primeiro é a cabeça)
+        property vector4d lacos: raiz.skin === "shoggoth" ? Qt.vector4d(7, 0, 14, 0)
+                                 : Qt.vector4d(30, 24, 10, raiz.skin === "ofanim_alado" ? 4 : 0)
+    }
+
+    Image {
+        id: arteImg
+        visible: false
+        source: raiz.skin in raiz.imagens ? Qt.resolvedUrl("../arte/" + raiz.skin + ".png") : ""
+        mipmap: true
+        smooth: true
     }
 
     layer.enabled: true
@@ -412,7 +498,7 @@ Item {
         property vector2d centro: raiz._centroPos
         property vector4d cor: Qt.vector4d(raiz.cor.r, raiz.cor.g, raiz.cor.b, raiz.alfa)
         // ciano e magenta do anel; na rajada, tão opacos quanto os dele
-        readonly property real alfaGl: raiz._glt.y > 0.5 ? 0.60 : 0.40
+        readonly property real alfaGl: raiz._glt.y > 0.5 && raiz.skin !== "entidade" ? 0.60 : 0.40
         property vector4d corA: raiz.glitch ? Qt.vector4d(0.00, 0.95, 0.95, alfaGl) : Qt.vector4d(0, 0, 0, 0)
         property vector4d corB: raiz.glitch ? Qt.vector4d(1.00, 0.08, 0.55, alfaGl) : Qt.vector4d(0, 0, 0, 0)
         property vector4d glt: raiz._glt

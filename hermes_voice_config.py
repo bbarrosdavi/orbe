@@ -83,7 +83,8 @@ DEFAULTS = {
         "rastro_niveis": True,
     },
     "orbe": {
-        # ofanim | ofanim_alado | serafim (orbe-qt/comum/Figura.qml) | anel (rotoscope)
+        # ofanim | ofanim_alado | shoggoth (orbe-qt/comum/Figura.qml) |
+        # serafim_gravura | entidade (imagens recortadas, orbe-qt/arte) | anel (rotoscope)
         "skin": "ofanim",
         "glitch": True,
         # sombra radial atrás do orbe (pos.frag); a chave guarda o nome antigo
@@ -92,6 +93,9 @@ DEFAULTS = {
         "tamanho": 1.0,
         # onde aparece o texto do raciocínio: lado | abaixo
         "texto": "lado",
+        # destravado, o orbe pode ser arrastado; a posição fica em
+        # ~/.config/hermes-voice/orbe-posicao.json (o padrão é o canto)
+        "mover": False,
     },
 }
 

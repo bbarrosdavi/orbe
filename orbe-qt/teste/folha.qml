@@ -5,7 +5,7 @@ import "../comum"
 Rectangle {
     id: folha
     property int lado: 148
-    property var skins: ["ofanim", "ofanim_alado", "serafim"]
+    property var skins: ["ofanim", "ofanim_alado", "serafim_gravura"]
     property var estados: ["listening", "thinking", "tools", "speaking"]
     property color fundo: "#1d2324"
     property bool vidro: false
