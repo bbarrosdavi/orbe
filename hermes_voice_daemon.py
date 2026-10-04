@@ -1302,6 +1302,7 @@ class Daemon:
         self._relatos: collections.deque = collections.deque()
         self._dbg_max, self._dbg_sf, self._dbg_next = 0.0, 0, 0.0
         self._mic_orb_t = 0.0
+        self._inicio = time.monotonic()
         self._hermes_rt = _hermes_runtime()
         # Agente ACP: um processo, carregado entre os pedidos.
         self.agente: acp.AgenteACP | None = None
@@ -1495,7 +1496,9 @@ class Daemon:
         if not MAC:
             return
         agora = time.monotonic()
-        if agora < getattr(self, "_orbe_visto", 0.0):
+        # nos primeiros 15 s o _orb_boot é quem sobe o orbe; os dois juntos
+        # corriam, e o reap do boot matava o orbe recém-criado pelo vigia
+        if agora < getattr(self, "_orbe_visto", self._inicio + 15.0):
             return
         self._orbe_visto = agora + 5.0
         if not os.path.exists(ORB_SOCK):
