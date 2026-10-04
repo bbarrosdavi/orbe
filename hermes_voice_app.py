@@ -66,6 +66,9 @@ BINDS = Path.home() / ".config" / "niri" / "dms" / "binds.kdl"
 DANK_CSS = Path.home() / ".config" / "gtk-4.0" / "dank-colors.css"
 ACCENT_CSS = Path("/home/davi/Projetos/Docs_rice_sistema/main.css")
 WAKE_DIR = Path.home() / ".hermes" / "cache" / "wakewords"
+# Pacotes de skin (orbe-qt/comum/Pacote.qml): os do usuário e os do orbe
+SKINS_DIRS = [Path(os.environ.get("HERMES_SKINS_DIR") or Path.home() / ".config" / "hermes-voice" / "skins"),
+              Path(__file__).resolve().parent / "orbe-qt" / "skins"]
 PIPER_DIR = Path.home() / ".hermes" / "piper_models"
 JARVIS_CFG = Path.home() / ".hermes" / "profiles" / "jarvis" / "config.yaml"
 # Linha do bind do orbe: só a tecla muda, o resto do bloco fica.
@@ -80,6 +83,33 @@ GEMINI_VOZES = [
 ]
 NOMES_SKIN = {"ofanim": "Ophanim", "ofanim_alado": "Ophanim com asas", "serafim": "Seraphim",
               "anel": "Anel de energia"}
+
+
+def _pacotes() -> list:
+    """Pacotes de camadas encontrados: pasta com skin.json, ou PNG solto."""
+    vistos, out = set(NOMES_SKIN), []
+    for d in SKINS_DIRS:
+        if not d.is_dir():
+            continue
+        for ent in sorted(d.iterdir()):
+            nome, manifesto, pasta = None, None, None
+            if ent.is_dir() and (ent / "skin.json").is_file():
+                try:
+                    manifesto = json.loads((ent / "skin.json").read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                if not isinstance(manifesto, dict) or not manifesto.get("camadas"):
+                    continue
+                nome, pasta = ent.name, ent
+            elif ent.is_file() and ent.suffix.lower() == ".png":
+                nome, pasta = ent.stem, d
+                manifesto = {"quadro": 1024, "camadas": [{"arquivo": ent.name, "anim": "pulsar"}]}
+            if not nome or nome in vistos:
+                continue
+            vistos.add(nome)
+            out.append({"id": nome, "nome": str(manifesto.get("nome") or nome),
+                        "dir": pasta.as_uri(), "manifesto": manifesto})
+    return out
 
 
 def _arquivos(pasta: Path, sufixos: tuple) -> list:
@@ -280,6 +310,7 @@ class Ponte(QObject):
         self._cfg = vcfg.carregar()
         self._atalho = _atalho_atual() or self._cfg["ativacao"]["atalho"]
         self._tema = _tema()
+        self._pacotes = _pacotes()
         self._estado = ""
         self._capturando = False
         self._relogio = QTimer(self)
@@ -352,7 +383,22 @@ class Ponte(QObject):
 
     @Property("QVariant", constant=True)
     def nomesSkin(self):
-        return NOMES_SKIN
+        nomes = dict(NOMES_SKIN)
+        for p in self._pacotes:
+            nomes[p["id"]] = p["nome"]
+        return nomes
+
+    @Property("QVariant", constant=True)
+    def skins(self):
+        """Ids na ordem do seletor: as embutidas e depois os pacotes."""
+        return list(NOMES_SKIN) + [p["id"] for p in self._pacotes]
+
+    @Slot(str, result="QVariant")
+    def pacote(self, skin):
+        for p in self._pacotes:
+            if p["id"] == skin:
+                return p
+        return None
 
     @Property(str, notify=estadoMudou)
     def estado(self):

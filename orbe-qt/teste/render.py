@@ -26,8 +26,14 @@ comp = QQmlComponent(eng, QUrl.fromLocalFile(cena))
 root = comp.create()
 if root is None:
     print(comp.errorString()); sys.exit(1)
+import json
 for k, v in props.items():
-    root.setProperty(k, {"true": True, "false": False}.get(v, v))
+    # json:<arquivo> carrega um JSON na propriedade (manifesto de pacote etc.)
+    if v.startswith("json:"):
+        v = json.loads(open(v[5:], encoding="utf-8").read())
+    else:
+        v = {"true": True, "false": False}.get(v, v)
+    root.setProperty(k, v)
 root.setParentItem(win.contentItem())
 dpr = float(props.get("dpr", 1.25))
 passo_dt = float(props.get("dt", 1 / 60))

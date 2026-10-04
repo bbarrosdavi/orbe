@@ -432,7 +432,7 @@ Item {
                         spacing: 10
                         Repeater {
                             id: cartoes
-                            model: ["ofanim", "ofanim_alado", "serafim", "anel"]
+                            model: ponte.skins
                             Cartao {
                                 width: (parent.width - 10) / 2
                                 skin: modelData
@@ -696,7 +696,7 @@ Item {
         rRastro.ligado = !!c.diagnostico.rastro_niveis
 
         var o = c.orbe
-        skin = ["ofanim", "ofanim_alado", "serafim", "anel"].indexOf(o.skin) >= 0 ? o.skin : "ofanim"
+        skin = ponte.skins.indexOf(o.skin) >= 0 ? o.skin : "ofanim"
         rGlitch.ligado = !!o.glitch
         rVidro.ligado = !!o.vidro
         rTexto.valor = o.texto || "lado"

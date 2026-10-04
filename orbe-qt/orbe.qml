@@ -25,6 +25,10 @@ ShellRoot {
     readonly property string sockOrbe: Quickshell.env("HERMES_ORB_SOCK") || runtime + "/hermes-voice-orb.sock"
     readonly property string sockCtl: Quickshell.env("HERMES_CTL_SOCK") || runtime + "/hermes-voice-ctl.sock"
     readonly property string arqConfig: Quickshell.env("HERMES_ORB_CONFIG") || home + "/.config/hermes-voice/config.json"
+    // pacotes de skin: os do usuário e os que vêm com o orbe
+    readonly property var dirsSkins: [Quickshell.env("HERMES_SKINS_DIR") || home + "/.config/hermes-voice/skins",
+                                      Quickshell.shellPath("skins")]
+    property int dirSkin: 0
     readonly property var tela: {
         var ts = Quickshell.screens
         for (var i = 0; i < ts.length; i++)
@@ -42,12 +46,35 @@ ShellRoot {
         var tam = parseFloat(o.tamanho)
         conteudo.tamanho = isNaN(tam) ? 1.0 : Math.min(1.6, Math.max(0.6, tam))
         conteudo.textoPos = o.texto === "abaixo" ? "abaixo" : "lado"
+        if (conteudo.pacote) { dirSkin = 0; manifesto.reload() }
+    }
+    function lerManifesto(texto) {
+        var m = null
+        try { m = JSON.parse(texto) } catch (e) { m = null }
+        if (!m || !m.camadas) { manifestoFalhou(); return }
+        conteudo.pacoteDir = "file://" + dirsSkins[dirSkin] + "/" + conteudo.skin
+        conteudo.pacoteManifesto = m
+    }
+    function manifestoFalhou() {
+        if (dirSkin + 1 < dirsSkins.length) { dirSkin++; manifesto.reload(); return }
+        // sem skin.json em lugar nenhum: PNG solto <skins>/<nome>.png, com pulso
+        conteudo.pacoteDir = "file://" + dirsSkins[0]
+        conteudo.pacoteManifesto = { quadro: 1024, camadas: [{ arquivo: conteudo.skin + ".png", anim: "pulsar" }] }
     }
     function corCss(texto, re, padrao) {
         var m = re.exec(texto || "")
         return m ? "#" + m[1] : padrao
     }
 
+    FileView {
+        id: manifesto
+        path: conteudo.pacote ? raiz.dirsSkins[raiz.dirSkin] + "/" + conteudo.skin + "/skin.json" : ""
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: raiz.lerManifesto(text())
+        onLoadFailed: raiz.manifestoFalhou()
+    }
     FileView {
         path: raiz.arqConfig
         watchChanges: true
@@ -141,7 +168,7 @@ ShellRoot {
     readonly property real origemY: tela ? tela.y : 0
     Process {
         id: ponteiro
-        running: janela.visible && conteudo.avatar
+        running: janela.visible && !conteudo.anelSkin
         command: ["/usr/bin/python3", raiz.ponteiroPy, "--stdio"]
         stdinEnabled: true
         stdout: SplitParser {

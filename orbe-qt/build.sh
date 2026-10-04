@@ -7,7 +7,7 @@ QSB=${QSB:-/usr/lib/qt6/bin/qsb}
 for s in 0:ofanim 1:ofanim_alado 2:serafim; do
     "$QSB" --glsl "100es,150" -DSKIN="${s%%:*}" -o "figura_${s#*:}.frag.qsb" figura.frag
 done
-for f in pos anel; do
+for f in pos anel mascara; do
     [ -f "$f.frag" ] && "$QSB" --glsl "100es,150" -o "$f.frag.qsb" "$f.frag"
 done
 rm -f figura.frag.qsb

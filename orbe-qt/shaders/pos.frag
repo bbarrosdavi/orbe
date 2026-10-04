@@ -44,7 +44,8 @@ float scan_; // fator das linhas de varredura nesta linha
 
 vec2 masc(vec2 pos) {
     if (pos.x < 0.0 || pos.y < 0.0 || pos.x > tam.x || pos.y > tam.y) return vec2(0.0);
-    return texture(source, pos / tam).rg;
+    // r = alfa: vale para a máscara dos avatares (r = a) e para PNGs de qualquer cor
+    return texture(source, pos / tam).ag;
 }
 
 vec3 masc3(vec2 pos) {

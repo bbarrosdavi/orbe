@@ -84,6 +84,7 @@ DEFAULTS = {
     },
     "orbe": {
         # ofanim | ofanim_alado | serafim (orbe-qt/comum/Figura.qml) | anel (rotoscope)
+        # | nome de um pacote de camadas em ~/.config/hermes-voice/skins/ (Pacote.qml)
         "skin": "ofanim",
         "glitch": True,
         # disco translúcido com blur atrás do orbe (ext-background-effect no niri)

@@ -22,6 +22,12 @@ Item {
     property color corFundo: "#121414"     // @window_bg_color: tom do vidro
 
     readonly property bool avatar: skin === "ofanim" || skin === "ofanim_alado" || skin === "serafim"
+    readonly property bool anelSkin: skin === "anel"
+    // qualquer outro nome é um pacote de camadas (Pacote.qml); o dono informa
+    // a pasta e o manifesto lidos do skin.json
+    readonly property bool pacote: !avatar && !anelSkin
+    property url pacoteDir
+    property var pacoteManifesto: ({})
     // ART_BOX é o tamanho visual da arte; ORB_BOX, a célula reservada para ela
     readonly property int orbBox: Math.round(148 * tamanho)
     readonly property int artBox: Math.round(120 * tamanho)
@@ -75,7 +81,7 @@ Item {
         if (!visivel || fase === "out") {
             fase = "in"
             faseT = 0
-            if (!avatar && arte.item) arte.item.st.framePos = 0
+            if (anelSkin && arte.item) arte.item.st.framePos = 0
         }
         visivel = true
     }
@@ -186,7 +192,7 @@ Item {
 
         var it = arte.item
         if (it) {
-            if (avatar) it.desperto = desp
+            if (avatar || pacote) it.desperto = desp
             it.avancar(dt)
         }
 
@@ -204,7 +210,7 @@ Item {
         Loader {
             id: arte
             anchors.fill: parent
-            sourceComponent: orbe.avatar ? compFigura : compAnel
+            sourceComponent: orbe.avatar ? compFigura : (orbe.anelSkin ? compAnel : compPacote)
         }
     }
 
@@ -250,12 +256,31 @@ Item {
         }
     }
 
+    Component {
+        id: compPacote
+        Pacote {
+            dir: orbe.pacoteDir
+            manifesto: orbe.pacoteManifesto
+            glitch: orbe.glitch
+            cor: orbe.corTema
+            zoom: orbe.envEsc * (orbe.vidro ? 0.9 : 1)
+            alfa: orbe.envAlfa
+            olharAlvo: orbe.olhar
+            mix: orbe.mix
+            voz: orbe.nivelS
+            mic: orbe.micS
+            vidroLigado: orbe.vidro
+            vidroRaio: orbe.raioVidro
+            vidroCor: orbe.corFundo
+        }
+    }
+
     // ── sessão travada: ponto fixo no topo, fora do giro, com respiro lento ──
     Item {
         id: ponto
         visible: orbe.travado
         readonly property real pulso: 0.62 + 0.38 * (0.5 + 0.5 * Math.sin(orbe.t * 2.0))
-        readonly property color cor: orbe.avatar ? orbe.corTema : (arte.item ? arte.item.corAnel : orbe.accent)
+        readonly property color cor: !orbe.anelSkin ? orbe.corTema : (arte.item ? arte.item.corAnel : orbe.accent)
         x: orbe.cx
         y: orbe.cy - (orbe.orbBox / 2 - 7)
         Rectangle {
