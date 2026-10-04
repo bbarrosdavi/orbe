@@ -1,14 +1,12 @@
 import QtQuick
 import "../comum"
 
-// Seraphim: uma linha por arranjo de olhos (penas encorpadas), mais as penas
-// antigas para comparar; uma coluna por estado.
+// Seraphim: uma linha por arranjo de olhos, uma coluna por estado.
 Rectangle {
     id: folha
     property int lado: 200
-    readonly property var modos: [["só o de cima", 0, true], ["só o do meio", 1, true], ["os dois", 2, true],
-                                  ["só o do meio,\nvertical", 3, true], ["os dois, o do\nmeio vertical", 4, true],
-                                  ["os dois,\npenas antigas", 2, false]]
+    readonly property var modos: [["só o de cima", 0], ["só o do meio", 1], ["os dois", 2],
+                                  ["só o do meio,\nvertical", 3], ["os dois, o do\nmeio vertical", 4]]
     readonly property var estados: [["idle", "idle"], ["ouvindo", "listening"], ["pensando", "thinking"], ["respondendo", "speaking"]]
     width: 130 + lado * estados.length
     height: 24 + lado * modos.length
@@ -39,7 +37,6 @@ Rectangle {
                 width: folha.lado; height: folha.lado
                 skin: "serafim"
                 olhosSerafim: folha.modos[Math.floor(index / folha.estados.length)][1]
-                penasEncorpadas: folha.modos[Math.floor(index / folha.estados.length)][2]
                 property string estado: folha.estados[index % folha.estados.length][1]
                 mix: { var m = { idle: 0, listening: 0, thinking: 0, tools: 0, speaking: 0 }; m[estado] = 1; return m }
                 peso: 1.4

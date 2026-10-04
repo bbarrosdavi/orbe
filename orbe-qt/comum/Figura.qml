@@ -29,7 +29,6 @@ Item {
     // Seraphim: 0 só o olho de cima, 1 só o do meio, 2 os dois, 3 só o do
     // meio na vertical, 4 os dois com o do meio na vertical
     property int olhosSerafim: 3
-    property bool penasEncorpadas: false
     property var mix: ({ idle: 1.0 })      // pesos por estado
     property real voz: 0
     property real mic: 0
@@ -269,7 +268,7 @@ Item {
                        0.85 * R * de, para, ab * de, 0, true)
             }
             fx.sera = v4(s.fogo, s.tri, s.abre, s.brasa)
-            fx.sera2 = v4(s.brasaAng, olhosSerafim, penasEncorpadas ? 1 : 0, 0)
+            fx.sera2 = v4(s.brasaAng, olhosSerafim, 0, 0)
             fx.ofa2 = v4(0, de, 6, 0)
         } else {
             var d = desperto

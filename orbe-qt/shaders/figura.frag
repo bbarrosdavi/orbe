@@ -32,7 +32,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 w0a; vec4 w0b; vec4 w1a; vec4 w1b; vec4 w2a; vec4 w2b;   // asas: raiz, ângulo, L;
     vec4 w3a; vec4 w3b; vec4 w4a; vec4 w4b; vec4 w5a; vec4 w5b;   //   lado, abertura, olhos, ocultar
     vec4 sera;       // fogo, trisagion, abertura do rosto, brasa
-    vec4 sera2;      // ângulo da brasa, arranjo dos olhos (0 a 4), penas encorpadas, —
+    vec4 sera2;      // ângulo da brasa, arranjo dos olhos (0 a 4), —, —
     vec4 lacos;      // nº de olhos (30), vagas de brasa (24), vagas de fumaça (10), asas
 };
 
@@ -461,30 +461,9 @@ void asa(inout float A, vec2 p, vec4 wa, vec4 wb, float slot, float lw, float aa
         A *= 1.0 - 0.92 * cobre(sdPoly14(q, poly, 14), aa);
     }
 
-    // penas encorpadas (sera2.z, só no Seraphim): lâmina em lente ao longo da
-    // raque, fina na base e na ponta; cada uma cobre a de trás, em camadas
-    bool encorpada = sera2.z > 0.5;
+    // osso (a bézier cúbica em 8 segmentos)
     float dmin = 1e9;
     vec2 ant = vec2(0.0);
-    if (encorpada) {
-        for (int k = 0; k < 9; k++) {
-            vec2 b = B[k], tp = T[k];
-            vec2 m = (b + tp) * 0.5;
-            vec2 ctl = m + 1.5 * (C[k] - m);
-            vec2 bt = tp - b;
-            float sk = sat(dot(q - b, bt) / max(dot(bt, bt), 1e-6));
-            float meia = L * (0.045 + 0.025 * float(k) / 8.0) * sqrt(max(0.0, sin(PI * sk)));
-            float d = bezq(q, b, ctl, tp);
-            float sd = d - meia;
-            float dentro = cobre(sd, aa);
-            A *= 1.0 - 0.85 * dentro;
-            sobre(A, dentro * pa(0.16));
-            sobre(A, traco(abs(sd), 0.9 * lw, aa) * pa(0.70));
-            sobre(A, traco(d, 0.7 * lw, aa) * dentro * pa(0.45));
-        }
-    }
-
-    // osso (a bézier cúbica em 8 segmentos); nas encorpadas, por cima delas
     for (int k = 1; k <= 8; k++) {
         vec2 o = ossoP(float(k) / 8.0, L);
         dmin = min(dmin, segd(q, ant, o));
@@ -492,24 +471,22 @@ void asa(inout float A, vec2 p, vec4 wa, vec4 wb, float slot, float lw, float aa
     }
     sobre(A, traco(dmin, 1.5 * lw, aa) * pa(0.9));
 
-    if (!encorpada) {
-        // penas: a cúbica do Cairo tem os dois controles no mesmo ponto; a
-        // quadrática equivalente põe o controle 1,5x mais longe da corda
-        dmin = 1e9;
-        for (int k = 0; k < 9; k++) {
-            vec2 m = (B[k] + T[k]) * 0.5;
-            dmin = min(dmin, bezq(q, B[k], m + 1.5 * (C[k] - m), T[k]));
-        }
-        sobre(A, traco(dmin, 1.0 * lw, aa) * pa(0.55));
-
-        // borda de fuga recortada entre as pontas das penas
-        dmin = 1e9;
-        for (int k = 0; k < 8; k++) {
-            vec2 mu = (T[k] + T[k + 1]) * 0.5;
-            dmin = min(dmin, bezq(q, T[k], mu + vec2(0.0, 0.06 * L), T[k + 1]));
-        }
-        sobre(A, traco(dmin, 0.8 * lw, aa) * pa(0.28));
+    // penas: a cúbica do Cairo tem os dois controles no mesmo ponto; a
+    // quadrática equivalente põe o controle 1,5x mais longe da corda
+    dmin = 1e9;
+    for (int k = 0; k < 9; k++) {
+        vec2 m = (B[k] + T[k]) * 0.5;
+        dmin = min(dmin, bezq(q, B[k], m + 1.5 * (C[k] - m), T[k]));
     }
+    sobre(A, traco(dmin, 1.0 * lw, aa) * pa(0.55));
+
+    // borda de fuga recortada entre as pontas das penas
+    dmin = 1e9;
+    for (int k = 0; k < 8; k++) {
+        vec2 mu = (T[k] + T[k + 1]) * 0.5;
+        dmin = min(dmin, bezq(q, T[k], mu + vec2(0.0, 0.06 * L), T[k + 1]));
+    }
+    sobre(A, traco(dmin, 0.8 * lw, aa) * pa(0.28));
 
     // coberteiras: penas curtas junto ao osso
     float phic = 1.25 * (0.4 + 0.6 * abert);
@@ -535,14 +512,7 @@ void asa(inout float A, vec2 p, vec4 wa, vec4 wb, float slot, float lw, float aa
             vec2 dir = e1 * cos(PH[k]) + e2 * sin(PH[k]);
             float a = atan(dir.y, dir.x);
             float ab = pisca(100.0 + slot * 10.0 + float(j)) * sat(abert * 1.4);
-            float tamO = encorpada ? L * 0.13 : L * 0.07;
-            if (encorpada) {
-                vec2 de = p - pos;
-                float ca = cos(a), sa = sin(a);
-                vec2 dq = vec2(ca * de.x + sa * de.y, -sa * de.x + ca * de.y) / vec2(tamO * 1.08, tamO * 0.55);
-                A *= 1.0 - cobre((length(dq) - 1.0) * tamO * 0.55, aa);
-            }
-            olho(A, p, pos, a, tamO, ab, olharPara(pos, a, 1.0, 0.0), pa(encorpada ? 1.0 : 0.85), 1.0, lw, aa);
+            olho(A, p, pos, a, L * 0.07, ab, olharPara(pos, a, 1.0, 0.0), pa(0.85), 1.0, lw, aa);
         }
     }
 }
