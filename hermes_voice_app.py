@@ -31,7 +31,7 @@ from PySide6.QtCore import (QEvent, QObject, QProcess, QProcessEnvironment, Prop
                             QUrl, Qt, Signal, Slot)
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtQml import QQmlApplicationEngine
+from PySide6.QtQml import QJSValue, QQmlApplicationEngine
 from PySide6.QtQuick import QQuickImageProvider, QQuickWindow
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -228,6 +228,14 @@ class Icones(QQuickImageProvider):
         return pm
 
 
+def _do_js(v) -> dict:
+    """Cópia Python de um objeto vindo do QML (um objeto JS guardado numa
+    propriedade `var` chega como QJSValue, não como dict)."""
+    if isinstance(v, QJSValue):
+        v = v.toVariant()
+    return json.loads(json.dumps(v or {}))
+
+
 class Ponte(QObject):
     modelosConsultados = Signal("QVariant", str)
     atalhoCapturado = Signal(str)
@@ -334,7 +342,7 @@ class Ponte(QObject):
 
     @Slot("QVariant")
     def consultarModelos(self, agente):
-        agente = dict(agente or {})
+        agente = _do_js(agente)
 
         def trabalho():
             rt = None
@@ -436,7 +444,7 @@ class Ponte(QObject):
 
     @Slot("QVariant")
     def atualizarPrevia(self, aparencia):
-        orbe = json.loads(json.dumps(aparencia or {}))
+        orbe = _do_js(aparencia)
         tmp = PREVIA_CFG.with_suffix(".tmp")
         tmp.write_text(json.dumps({"orbe": orbe}), encoding="utf-8")
         os.replace(tmp, PREVIA_CFG)
@@ -481,7 +489,7 @@ class Ponte(QObject):
 
     @Slot("QVariant", str, result="QVariant")
     def aplicar(self, novo, atalho):
-        novo = json.loads(json.dumps(novo))
+        novo = _do_js(novo)
         erro = ""
         if atalho != _atalho_atual():
             erro = _gravar_atalho(atalho)
