@@ -95,6 +95,14 @@ Item {
     function avancar(dt) {
         var s = st
         s.t += dt
+        // ondas da voz, uma por sílaba, em qualquer skin
+        var subida = voz - s.vozAnt
+        if (p("speaking") > 0.3 && s.t - s.ultimaOnda > 0.12
+                && (subida > 0.05 || (voz > 0.3 && s.t - s.ultimaOnda > 0.3))) {
+            s.ondas.push([s.t, Math.min(1, 0.35 + voz)])
+            s.ultimaOnda = s.t
+        }
+        s.ondas = s.ondas.filter(function (o) { return s.t - o[0] < 1.3 })
         if (skin === "serafim") evoluirSerafim(dt)
         else {
             evoluirOfanim(dt)
@@ -123,14 +131,6 @@ Item {
             s.proxQuarto = t + uni(0.45, 0.9)
         }
         s.quarto += (s.quartoAlvo - s.quarto) * Math.min(1, dt * 9)
-
-        var subida = voz - s.vozAnt
-        if (p("speaking") > 0.3 && t - s.ultimaOnda > 0.12
-                && (subida > 0.05 || (voz > 0.3 && t - s.ultimaOnda > 0.3))) {
-            s.ondas.push([t, Math.min(1, 0.35 + voz)])
-            s.ultimaOnda = t
-        }
-        s.ondas = s.ondas.filter(function (o) { return t - o[0] < 1.3 })
 
         if (Math.random() < dt * (2.4 * ferr + 0.5 * pensar))
             s.relampagos.push([t, sorteia(4), uni(0, tau), sorteia(4), uni(0, tau), Math.random() * 100])
@@ -275,19 +275,6 @@ Item {
             R = Rb * (0.25 + 0.75 * suave(d))
             var comp = 1.25 + 0.45 * falar - 0.18 * ouvir + 0.10 * pensar
             fx.raios = v4(28, s.giroRaios, comp, (0.06 + 0.06 * pensar + 0.10 * falar + 0.15 * s.clarao) * suave(d))
-            // ondas da voz: "o ruído das suas asas, como o de muitas águas"
-            var on = []
-            for (var o of s.ondas) {
-                var idade = (t - o[0]) / 1.3
-                var r = R * (0.55 + idade * 1.2)
-                if (r >= lim) continue
-                on.push(r, o[1] * (1 - idade) * (1 - r / lim) * 0.55)
-            }
-            while (on.length < 16) on.push(0, 0)
-            fx.ondas0 = v4(on[0], on[1], on[2], on[3])
-            fx.ondas1 = v4(on[4], on[5], on[6], on[7])
-            fx.ondas2 = v4(on[8], on[9], on[10], on[11])
-            fx.ondas3 = v4(on[12], on[13], on[14], on[15])
             gaze = olharAlvo ? [olharAlvo.x, olharAlvo.y] : vagar(cx, cy, R)
 
             if (skin === "ofanim_alado") {
@@ -349,6 +336,20 @@ Item {
 
         fx.centro = Qt.vector2d(cx, cy)
         fx.olhar = Qt.vector2d(gaze[0], gaze[1])
+        // ondas da voz: "o ruído das suas asas, como o de muitas águas"
+        var on = []
+        for (var o of s.ondas) {
+            var idade = (t - o[0]) / 1.3
+            var r = R * (0.55 + idade * 1.2)
+            if (r >= lim) continue
+            on.push(r, o[1] * (1 - idade) * (1 - r / lim) * 0.55)
+        }
+        while (on.length < 16) on.push(0, 0)
+        fx.ondas0 = v4(on[0], on[1], on[2], on[3])
+        fx.ondas1 = v4(on[4], on[5], on[6], on[7])
+        fx.ondas2 = v4(on[8], on[9], on[10], on[11])
+        fx.ondas3 = v4(on[12], on[13], on[14], on[15])
+
         fx.geo = v4(R, lim, t, peso)
         fx.est = v4(ouvir, pensar, ferr, falar)
         fx.est2 = v4(voz, mic, desperto, skin === "serafim" ? 2 : (skin === "ofanim_alado" ? 1 : 0))

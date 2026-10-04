@@ -555,6 +555,11 @@ void serafim(inout float A, vec2 p, float aa) {
     vec2 c = centro;
 
     desenhaRaios(A, p, c, R, lim, lw, aa);
+    // ondas da voz, as mesmas do Ophanim, atrás de tudo
+    onda(A, p, c, ondas0.xy, lw, aa); onda(A, p, c, ondas0.zw, lw, aa);
+    onda(A, p, c, ondas1.xy, lw, aa); onda(A, p, c, ondas1.zw, lw, aa);
+    onda(A, p, c, ondas2.xy, lw, aa); onda(A, p, c, ondas2.zw, lw, aa);
+    onda(A, p, c, ondas3.xy, lw, aa); onda(A, p, c, ondas3.zw, lw, aa);
     // com duas voava: atrás do corpo
     int na = nAsas_();
     for (int i = 0; i < na; i++) { if (i >= 2) break; asa(A, p, asaA(i), asaB(i), float(i), lw, aa); }
