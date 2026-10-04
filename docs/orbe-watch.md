@@ -498,7 +498,7 @@ emulador como `10.0.2.2`, então o servidor é `10.0.2.2:8777`.
 ## Problemas comuns
 
 <p>
-<img src="img/token-recusado.png" width="200" align="right" alt="Rodapé do app com a mensagem token recusado">
+<img src="img/rodape-recusado.png" width="200" align="right" alt="Rodapé do app com a mensagem token recusado">
 </p>
 
 **`token recusado`.** O token do relógio não é o da ponte. Rode
