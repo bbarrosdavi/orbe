@@ -97,6 +97,16 @@ DEFAULTS = {
         # ~/.config/hermes-voice/orbe-posicao.json (o padrão é o canto)
         "mover": False,
     },
+    "relogio": {
+        # ponte WebSocket para o app do relógio (orbe-wear), servida pelo
+        # hermes_voice_relogio.py; desligada, o daemon não abre porta nenhuma
+        "ligado": False,
+        "porta": 8777,
+        # pareamento: gerado na primeira subida (hermes_voice_relogio.py mostra)
+        "token": "",
+        # com o dedo no orbe do relógio, a fala vem do microfone dele
+        "microfone": True,
+    },
 }
 
 

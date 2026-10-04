@@ -16,17 +16,34 @@ O canal só existe nas sessões abertas com a flag de desenvolvimento de canais
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
+import secrets
 import signal
 import socket
 import sys
+import tempfile
 import threading
 import time
 import uuid
 from pathlib import Path
 
-PASTA = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}") / "hermes-voice" / "claude"
+
+def _pasta() -> Path:
+    """Onde as sessões se anunciam: o runtime do usuário (no Windows, o perfil local)."""
+    rt = os.environ.get("XDG_RUNTIME_DIR")
+    if not rt and hasattr(os, "getuid"):
+        rt = f"/run/user/{os.getuid()}"
+        if not os.path.isdir(rt):                 # sem systemd (macOS, BSD)
+            rt = os.path.join(tempfile.gettempdir(), f"hermes-voice-{os.getuid()}")
+    return Path(rt or os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()) / "hermes-voice" / "claude"
+
+
+PASTA = _pasta()
+# Sem AF_UNIX (o Python do Windows), o canal escuta no laço local e o .sock da
+# sessão é um arquivo com a porta e a chave de quem pode falar com ela.
+UNIX = hasattr(socket, "AF_UNIX")
 NOME = "orbe"
 
 INSTRUCOES = (
@@ -39,7 +56,26 @@ INSTRUCOES = (
 )
 
 
+# Vai em cada mensagem, como atributo da tag <channel>: há versões do Claude
+# Code que não levam as instruções do servidor ao modelo (medido na 2.1.289: ele
+# respondia no terminal e não chamava o reply, e o orbe ficava sem resposta).
+LEMBRETE = ("Fala do usuario pelo orbe de voz. No fim, chame a ferramenta reply com este "
+            "pedido e a resposta que sera dita em voz alta, sem markdown.")
+
+
 def _vivo(pid: int) -> bool:
+    if os.name == "nt":
+        # no Windows o os.kill(pid, 0) não sonda: ele encerra o processo
+        import ctypes
+        k = ctypes.windll.kernel32
+        h = k.OpenProcess(0x1000, False, pid)     # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        try:
+            codigo = ctypes.c_ulong()
+            return bool(k.GetExitCodeProcess(h, ctypes.byref(codigo))) and codigo.value == 259   # STILL_ACTIVE
+        finally:
+            k.CloseHandle(h)
     try:
         os.kill(pid, 0)
         return True
@@ -78,6 +114,7 @@ class Canal:
         self._saida = threading.Lock()
         self._pendentes: dict[str, socket.socket] = {}
         self._trava = threading.Lock()
+        self._chave = ""              # só no laço local: o que o cliente apresenta antes de perguntar
 
     # MCP: ndjson no stdin/stdout
     def _escrever(self, msg: dict):
@@ -160,6 +197,8 @@ class Canal:
     # socket local: o daemon do orbe pergunta aqui
     def _cliente(self, cli: socket.socket):
         buf = b""
+        # o socket Unix já é só do usuário (0600); o laço local pede a chave
+        autorizado = UNIX
         try:
             while True:
                 bloco = cli.recv(65536)
@@ -172,13 +211,18 @@ class Canal:
                         m = json.loads(linha)
                     except ValueError:
                         continue
+                    if not autorizado:
+                        if m.get("tipo") != "chave" or not hmac.compare_digest(str(m.get("chave")), self._chave):
+                            return
+                        autorizado = True
+                        continue
                     if m.get("tipo") == "pergunta":
                         pedido = uuid.uuid4().hex[:8]
                         with self._trava:
                             self._pendentes[pedido] = cli
                         self._escrever({"jsonrpc": "2.0", "method": "notifications/claude/channel",
                                         "params": {"content": str(m.get("texto") or ""),
-                                                   "meta": {"pedido": pedido}}})
+                                                   "meta": {"pedido": pedido, "responder": LEMBRETE}}})
                         cli.sendall((json.dumps({"tipo": "aceito", "pedido": pedido}) + "\n").encode())
                     elif m.get("tipo") == "cancelar":
                         with self._trava:
@@ -208,11 +252,22 @@ class Canal:
                 pass
 
     def rodar(self):
+        for fluxo in (sys.stdin, sys.stdout):     # o MCP é UTF-8; o console do Windows, não
+            try:
+                fluxo.reconfigure(encoding="utf-8")
+            except (AttributeError, ValueError):
+                pass
         PASTA.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._limpar()
-        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        srv.bind(str(self.sock_path))
-        os.chmod(self.sock_path, 0o600)
+        if UNIX:
+            srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            srv.bind(str(self.sock_path))
+            os.chmod(self.sock_path, 0o600)
+        else:
+            srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            srv.bind(("127.0.0.1", 0))
+            self._chave = secrets.token_hex(16)
+            self.sock_path.write_text(f"{srv.getsockname()[1]} {self._chave}")
         srv.listen(4)
         self.info_path.write_text(json.dumps({"cwd": os.getcwd()}))
         signal.signal(signal.SIGTERM, lambda *_: (self._limpar(), os._exit(0)))
@@ -231,6 +286,22 @@ class Canal:
 
 
 # ── cliente: usado pelo daemon do orbe ─────────────────────────────────────
+
+def _ligar(caminho: Path) -> socket.socket:
+    """Conecta ao canal de uma sessão: socket Unix, ou o laço local com a chave."""
+    if UNIX:
+        cli = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            cli.connect(str(caminho))
+        except OSError:
+            cli.close()
+            raise
+        return cli
+    porta, chave = caminho.read_text().split()
+    cli = socket.create_connection(("127.0.0.1", int(porta)), timeout=3)
+    cli.sendall((json.dumps({"tipo": "chave", "chave": chave}) + "\n").encode())
+    return cli
+
 
 class AgenteClaude:
     """Fala com a sessão aberta mais recente; não sobe processo nenhum."""
@@ -278,12 +349,9 @@ class AgenteClaude:
                   parar=None, teto: float = 600.0) -> str:
         """Manda a fala e espera o reply. Interromper só para a espera: o
         Claude segue o que estiver fazendo no terminal."""
-        caminho = PASTA / f"{self.sessao}.sock"
-        cli = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
-            cli.connect(str(caminho))
-        except OSError as e:
-            cli.close()
+            cli = _ligar(PASTA / f"{self.sessao}.sock")
+        except (OSError, ValueError) as e:
             raise self._erro(f"sessão {self.sessao} não atende: {e}")
         cli.settimeout(0.2)
         fim = time.monotonic() + teto
@@ -321,4 +389,9 @@ class AgenteClaude:
 
 
 if __name__ == "__main__":
-    Canal().rodar()
+    if "--mcp-config" in sys.argv:
+        # o que o claude-orbe passa ao Claude, com o Python e o caminho desta máquina
+        print(json.dumps({"mcpServers": {NOME: {"type": "stdio", "command": sys.executable,
+                                                 "args": [str(Path(__file__).resolve())]}}}))
+    else:
+        Canal().rodar()

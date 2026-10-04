@@ -747,6 +747,8 @@ def _reap_orbs() -> None:
 
 _ORB_CONN = None
 _ORB_CONN_LOCK = threading.Lock()
+# Ponte para o app do relógio (hermes_voice_relogio.py); None com ela desligada.
+_RELOGIO = None
 
 
 def orb_cmd(line: str) -> None:
@@ -757,6 +759,8 @@ def orb_cmd(line: str) -> None:
     dezenas por segundo. Com o orbe morto, o AF_UNIX devolve EPIPE na hora,
     então a mensagem é reenviada por uma conexão nova em vez de se perder.
     """
+    if _RELOGIO is not None:
+        _RELOGIO.publicar(line)    # o relógio desenha o mesmo orbe
     payload = (line.strip() + "\n").encode()
 
     def _send() -> bool:
@@ -1384,6 +1388,45 @@ class Daemon:
         return (self.state == "processing" and not self._tts_playing
                 and self._processing_thread is not None
                 and self._processing_thread.is_alive())
+
+    # ── Relógio (orbe-wear): o mesmo orbe no pulso, pela ponte WebSocket ──
+
+    def _subir_relogio(self):
+        global _RELOGIO
+        rc = VCFG["relogio"]
+        if not rc["ligado"]:
+            return
+        try:
+            import hermes_voice_relogio as relogio
+            ponte = relogio.PonteRelogio(
+                int(rc["porta"]), relogio.token_da_config(),
+                ao_controle=self._ctl_q.put, ao_comando=self._relogio_comando,
+                ao_quadro=self._relogio_quadro if rc["microfone"] else None)
+            if ponte.iniciar():
+                _RELOGIO = ponte
+        except Exception as e:
+            LOG.warning("relógio: ponte indisponível (%s)", e)
+
+    def _relogio_comando(self, op: str):
+        """Os verbos do orb_control, pelo mesmo arquivo que ele escreve."""
+        try:
+            Path(f"/run/user/{os.getuid()}/hermes-voice.cmd").write_text(op + "\n")
+        except OSError as e:
+            LOG.warning("relógio: comando %s não gravado (%s)", op, e)
+
+    def _relogio_quadro(self, quadro: bytes):
+        """Fala captada pelo relógio: entra na fila como a do pw-record."""
+        try:
+            self.audio_queue.put_nowait(quadro)
+        except queue.Full:
+            try:
+                self.audio_queue.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                self.audio_queue.put_nowait(quadro)
+            except queue.Full:
+                pass
 
     # ── Controle externo: toque no orbe e relato de despacho ──
 
@@ -2185,6 +2228,7 @@ class Daemon:
         threading.Thread(target=self._tts_consumer, daemon=True).start()
         threading.Thread(target=_orb_boot, daemon=True).start()
         threading.Thread(target=self._ctl_loop, daemon=True).start()
+        self._subir_relogio()
         if MANTER_MIN <= 0:
             self._preaquecer_agente()
 
@@ -2265,6 +2309,8 @@ class Daemon:
                         break
                     if not raw or len(raw) < capture_bytes:
                         break
+                    if _RELOGIO is not None and _RELOGIO.mic_ativo():
+                        continue    # a fala vem do relógio: o microfone do PC não entra junto
                     bloco = np.frombuffer(raw, dtype=np.int16)
                     if self.capture_rate != SAMPLE_RATE:
                         bloco = _resample_frame(bloco, FRAME_SIZE)

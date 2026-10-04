@@ -293,6 +293,43 @@ Item {
                         visible: rWake.efetivo === "openwakeword" || rWake.efetivo === "microwakeword"
                     }
                 }
+                Grupo {
+                    titulo: "Relógio"
+                    descricao: "O orbe no pulso (orbe-wear): o app do relógio fala com este computador pela rede local."
+                    LinhaSwitch {
+                        id: rRelogio
+                        titulo: "Ponte do relógio"
+                        subtitulo: "abre a porta " + ponte.cfg.relogio.porta + " para o app do relógio"
+                    }
+                    Linha {
+                        titulo: "Pareamento"
+                        subtitulo: "no relógio, o servidor é " + ponte.enderecoRelogio + " e o token é este"
+                        visible: rRelogio.ligado
+                        Rectangle {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: lToken.width + 18
+                            height: lToken.height + 6
+                            radius: 7
+                            color: Estilo.alfa(Estilo.accent, 0.14)
+                            border.color: Estilo.alfa(Estilo.accent, 0.30)
+                            Text {
+                                id: lToken
+                                anchors.centerIn: parent
+                                text: raiz.tokenRelogio || "ao aplicar"
+                                color: Estilo.texto
+                                font.family: "monospace"
+                                font.bold: true
+                                font.pointSize: 10
+                            }
+                        }
+                    }
+                    LinhaSwitch {
+                        id: rRelogioMic
+                        titulo: "Microfone do relógio"
+                        subtitulo: "segurando o orbe no relógio, a fala vem de lá"
+                        visible: rRelogio.ligado
+                    }
+                }
             }
 
             // ═══ Voz ═══
@@ -616,6 +653,8 @@ Item {
 
     // ── estado que outras linhas leem ──
     property string skin: "ofanim"
+    // nasce na primeira vez que a ponte do relógio é aplicada ligada
+    property string tokenRelogio: ponte.cfg.relogio.token
     // aparência ainda não aplicada; a prévia do orbe acompanha cada mudança
     readonly property var aparencia: ({ skin: raiz.skin, glitch: rGlitch.ligado,
                                         vidro: rVidro.ligado, tamanho: tamanho.valor,
@@ -680,6 +719,8 @@ Item {
         rOww.valor = at.oww_modelo
         rMww.valor = at.mww_modelo
         rConfirma.valor = at.confirmacao
+        rRelogio.ligado = !!c.relogio.ligado
+        rRelogioMic.ligado = !!c.relogio.microfone
 
         rStt.valor = v.stt_modelo
         rIdioma.texto = v.stt_idioma
@@ -729,6 +770,8 @@ Item {
         if (chave) at[chave] = Math.round(rLimiar.valor * 100) / 100
         at.confirmacao = Math.round(rConfirma.valor)
         at.atalho = raiz.atalho
+        cfg.relogio.ligado = rRelogio.ligado
+        cfg.relogio.microfone = rRelogioMic.ligado
         v.stt_modelo = rStt.efetivo
         v.stt_idioma = rIdioma.texto.trim() || "pt"
         v.tts_provedor = rTts.efetivo
@@ -757,6 +800,7 @@ Item {
     function aplicar() {
         var r = ponte.aplicar(coletar(), raiz.atalho)
         raiz.atalho = r.atalho
+        raiz.tokenRelogio = r.token
         aviso.mostrar(r.mensagem, r.tempo)
     }
     Component.onCompleted: carregar()

@@ -41,6 +41,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hermes_voice_acp as acp  # noqa: E402
 import hermes_voice_canal as canal  # noqa: E402
 import hermes_voice_config as vcfg  # noqa: E402
+import hermes_voice_relogio as relogio  # noqa: E402
 
 APP_ID = "io.hermes.Orbe"
 SERVICO = "hermes-voice"
@@ -354,6 +355,11 @@ class Ponte(QObject):
     def nomesSkin(self):
         return NOMES_SKIN
 
+    @Property(str, constant=True)
+    def enderecoRelogio(self):
+        """O que se digita no relógio para achar este computador."""
+        return (relogio.enderecos() or ["o IP deste computador"])[0]
+
     @Property(str, notify=estadoMudou)
     def estado(self):
         return self._estado
@@ -582,6 +588,10 @@ class Ponte(QObject):
                 atalho = _atalho_atual()
         novo["ativacao"]["atalho"] = atalho
         self._atalho = atalho
+        # a ponte do relógio precisa de um token; nasce na primeira vez que ela é ligada
+        if novo["relogio"]["ligado"] and not novo["relogio"]["token"]:
+            novo["relogio"]["token"] = relogio.novo_token()
+        token = novo["relogio"]["token"]
 
         def sem(c, *chaves):
             c = json.loads(json.dumps(c))
@@ -596,12 +606,12 @@ class Ponte(QObject):
         vcfg.salvar(novo)
         self._cfg = novo
         if erro:
-            return {"mensagem": erro, "atalho": atalho, "tempo": 6}
+            return {"mensagem": erro, "atalho": atalho, "tempo": 6, "token": token}
         if mudou and not so_orbe:
             subprocess.Popen(["systemctl", "--user", "restart", SERVICO],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return {"mensagem": "Aplicado. Orbe reiniciado.", "atalho": atalho, "tempo": 3}
-        return {"mensagem": "Aplicado.", "atalho": atalho, "tempo": 2}
+            return {"mensagem": "Aplicado. Orbe reiniciado.", "atalho": atalho, "tempo": 3, "token": token}
+        return {"mensagem": "Aplicado.", "atalho": atalho, "tempo": 2, "token": token}
 
 
 def _preparar_app(argv):
