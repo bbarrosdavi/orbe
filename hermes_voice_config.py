@@ -41,9 +41,9 @@ DEFAULTS = {
     "ativacao": {
         # nenhum | openwakeword | sherpa | microwakeword
         "provedor": "nenhum",
-        "oww_modelo": "/home/davi/.hermes/cache/wakewords/ei_hermes_pt.onnx",
-        "mww_modelo": "/home/davi/.hermes/cache/wakewords/ei_hermes_mww.tflite",
-        "sherpa_dir": "/home/davi/.hermes/cache/wakewords/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01",
+        "oww_modelo": str(Path.home() / ".hermes/cache/wakewords/ei_hermes_pt.onnx"),
+        "mww_modelo": str(Path.home() / ".hermes/cache/wakewords/ei_hermes_mww.tflite"),
+        "sherpa_dir": str(Path.home() / ".hermes/cache/wakewords/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"),
         # Frase do sherpa-onnx: tokenizada na hora contra o vocabulário do modelo.
         "frase": "ei hermes",
         # Limiar de score de cada motor (mais alto = mais exigente). Valores de

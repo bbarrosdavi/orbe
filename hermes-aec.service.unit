@@ -7,9 +7,9 @@
 # O daemon de voz captura pelo nó "pipewire" do ALSA, que segue a fonte
 # padrão; sem este passo ele continuaria ouvindo o microfone cru.
 #
-# A lógica vive num script versionado em ~/.hermes/scripts/, e não inline
-# aqui, para ser testável fora do systemd.
-Description=Fonte padrão no microfone com cancelamento de eco do Hermes
+# A lógica vive num script versionado no repo, e não inline aqui, para ser
+# testável fora do systemd. Modelo: o install.sh troca @ORBE@ pela pasta.
+Description=Orbe: fonte padrão no microfone com cancelamento de eco
 After=pipewire.service pipewire-pulse.service wireplumber.service
 Wants=pipewire-pulse.service wireplumber.service
 PartOf=pipewire.service
@@ -17,9 +17,9 @@ PartOf=pipewire.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-Environment=XDG_RUNTIME_DIR=/run/user/1000
-ExecStart=/home/davi/.hermes/scripts/hermes_aec_default.sh set
-ExecStop=/home/davi/.hermes/scripts/hermes_aec_default.sh restore
+Environment=XDG_RUNTIME_DIR=%t
+ExecStart=@ORBE@/hermes_aec_default.sh set
+ExecStop=@ORBE@/hermes_aec_default.sh restore
 
 [Install]
 WantedBy=default.target

@@ -6,17 +6,17 @@ description: Use when the user asks Jarvis to keep the voice session open — se
 # Segurar a sessão de voz aberta
 
 Por padrão a sessão de voz fecha sozinha após 10 segundos sem fala, e o orbe some.
-Quando o Davi pedir para **segurar a sessão** (ou "fica aberto", "não desliga",
+Quando o usuário pedir para **segurar a sessão** (ou "fica aberto", "não desliga",
 "espera aí", "me espera", "continua ouvindo"), desligue esse timeout:
 
 ```bash
-/usr/bin/python3 /home/davi/.hermes/scripts/orb_control.py hold
+/usr/bin/python3 @ORBE@/orb_control.py hold
 ```
 
 Confirme com **uma frase curta** ("Segurando." / "Fico aqui.") e nada mais. Não
 liste sessões, não busque contexto, não despeje markdown.
 
-A partir daí a sessão dura até o Davi dispensar explicitamente (a skill
+A partir daí a sessão dura até o usuário dispensar explicitamente (a skill
 `voice-orb-dismiss` cuida disso). Há um teto de segurança de 30 minutos sem
 nenhuma fala detectada, para um hold esquecido não deixar o microfone armado
 para sempre.
@@ -27,7 +27,7 @@ Se ele pedir para **soltar** a trava mas continuar a conversa ("pode soltar",
 "volta ao normal", "não precisa mais segurar"), devolva o timeout sem fechar:
 
 ```bash
-/usr/bin/python3 /home/davi/.hermes/scripts/orb_control.py release
+/usr/bin/python3 @ORBE@/orb_control.py release
 ```
 
 Não confunda com dispensa: `release` mantém a sessão viva, só volta a contar os

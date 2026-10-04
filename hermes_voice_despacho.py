@@ -17,8 +17,8 @@ import sys
 import time
 from pathlib import Path
 
-HERMES = "/home/davi/.local/bin/hermes"
-PROFILES = Path("/home/davi/.hermes/profiles")
+HERMES = str(Path.home() / ".local/bin/hermes")
+PROFILES = Path.home() / ".hermes/profiles"
 SAIDAS = PROFILES / "jarvis" / "despachos"
 CTL_SOCK = f"/run/user/{os.getuid()}/hermes-voice-ctl.sock"
 TETO_SEC = 2 * 3600

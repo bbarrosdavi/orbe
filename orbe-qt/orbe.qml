@@ -14,8 +14,8 @@ import "comum"
 ShellRoot {
     id: raiz
 
-    readonly property string runtime: Quickshell.env("XDG_RUNTIME_DIR") || "/run/user/1000"
-    readonly property string home: Quickshell.env("HOME") || "/home/davi"
+    readonly property string runtime: Quickshell.env("XDG_RUNTIME_DIR")
+    readonly property string home: Quickshell.env("HOME")
     // ajudante do ponteiro na pasta acima desta, onde quer que ela esteja
     // (no arquivo raiz o Qt.resolvedUrl do Quickshell dá qrc:/qs-blackhole)
     readonly property string ponteiroPy: Quickshell.shellPath("../hermes_voice_ponteiro.py")

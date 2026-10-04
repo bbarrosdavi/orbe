@@ -14,17 +14,17 @@ import torch.nn as nn
 from openwakeword.model import Model
 from piper import PiperVoice, SynthesisConfig
 
-CACHE = Path("/home/davi/.hermes/cache/wakewords")
+CACHE = Path.home() / ".hermes/cache/wakewords"
 ONNX_PATH = CACHE / "ei_hermes_pt.onnx"
 TMP = Path("/tmp/wakeword_pt_retrain")
 TMP.mkdir(parents=True, exist_ok=True)
-BUNDLED = "/home/davi/.hermes/hermes-agent/tools/wakewords/hey_hermes.onnx"
+BUNDLED = str(Path.home() / ".hermes/hermes-agent/tools/wakewords/hey_hermes.onnx")
 
 PIPER_MODELS = [
-    "/home/davi/.hermes/piper_models/pt_BR-faber-medium.onnx",
-    "/home/davi/.hermes/piper_models/pt_BR-cadu-medium.onnx",
-    "/home/davi/.hermes/piper_models/pt_BR-dii-high.onnx",
-    "/home/davi/.hermes/piper_models/pt_BR-edresson-low.onnx",
+    str(Path.home() / ".hermes/piper_models/pt_BR-faber-medium.onnx"),
+    str(Path.home() / ".hermes/piper_models/pt_BR-cadu-medium.onnx"),
+    str(Path.home() / ".hermes/piper_models/pt_BR-dii-high.onnx"),
+    str(Path.home() / ".hermes/piper_models/pt_BR-edresson-low.onnx"),
 ]
 POS_PHRASES = [
     "Ei Hermes", "Ei Hermes!", "Êi Hermes", "Ei, Hermes",

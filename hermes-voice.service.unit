@@ -1,20 +1,22 @@
+# Modelo da unit do usuário; o install.sh troca @ORBE@ pela pasta do repo e
+# @PY@ pelo Python que tem as dependências do daemon.
 [Unit]
-Description=Hermes Voice Daemon (Groq Whisper)
+Description=Orbe: daemon de voz
 After=graphical-session.target
 Wants=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/home/davi/.hermes/scripts/hermes_voice_daemon.py
+ExecStart=@PY@ @ORBE@/hermes_voice_daemon.py
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=5
-KillMode=mixed
-Environment=HOME=/home/davi
-Environment=PATH=/home/davi/.hermes/hermes-agent/venv/bin:/home/davi/.local/bin:/usr/local/bin:/usr/bin:/bin
-Environment=XDG_RUNTIME_DIR=/run/user/1000
-Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
-Environment=WAYLAND_DISPLAY=wayland-1
+KillMode=control-group
+Environment=PATH=%h/.hermes/hermes-agent/venv/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=XDG_RUNTIME_DIR=%t
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=%t/bus
+Environment=XDG_SESSION_TYPE=wayland
+Environment=GDK_BACKEND=wayland
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target

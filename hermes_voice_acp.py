@@ -28,7 +28,7 @@ import time
 
 LOG = logging.getLogger("hermes-voice.acp")
 
-HERMES_LAUNCHER = "/home/davi/.local/bin/hermes"
+HERMES_LAUNCHER = os.path.expanduser("~/.local/bin/hermes")
 PROFILES_DIR = os.path.expanduser("~/.hermes/profiles")
 
 NOMES = {

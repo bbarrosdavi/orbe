@@ -11,7 +11,7 @@ from openwakeword.model import Model
 
 print("=== Multi-Speaker Portuguese Wake Word Training ('Ei Hermes') ===")
 
-cache_dir = Path("/home/davi/.hermes/cache/wakewords")
+cache_dir = Path.home() / ".hermes/cache/wakewords"
 cache_dir.mkdir(parents=True, exist_ok=True)
 tmp_dir = Path("/tmp/wakeword_pt_multi")
 tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -19,11 +19,11 @@ tmp_dir.mkdir(parents=True, exist_ok=True)
 onnx_path = cache_dir / "ei_hermes_pt.onnx"
 
 piper_models = [
-    "/home/davi/.hermes/piper_models/pt_BR-faber-medium.onnx",
-    "/home/davi/.hermes/piper_models/pt_BR-cadu-medium.onnx",
-    "/home/davi/.hermes/piper_models/pt_BR-edresson-low.onnx",
-    "/home/davi/.hermes/piper_models/pt_BR-dii-high.onnx",
-    "/home/davi/.hermes/piper_models/en_US-amy-medium.onnx"
+    str(Path.home() / ".hermes/piper_models/pt_BR-faber-medium.onnx"),
+    str(Path.home() / ".hermes/piper_models/pt_BR-cadu-medium.onnx"),
+    str(Path.home() / ".hermes/piper_models/pt_BR-edresson-low.onnx"),
+    str(Path.home() / ".hermes/piper_models/pt_BR-dii-high.onnx"),
+    str(Path.home() / ".hermes/piper_models/en_US-amy-medium.onnx")
 ]
 
 voices = []
@@ -139,7 +139,7 @@ print(f"Generated {len(neg_wavs)} negative samples.")
 
 # 3. Extract Feature Vectors via OpenWakeWord
 print("3. Extracting feature vectors via OpenWakeWord...")
-bundled_path = "/home/davi/.hermes/hermes-agent/tools/wakewords/hey_hermes.onnx"
+bundled_path = str(Path.home() / ".hermes/hermes-agent/tools/wakewords/hey_hermes.onnx")
 m_oww = Model(wakeword_models=[bundled_path], inference_framework="onnx")
 
 def extract_features(wav_file):

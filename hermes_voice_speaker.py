@@ -25,9 +25,9 @@ from pathlib import Path
 
 import numpy as np
 
-HERMES_SITE = "/home/davi/.hermes/hermes-agent/venv/lib/python3.11/site-packages"
-MODEL = "/home/davi/.hermes/cache/speaker/campplus_voxceleb.onnx"
-PROFILE = Path("/home/davi/.hermes/cache/speaker/dono.npz")
+HERMES_SITE = str(Path.home() / ".hermes/hermes-agent/venv/lib/python3.11/site-packages")
+MODEL = str(Path.home() / ".hermes/cache/speaker/campplus_voxceleb.onnx")
+PROFILE = Path.home() / ".hermes/cache/speaker/dono.npz"
 MIC = "alsa_input.pci-0000_00_1f.3-platform-skl_hda_dsp_generic.HiFi__Mic1__source"
 SR = 16000
 # Abaixo disso a impressão vocal é ruído: o CAM++ precisa de voz contínua.
@@ -78,7 +78,7 @@ def _gravar(segundos: float) -> np.ndarray:
     Cadastrar pelo reamostrador do PipeWire daria ao perfil uma coloração
     que o áudio do daemon não tem.
     """
-    sys.path.insert(0, "/home/davi/.hermes/scripts")
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
     from hermes_voice_daemon import _resample_frame  # noqa: E402
 
     raw = subprocess.run(
@@ -93,7 +93,7 @@ def _gravar(segundos: float) -> np.ndarray:
 
 def _janelas_de_voz(pcm: np.ndarray, janela_s: float = 1.5) -> list[np.ndarray]:
     """Janelas com >=70% de voz segundo o Silero, passo de meia janela."""
-    sys.path.insert(0, "/home/davi/.hermes/scripts")
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
     from hermes_voice_daemon import SileroVad  # noqa: E402
 
     vad = SileroVad()

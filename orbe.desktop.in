@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Orbe
+GenericName=Assistente de voz
+Comment=Configurações do orbe de voz: agente, ativação, voz e conversa
+Exec=@ORBE@/hermes_voice_app.py
+Icon=@ORBE@/orbe.svg
+Terminal=false
+Categories=Utility;
+Keywords=orbe;voz;wake;acp;assistente;agente;
+StartupWMClass=io.hermes.Orbe
+StartupNotify=true

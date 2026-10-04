@@ -64,7 +64,7 @@ PREVIA_LINHAS = [
 ]
 BINDS = Path.home() / ".config" / "niri" / "dms" / "binds.kdl"
 DANK_CSS = Path.home() / ".config" / "gtk-4.0" / "dank-colors.css"
-ACCENT_CSS = Path("/home/davi/Projetos/Docs_rice_sistema/main.css")
+ACCENT_CSS = Path.home() / "Projetos/Docs_rice_sistema/main.css"
 WAKE_DIR = Path.home() / ".hermes" / "cache" / "wakewords"
 PIPER_DIR = Path.home() / ".hermes" / "piper_models"
 JARVIS_CFG = Path.home() / ".hermes" / "profiles" / "jarvis" / "config.yaml"

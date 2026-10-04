@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "orbe": {
-      "type": "stdio",
-      "command": "/usr/bin/python3",
-      "args": ["/home/davi/.hermes/scripts/hermes_voice_canal.py"]
-    }
-  }
-}

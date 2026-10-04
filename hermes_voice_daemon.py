@@ -35,7 +35,7 @@ import sounddevice as sd
 import webrtcvad
 
 sys.path.append("/opt/hermes-agent/venv/lib/python3.11/site-packages")
-sys.path.insert(0, "/home/davi/.hermes/hermes-agent/venv/lib/python3.11/site-packages")
+sys.path.insert(0, str(Path.home() / ".hermes/hermes-agent/venv/lib/python3.11/site-packages"))
 
 HERMES_PROFILE_DIR = Path.home() / ".hermes" / "profiles" / "jarvis"
 
@@ -59,8 +59,8 @@ OWW_MODEL = str(_AT["oww_modelo"])
 OWW_THRESHOLD = min(max(float(_AT["limiar_oww"]), 0.0), 1.0)
 OWW_CONFIRM = min(max(int(_AT["confirmacao"]), 1), 10)
 OWW_FRAME = 1280  # 80ms @ 16kHz — igual à GUI
-MWW_PY = "/home/davi/.hermes/mww-tf/.venv/bin/python"
-MWW_BIN = "/home/davi/.hermes/scripts/hermes_voice_mww.py"
+MWW_PY = str(Path.home() / ".hermes/mww-tf/.venv/bin/python")
+MWW_BIN = str(Path(__file__).resolve().parent / "hermes_voice_mww.py")
 MWW_MODEL = str(_AT["mww_modelo"])
 LOGGER_WARN = []
 
@@ -103,7 +103,7 @@ MIN_UTTER_RMS = 1000                # evita enviar áudio de silêncio/ruído pa
 # música e ruído como fala, e as gravações iam até o teto de 12 s. O Silero é
 # uma rede treinada para separar voz de ruído e música. v4: blocos de 512
 # amostras a 16 kHz (32 ms), estado LSTM h/c carregado entre blocos.
-SILERO_MODEL = "/home/davi/.hermes/cache/vad/silero_vad.onnx"
+SILERO_MODEL = str(Path.home() / ".hermes/cache/vad/silero_vad.onnx")
 SILERO_CHUNK = 512
 SILERO_THRESHOLD = 0.5              # padrão do Silero
 
@@ -158,7 +158,7 @@ ELEVENLABS_API_URL = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_V
 
 # Piper TTS (fallback)
 PIPER_BIN = "/opt/hermes-agent/venv/bin/piper"
-PIPER_MODEL = "/home/davi/.hermes/piper_models/pt_BR-dii-high.onnx"
+PIPER_MODEL = str(Path.home() / ".hermes/piper_models/pt_BR-dii-high.onnx")
 
 # ── Carrega variáveis de ambiente do .env do Hermes ──
 _HERMES_ENV = Path.home() / ".hermes" / ".env"
@@ -570,17 +570,19 @@ def _gen_beep(path: str, freq: float, duration: float):
 _gen_beep("/tmp/hv_beep_ack.wav", 1100, 0.13)
 _gen_beep("/tmp/hv_beep_done.wav", 440, 0.12)
 
-HERMES_BIN = "/home/davi/.hermes/hermes-agent/venv/bin/hermes"
+HERMES_BIN = str(Path.home() / ".hermes/hermes-agent/venv/bin/hermes")
 HERMES_PROFILE = "jarvis"
 HERMES_SESSION = "Bot Chat"
-HERMES_PATH = "/home/davi/.hermes/hermes-agent/venv/bin:/home/davi/.local/bin:/usr/local/bin:/usr/bin:/bin"
+HERMES_PATH = f"{Path.home()}/.hermes/hermes-agent/venv/bin:{Path.home()}/.local/bin:/usr/local/bin:/usr/bin:/bin"
+# sockets e barramento da sessão gráfica do usuário
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
 # Orbe em Quickshell (desenho na GPU).
 ORB_QML = str(Path(__file__).resolve().parent / "orbe-qt" / "orbe.qml")
-ORB_SOCK = "/run/user/1000/hermes-voice-orb.sock"
+ORB_SOCK = f"{RUNTIME}/hermes-voice-orb.sock"
 # Entrada de controle do daemon, uma linha por mensagem:
 #   touch down | touch up      dedo no orbe (orbe-qt/orbe.qml)
 #   relato {json}              trabalho despachado terminou (hermes_voice_despacho.py)
-CTL_SOCK = "/run/user/1000/hermes-voice-ctl.sock"
+CTL_SOCK = f"{RUNTIME}/hermes-voice-ctl.sock"
 # Toque mais curto que isto é só "interromper"; mais longo, o dedo segura a
 # gravação aberta até ser solto, e pausa entre palavras não fecha nada.
 TOQUE_SEGURAR_SEC = 0.35
@@ -590,7 +592,7 @@ RECORD_MAX_TOQUE_SEC = 90.0
 # Runtime oficial do Hermes: o venv/bin/hermes sobe no Python 3.11 e o
 # hermes_bootstrap reexecuta no 3.14 (~1,1 s só nesse salto); o launcher
 # publicado entrega o comando final direto, e o agente ACP sobe por ele.
-HERMES_LAUNCHER = "/home/davi/.local/bin/hermes"
+HERMES_LAUNCHER = str(Path.home() / ".local/bin/hermes")
 # O agente ACP leu .env e config ao subir. Se algum destes mudou depois, ele
 # está velho: reinicia antes do próximo pedido, retomando a mesma conversa.
 WARM_STALE_PATHS = (
@@ -628,10 +630,10 @@ def _mtime(path: Path) -> float:
 def get_desktop_env():
     """Garante PATH + PipeWire/D-Bus para o unit systemd (PATH mínimo)."""
     env = os.environ.copy()
-    env["HOME"] = "/home/davi"
+    env["HOME"] = str(Path.home())
     env["PATH"] = HERMES_PATH
-    env["XDG_RUNTIME_DIR"] = "/run/user/1000"
-    env["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=/run/user/1000/bus"
+    env["XDG_RUNTIME_DIR"] = RUNTIME
+    env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={RUNTIME}/bus"
     env["WAYLAND_DISPLAY"] = "wayland-1"
     env["XDG_SESSION_TYPE"] = "wayland"
     env["GDK_BACKEND"] = "wayland"
@@ -643,7 +645,7 @@ def _tts_child_env() -> dict:
     env = get_desktop_env()
     env.pop("PIPEWIRE_NODE", None)
     env.pop("PULSE_SOURCE", None)
-    env["HERMES_HOME"] = "/home/davi/.hermes"
+    env["HERMES_HOME"] = str(Path.home() / ".hermes")
     env["HERMES_PROFILE"] = "jarvis"
     return env
 
@@ -1663,9 +1665,11 @@ class Daemon:
         if self._tts_proc is not None and self._tts_proc.poll() is None:
             return
         logf = open("/tmp/hermes-voice-tts.log", "ab", buffering=0)
+        # o venv do Hermes, se houver (credenciais OAuth do xAI); senão, o do daemon
+        py_hermes = Path.home() / ".hermes/hermes-agent/venv/bin/python"
         self._tts_proc = subprocess.Popen(
-            ["/home/davi/.hermes/hermes-agent/venv/bin/python",
-             "/home/davi/.hermes/scripts/hermes_voice_tts.py"],
+            [str(py_hermes) if py_hermes.exists() else sys.executable,
+             str(Path(__file__).resolve().parent / "hermes_voice_tts.py")],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=logf,
@@ -2678,24 +2682,10 @@ class Daemon:
 # CLI
 # ═══════════════════════════════════════════
 def install_systemd():
-    unit = (
-        "[Unit]\n"
-        "Description=Hermes Voice Daemon (Groq Whisper)\n"
-        "After=graphical-session.target\n"
-        "Wants=graphical-session.target\n\n"
-        "[Service]\n"
-        "Type=simple\n"
-        "ExecStart=/home/davi/.hermes/scripts/hermes_voice_daemon.py\n"
-        "Restart=on-failure\n"
-        "RestartSec=5\n"
-        "Environment=HOME=/home/davi\\n"
-        "Environment=PATH=/home/davi/.hermes/hermes-agent/venv/bin:/home/davi/.local/bin:/usr/local/bin:/usr/bin:/bin\\n"
-        "Environment=XDG_RUNTIME_DIR=/run/user/1000\\n"
-        "Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus\\n"
-        "Environment=WAYLAND_DISPLAY=wayland-1\\n\n"
-        "[Install]\n"
-        "WantedBy=default.target\n"
-    )
+    """Instala a unit do usuário a partir do modelo ao lado deste arquivo."""
+    aqui = Path(__file__).resolve().parent
+    unit = (aqui / "hermes-voice.service.unit").read_text()
+    unit = unit.replace("@ORBE@", str(aqui)).replace("@PY@", sys.executable)
     path = Path.home() / ".config/systemd/user/hermes-voice.service"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(unit)

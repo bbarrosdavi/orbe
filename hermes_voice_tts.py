@@ -1,4 +1,4 @@
-#!/home/davi/.hermes/hermes-agent/venv/bin/python
+#!/usr/bin/env python3
 """TTS do orb. Segue tts.provider do perfil Jarvis a cada frase.
 xAI = mesmo OAuth da GUI (wss://api.x.ai/v1/tts → PCM 24 kHz).
 CANCEL em thread — corta pw-cat no meio da frase.
@@ -20,8 +20,8 @@ from pathlib import Path
 ENV_PATH = Path.home() / ".hermes" / ".env"
 JARVIS_CFG = Path.home() / ".hermes" / "profiles" / "jarvis" / "config.yaml"
 HERMES_AGENT = Path.home() / ".hermes" / "hermes-agent"
-PIPER_BIN = "/home/davi/.hermes/hermes-agent/venv/bin/piper"
-PIPER_MODEL = "/home/davi/.hermes/piper_models/pt_BR-faber-medium.onnx"
+PIPER_BIN = str(Path.home() / ".hermes/hermes-agent/venv/bin/piper")
+PIPER_MODEL = str(Path.home() / ".hermes/piper_models/pt_BR-faber-medium.onnx")
 RATE = 24000
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 ACK_DIR = Path.home() / ".hermes" / "cache" / "voice_ack"

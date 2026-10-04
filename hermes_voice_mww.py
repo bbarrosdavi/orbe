@@ -1,4 +1,4 @@
-#!/home/davi/.hermes/mww-tf/.venv/bin/python
+#!/usr/bin/env python3
 """microWakeWord ear. stdin = s16le 16 kHz mono. stdout = WAKE\\n.
 
 O tflite [1,3,40] foi treinado/exportado no frontend TF micro_speech
@@ -16,7 +16,7 @@ from tensorflow.lite.experimental.microfrontend.python.ops import (
 
 MODEL = os.environ.get(
     "MWW_MODEL",
-    "/home/davi/.hermes/cache/wakewords/ei_hermes_mww.tflite",
+    os.path.expanduser("~/.hermes/cache/wakewords/ei_hermes_mww.tflite"),
 )
 CUTOFF = float(os.environ.get("MWW_CUTOFF", "0.45"))
 STREAK_N = int(os.environ.get("MWW_STREAK", "2"))
