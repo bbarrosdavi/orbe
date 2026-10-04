@@ -22,6 +22,7 @@ app); --pai encerra o orbe quando aquele processo morre.
 import argparse
 import ctypes
 import os
+import time
 import signal
 import socket
 import sys
@@ -74,6 +75,10 @@ def _ajustar_nswindow(win_id: int):
     _msg(w, "setCollectionBehavior:", 1 | 16 | 64 | 256, res=None, tipos=(ctypes.c_ulong,))
     _msg(w, "setLevel:", 25, res=None, tipos=(ctypes.c_long,))   # NSStatusWindowLevel
     _msg(w, "setHasShadow:", False, res=None, tipos=(ctypes.c_bool,))
+
+
+def _log(msg: str):
+    print(time.strftime("%H:%M:%S ") + "orbe: " + msg, file=sys.stderr, flush=True)
 
 
 # ── atalho global (Carbon) ──────────────────────────────────────────────────
@@ -171,6 +176,8 @@ class AtalhoGlobal:
         if st != 0:
             print(f"orbe: atalho {texto!r} recusado (OSStatus {st}); outro app usa a tecla?",
                   file=sys.stderr)
+        else:
+            _log(f"atalho {texto!r} registrado (tecla {alvo[0]}, mods {alvo[1]:#x})")
 
 
 # ── ponte com o QML ─────────────────────────────────────────────────────────
@@ -356,6 +363,7 @@ def main():
         cmd = vcfg.RUNTIME / "hermes-voice.cmd"
 
         def alternar():
+            _log("atalho apertado → toggle")
             cmd.write_text("toggle\n")
         try:
             atalho = AtalhoGlobal(alternar)

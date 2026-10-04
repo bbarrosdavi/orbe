@@ -2379,7 +2379,11 @@ class Daemon:
                     if not proc.stdout:
                         break
                     # 1 s de folga: a sessão marca expecting_command logo
-                    # depois de pedir o microfone.
+                    # depois de pedir o microfone. Pedido com o mic já
+                    # aberto é consumido aqui, senão ele nunca fecharia.
+                    if self._mic_evento.is_set():
+                        self._mic_evento.clear()
+                        aberto_em = time.monotonic()
                     if (time.monotonic() - aberto_em > 1.0 and not self._mic_necessario()
                             and not self._mic_evento.is_set()):
                         fechou = True
@@ -2470,6 +2474,12 @@ class Daemon:
                 while self.running.is_set() and stream.active:
                     time.sleep(0.1)
                     agora = time.monotonic()
+                    if self._mic_evento.is_set():
+                        # pedido de mic com ele já aberto (toque, sessão nova):
+                        # consome e renova a folga, senão o evento ficaria
+                        # armado e o microfone nunca mais fecharia
+                        self._mic_evento.clear()
+                        aberto_em = agora
                     if (agora - aberto_em > 1.0 and not self._mic_necessario()
                             and not self._mic_evento.is_set()):
                         fechou = True
@@ -2511,6 +2521,7 @@ class Daemon:
 
             if self._should_idle_end():
                 self._end_session("timeout 10s")
+            self._vigiar_orbe()
             self._poll_cmdfile()
             self._poll_ctl()
 
