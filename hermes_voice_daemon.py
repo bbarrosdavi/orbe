@@ -13,6 +13,7 @@ Uso:  hermes_voice_daemon.py [--model whisper-large-v3] [--device N]
 
 import argparse
 import collections
+import json
 import logging
 import os
 import queue
@@ -38,45 +39,30 @@ sys.path.insert(0, "/home/davi/.hermes/hermes-agent/venv/lib/python3.11/site-pac
 
 HERMES_PROFILE_DIR = Path.home() / ".hermes" / "profiles" / "jarvis"
 
-# Defaults do Hermes (tools/wake_word.py::_DEFAULTS), usados só se o perfil
-# não disser nada.
-OWW_MODEL = "/home/davi/.hermes/cache/wakewords/ei_hermes_pt.onnx"
-OWW_THRESHOLD = 0.60
-OWW_CONFIRM = 3
+# Configuração do app (hermes_voice_app.py). Os padrões de lá são os valores
+# que viviam aqui como constantes; o que o app grava sobrepõe. Antes o wake
+# word vinha do wake_word: do perfil jarvis; agora é do app, que também
+# escolhe o provedor.
+import hermes_voice_acp as acp  # noqa: E402
+import hermes_voice_config as vcfg  # noqa: E402
+import hermes_voice_canal as canal  # noqa: E402
+
+VCFG = vcfg.carregar()
+_AT = VCFG["ativacao"]
+AGENTE_CFG = VCFG["agente"]
+# 0 = agente ACP sempre carregado; N = descarrega N min depois da sessão.
+MANTER_MIN = float(AGENTE_CFG.get("manter_carregado_min") or 0)
+
+# nenhum | openwakeword | sherpa | microwakeword
+WAKE_PROVEDOR = str(_AT["provedor"])
+OWW_MODEL = str(_AT["oww_modelo"])
+OWW_THRESHOLD = min(max(float(_AT["limiar_oww"]), 0.0), 1.0)
+OWW_CONFIRM = min(max(int(_AT["confirmacao"]), 1), 10)
 OWW_FRAME = 1280  # 80ms @ 16kHz — igual à GUI
-
-
-def _load_wake_cfg():
-    """Lê wake_word do config.yaml do perfil: a MESMA fonte que a GUI usa.
-
-    Antes esses três números eram literais aqui, e o daemon divergia em
-    silêncio de qualquer ajuste feito na GUI. Agora é uma configuração só:
-    mexer no perfil muda os dois.
-
-    Mapeamento do Hermes: ``sensitivity`` É o limiar de score (não há curva no
-    meio, ver _OpenWakeWordEngine), e ``confirmation_frames`` é quantos
-    quadros consecutivos acima do limiar são exigidos pra disparar.
-    """
-    modelo, limiar, confirma = OWW_MODEL, OWW_THRESHOLD, OWW_CONFIRM
-    try:
-        import yaml
-        cfg = yaml.safe_load((HERMES_PROFILE_DIR / "config.yaml").read_text()) or {}
-        ww = cfg.get("wake_word") or {}
-        if isinstance(ww, dict):
-            if ww.get("sensitivity") is not None:
-                limiar = min(max(float(ww["sensitivity"]), 0.0), 1.0)
-            if ww.get("confirmation_frames") is not None:
-                confirma = min(max(int(ww["confirmation_frames"]), 1), 10)
-            sub = ww.get("openwakeword")
-            if isinstance(sub, dict) and sub.get("model"):
-                modelo = str(sub["model"])
-    except Exception as e:
-        LOGGER_WARN.append(f"wake_word do perfil não lido ({e}); usando defaults")
-    return modelo, limiar, confirma
-
-
+MWW_PY = "/home/davi/.hermes/mww-tf/.venv/bin/python"
+MWW_BIN = "/home/davi/.hermes/scripts/hermes_voice_mww.py"
+MWW_MODEL = str(_AT["mww_modelo"])
 LOGGER_WARN = []
-OWW_MODEL, OWW_THRESHOLD, OWW_CONFIRM = _load_wake_cfg()
 
 # ── Constantes ──
 SAMPLE_RATE = 16000
@@ -89,8 +75,8 @@ VAD_AGGRESSIVENESS = 3
 # medido sustenta ~10-11 quadros em 1800, abaixo dos 15 exigidos; a fala do
 # Davi sustenta 31 já em 2200. 1800 dá folga pra réplica falada mais baixa
 # sem deixar o ruído da sala abrir gravação sozinho.
-MIN_SPEECH_RMS = 1800
-SUSTAINED_SPEECH_FRAMES = 15        # ~450ms pra abrir gravação
+MIN_SPEECH_RMS = 1500
+SUSTAINED_SPEECH_FRAMES = 12        # ~360ms pra abrir gravação (evita ruídos rápidos)
 # Medido na fonte com AEC (hermes_aec_source), quadros de 30ms:
 #   ambiente ocioso   RMS medio 109, p95 289, maximo 595
 #   eco do proprio TTS RMS 176  (era 7958 no mic cru: 33 dB de atenuacao)
@@ -109,14 +95,24 @@ INTERRUPT_SPEECH_FRAMES = 12        # ~360ms contínuos; teclado não acumula
 # (a interrupção que funcionou disparou raspando, em 2631).
 INTERRUPT_MIN_RMS = 2000
 MIN_UTTER_SPEECH_FRAMES = 12        # ~360ms de VAD pra mandar ao Groq
-MIN_UTTER_RMS = 700
+MIN_UTTER_RMS = 1000                # evita enviar áudio de silêncio/ruído para Groq
+
+# Silero VAD decide "isto é voz" no lugar do webrtcvad. Medido em 2026-10-03:
+# o ruído da sala no Mic1 cru tinha RMS mediano 1730, acima do piso de 1500,
+# então o piso não barrava nada e o webrtcvad sozinho decidia; ele marca
+# música e ruído como fala, e as gravações iam até o teto de 12 s. O Silero é
+# uma rede treinada para separar voz de ruído e música. v4: blocos de 512
+# amostras a 16 kHz (32 ms), estado LSTM h/c carregado entre blocos.
+SILERO_MODEL = "/home/davi/.hermes/cache/vad/silero_vad.onnx"
+SILERO_CHUNK = 512
+SILERO_THRESHOLD = 0.5              # padrão do Silero
 
 # Fonte virtual criada pelo module-echo-cancel do PipeWire. O nome do nó é
 # hermes_aec_source; o sounddevice enxerga pela node.description.
 AEC_SOURCE_NODE = "hermes_aec_source"
 AEC_SOURCE_DESC = "HermesMicAEC"
 
-SILENCE_TIMEOUT = 0.55              # silêncio = fim da fala
+SILENCE_TIMEOUT = 0.90              # pausa intrafrase em PT > 0.55 cortava o início
 RECORD_MAX_SEC = 12
 SESSION_IDLE_SEC = 10.0             # orb some e a sessão de voz fecha
 # Teto de segurança da sessão travada. Com AEC o risco de auto-disparo é baixo
@@ -206,6 +202,43 @@ def _resample_frame(frame, output_length: int):
     return np.clip(values, -32768, 32767).astype(np.int16)
 
 
+class SileroVad:
+    """Probabilidade de voz por quadro de 30 ms, com o estado da rede contínuo.
+
+    O quadro do daemon (480 amostras) não casa com o bloco do Silero (512):
+    as amostras acumulam e cada bloco completo atualiza a probabilidade. O
+    quadro herda a última, atrasada no máximo 32 ms.
+    """
+
+    def __init__(self, path: str = SILERO_MODEL):
+        import onnxruntime as ort
+        opts = ort.SessionOptions()
+        opts.intra_op_num_threads = 1
+        opts.inter_op_num_threads = 1
+        self.sess = ort.InferenceSession(
+            path, sess_options=opts, providers=["CPUExecutionProvider"])
+        self._sr = np.array(SAMPLE_RATE, dtype=np.int64)
+        self.reset()
+
+    def reset(self):
+        self._h = np.zeros((2, 1, 64), dtype=np.float32)
+        self._c = np.zeros((2, 1, 64), dtype=np.float32)
+        self._buf = np.zeros(0, dtype=np.float32)
+        self.prob = 0.0
+
+    def feed(self, frame: bytes) -> float:
+        x = np.frombuffer(frame, dtype=np.int16).astype(np.float32) / 32768.0
+        self._buf = np.concatenate([self._buf, x])
+        while len(self._buf) >= SILERO_CHUNK:
+            bloco, self._buf = self._buf[:SILERO_CHUNK], self._buf[SILERO_CHUNK:]
+            out, self._h, self._c = self.sess.run(None, {
+                "input": bloco[None, :], "sr": self._sr,
+                "h": self._h, "c": self._c,
+            })
+            self.prob = float(np.asarray(out).reshape(-1)[0])
+        return self.prob
+
+
 class OpenWakeWordEar:
     """Mesmo motor da GUI: openWakeWord + ei_hermes_pt.onnx, frames de 80ms."""
 
@@ -220,15 +253,20 @@ class OpenWakeWordEar:
         if time.monotonic() < self.cool_until:
             return False
         self.buf = np.concatenate([self.buf, np.frombuffer(frame, dtype=np.int16)])
+        if len(self.buf) > OWW_FRAME * 8:
+            self.buf = self.buf[-OWW_FRAME:]
         fired = False
         while len(self.buf) >= OWW_FRAME:
             chunk, self.buf = self.buf[:OWW_FRAME], self.buf[OWW_FRAME:]
             scores = self.model.predict(chunk)
-            if any(s >= OWW_THRESHOLD for s in scores.values()):
+            mx = max(float(v) for v in scores.values()) if scores else 0.0
+            if mx >= OWW_THRESHOLD:
                 self.streak += 1
                 if self.streak >= OWW_CONFIRM:
+                    LOG.info("⚡ openWakeWord: ei hermes (score=%.3f frames=%d)",
+                             mx, OWW_CONFIRM)
                     self.streak = 0
-                    self.cool_until = time.monotonic() + 2.0
+                    self.cool_until = time.monotonic() + 3.0
                     self.buf = np.zeros(0, dtype=np.int16)
                     try:
                         self.model.reset()
@@ -239,6 +277,89 @@ class OpenWakeWordEar:
             else:
                 self.streak = 0
         return fired
+
+
+class SherpaEar:
+    """sherpa-onnx: frase digitada, sem treino (o motor "sherpa" do Hermes).
+
+    A frase é tokenizada na hora contra o BPE do modelo. Usa os .int8.onnx,
+    metade da RAM dos float32, quando existem.
+    """
+
+    def __init__(self, pasta: str, frase: str, limiar: float):
+        import sherpa_onnx
+        from sherpa_onnx import text2token
+        d = Path(pasta)
+        toks = text2token([frase.strip().upper()], tokens=str(d / "tokens.txt"),
+                          tokens_type="bpe", bpe_model=str(d / "bpe.model"))[0]
+        kw = Path(f"/run/user/{os.getuid()}/hermes-voice-kws.txt")
+        kw.write_text(" ".join(toks) + " @WAKE\n", encoding="utf-8")
+
+        def arq(parte: str) -> str:
+            achados = sorted(d.glob(f"{parte}-*.int8.onnx")) or sorted(d.glob(f"{parte}-*.onnx"))
+            if not achados:
+                raise RuntimeError(f"modelo sherpa sem {parte} em {d}")
+            return str(achados[0])
+
+        # Mesmo mapeamento do Hermes: 0.5 cai no 0.25 recomendado pelo sherpa.
+        self.spotter = sherpa_onnx.KeywordSpotter(
+            tokens=str(d / "tokens.txt"), encoder=arq("encoder"), decoder=arq("decoder"),
+            joiner=arq("joiner"), keywords_file=str(kw),
+            keywords_threshold=0.05 + 0.4 * min(max(limiar, 0.0), 1.0), num_threads=1)
+        self.stream = self.spotter.create_stream()
+        self.cool_until = 0.0
+
+    def feed(self, frame: bytes) -> bool:
+        if time.monotonic() < self.cool_until:
+            return False
+        pcm = np.frombuffer(frame, dtype=np.int16).astype(np.float32) / 32768.0
+        self.stream.accept_waveform(SAMPLE_RATE, pcm)
+        while self.spotter.is_ready(self.stream):
+            self.spotter.decode_stream(self.stream)
+            if self.spotter.get_result(self.stream):
+                self.spotter.reset_stream(self.stream)
+                self.cool_until = time.monotonic() + 3.0
+                return True
+        return False
+
+
+class MicroWakeWordEar:
+    """microWakeWord em processo próprio (TensorFlow, venv mww-tf).
+
+    hermes_voice_mww.py lê PCM s16le 16 kHz no stdin e escreve WAKE no stdout.
+    É o provedor mais pesado em RAM, por causa do TensorFlow.
+    """
+
+    def __init__(self, modelo: str, limiar: float, confirma: int):
+        env = dict(os.environ, MWW_MODEL=modelo, MWW_CUTOFF=str(limiar), MWW_STREAK=str(confirma))
+        self.proc = subprocess.Popen([MWW_PY, MWW_BIN], stdin=subprocess.PIPE,
+                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                     env=env, close_fds=True)
+        self._acordou = threading.Event()
+        self.cool_until = 0.0
+        threading.Thread(target=self._ler, daemon=True).start()
+
+    def _ler(self):
+        assert self.proc.stdout is not None
+        for linha in self.proc.stdout:
+            if linha.strip() == b"WAKE":
+                self._acordou.set()
+
+    def feed(self, frame: bytes) -> bool:
+        if self.proc.poll() is not None or self.proc.stdin is None:
+            return False
+        try:
+            self.proc.stdin.write(frame)
+            self.proc.stdin.flush()
+        except OSError:
+            return False
+        if not self._acordou.is_set():
+            return False
+        self._acordou.clear()
+        if time.monotonic() < self.cool_until:
+            return False
+        self.cool_until = time.monotonic() + 3.0
+        return True
 
 
 # ═══════════════════════════════════════════
@@ -263,6 +384,8 @@ _WHISPER_PHANTOMS = {
     "legendas pela comunidade", "amara.org",
     "legendas pela comunidade amara.org",
     "inscreva-se", "inscreva-se no canal",
+    # Ruído de sala / eco residual sem AEC (medido no Mic1 cru).
+    "t", "musica", "amanda", "hmm", "hum", "ah", "eh", "uh",
 }
 
 
@@ -278,27 +401,19 @@ def _normalize_utterance(text: str) -> str:
 
 def _is_whisper_phantom(text: str) -> bool:
     norm = _normalize_utterance(text)
-    if norm in _WHISPER_PHANTOMS:
+    if not norm or norm in _WHISPER_PHANTOMS:
+        return True
+    # Uma letra / token minúsculo: ruído, não comando.
+    if len(norm) <= 2 and " " not in norm:
         return True
     # Só pontuação: o modelo transcreveu silêncio.
     return not re.search(r"\w", norm)
 
 
-# Atendimento ao wake. Curtíssimas de propósito: elas tocam antes de o Davi
-# terminar de formular o pedido, então qualquer coisa mais longa atropela.
-ACK_PHRASES = (
-    "Sim?",
-    "Diga.",
-    "Fala.",
-    "Pois não?",
-    "Escuto.",
-    "Manda.",
-    "Aqui.",
-    "Que foi?",
-    "Oi?",
-    "Pode falar.",
-)
-# O atendimento não arma barge-in: não faz sentido interromper um "Diga." de
+# Atendimento ao wake. Curto e direto conforme especificação do perfil (Sem beep; Sim?).
+# Vazio: a ativação não fala nada. O "Sim?" saía "SAM?" na voz do Gemini.
+ACK_PHRASES: tuple[str, ...] = ()
+# O atendimento não arma barge-in: não faz sentido interromper uma frase de
 # 300 ms. O _tts_push compara por aqui, então basta a frase estar na tupla.
 _ACK_NORMS = frozenset(_normalize_utterance(p) for p in ACK_PHRASES)
 
@@ -315,7 +430,7 @@ def transcribe_groq(wav_path: str) -> str:
             files = {"file": f}
             data = {
                 "model": GROQ_MODEL,
-                "language": "pt",
+                "language": STT_IDIOMA,
                 "response_format": "json",
                 "temperature": 0.0,
                 # Lista pura de vocabulário, sem frase em volta: prosa aqui
@@ -351,15 +466,20 @@ def transcribe_groq(wav_path: str) -> str:
 class Recorder:
     def __init__(self):
         self.chunks: list[bytes] = []
+        self.flags: list[bool] = []         # is_speech de cada quadro
         self.silence_frames = 0
         self.speech_frames_recorded = 0
         self.has_spoken = False
         self.silence_limit = int(SILENCE_TIMEOUT / (FRAME_MS / 1000))
         self.startup_silence_limit = int(1.2 / (FRAME_MS / 1000))
         self.echo_skip_until = 0
+        self.segurando = False   # dedo no orbe: silêncio não fecha a gravação
+        self.por_toque = False   # aberta ou segurada pelo toque (teto maior)
+        self.fim = False         # dedo solto: fecha no próximo quadro
 
     def feed(self, frame: bytes, is_speech: bool):
         self.chunks.append(frame)
+        self.flags.append(is_speech)
         # Ignora eco do bipe (janela dinâmica ajustada após pre-roll)
         if len(self.chunks) < self.echo_skip_until:
             self.silence_frames += 1
@@ -373,6 +493,10 @@ class Recorder:
             self.silence_frames += 1
 
     def is_done(self) -> bool:
+        if self.fim:
+            return True
+        if self.segurando:
+            return False
         if not self.has_spoken:
             return self.silence_frames >= self.startup_silence_limit
         return self.silence_frames >= self.silence_limit
@@ -388,6 +512,11 @@ class Recorder:
         audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
         return float(np.sqrt(np.mean(audio ** 2)))
 
+    def voice_pcm(self) -> np.ndarray:
+        """Só os quadros com voz: a impressão vocal não deve pesar o silêncio."""
+        voz = [c for c, f in zip(self.chunks, self.flags) if f]
+        return np.frombuffer(b"".join(voz or self.chunks), dtype=np.int16)
+
     def speech_ratio(self) -> float:
         n = len(self.chunks)
         if n == 0:
@@ -402,7 +531,11 @@ class Recorder:
         os.close(fd)
         try:
             from scipy.io.wavfile import write as wav_write
-            wav_write(path, SAMPLE_RATE, np.frombuffer(raw, dtype=np.int16))
+            # Whisper-turbo descarta ~200–300ms iniciais. Pad de silêncio
+            # recupera a primeira sílaba sem atrasar o VAD.
+            pad = np.zeros(int(SAMPLE_RATE * 0.30), dtype=np.int16)
+            audio = np.concatenate([pad, np.frombuffer(raw, dtype=np.int16)])
+            wav_write(path, SAMPLE_RATE, audio)
             return path
         except Exception:
             try:
@@ -430,6 +563,51 @@ HERMES_SESSION = "Bot Chat"
 HERMES_PATH = "/home/davi/.hermes/hermes-agent/venv/bin:/home/davi/.local/bin:/usr/local/bin:/usr/bin:/bin"
 ORB_BIN = "/home/davi/.hermes/scripts/hermes_voice_orb.py"
 ORB_SOCK = "/run/user/1000/hermes-voice-orb.sock"
+# Entrada de controle do daemon, uma linha por mensagem:
+#   touch down | touch up      dedo no orbe (hermes_voice_orb.py)
+#   relato {json}              trabalho despachado terminou (hermes_voice_despacho.py)
+CTL_SOCK = "/run/user/1000/hermes-voice-ctl.sock"
+# Toque mais curto que isto é só "interromper"; mais longo, o dedo segura a
+# gravação aberta até ser solto, e pausa entre palavras não fecha nada.
+TOQUE_SEGURAR_SEC = 0.35
+RECORD_MAX_TOQUE_SEC = 90.0
+
+# Runtime oficial do Hermes: o venv/bin/hermes sobe no Python 3.11 e o
+# hermes_bootstrap reexecuta no 3.14 (~1,1 s só nesse salto); o launcher
+# publicado entrega o comando final direto, e o agente ACP sobe por ele.
+HERMES_LAUNCHER = "/home/davi/.local/bin/hermes"
+# O agente ACP leu .env e config ao subir. Se algum destes mudou depois, ele
+# está velho: reinicia antes do próximo pedido, retomando a mesma conversa.
+WARM_STALE_PATHS = (
+    HERMES_PROFILE_DIR / "config.yaml",
+    HERMES_PROFILE_DIR / ".env",
+    Path.home() / ".hermes" / ".env",
+    Path.home() / ".hermes" / "hermes-agent" / "install-stamp.json",
+)
+
+
+def _hermes_runtime() -> list[str] | None:
+    """[python, -I, -c, bootstrap] do runtime oficial; None cai no HERMES_BIN."""
+    try:
+        out = subprocess.check_output(
+            [HERMES_LAUNCHER, "--print-runtime-command", "--"],
+            text=True, timeout=30, stderr=subprocess.DEVNULL,
+        )
+        cmd = json.loads(out)
+        if (isinstance(cmd, list) and len(cmd) == 4
+                and all(isinstance(c, str) for c in cmd)):
+            return cmd
+        LOG.warning("runtime do hermes em formato inesperado; usando %s", HERMES_BIN)
+    except Exception as e:
+        LOG.warning("runtime do hermes não resolvido (%s); usando %s", e, HERMES_BIN)
+    return None
+
+
+def _mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def get_desktop_env():
@@ -440,6 +618,18 @@ def get_desktop_env():
     env["XDG_RUNTIME_DIR"] = "/run/user/1000"
     env["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=/run/user/1000/bus"
     env["WAYLAND_DISPLAY"] = "wayland-1"
+    env["XDG_SESSION_TYPE"] = "wayland"
+    env["GDK_BACKEND"] = "wayland"
+    return env
+
+
+def _tts_child_env() -> dict:
+    """Env do worker TTS: sem PIPEWIRE_NODE/PULSE_SOURCE (isso é só da captura)."""
+    env = get_desktop_env()
+    env.pop("PIPEWIRE_NODE", None)
+    env.pop("PULSE_SOURCE", None)
+    env["HERMES_HOME"] = "/home/davi/.hermes"
+    env["HERMES_PROFILE"] = "jarvis"
     return env
 
 
@@ -488,6 +678,42 @@ def _tts_envelope(path: str, hop: float = 0.05) -> list:
             pass
 
 
+_ORB_LOCK = threading.Lock()
+
+
+def _compositor_ready() -> bool:
+    env = get_desktop_env()
+    return os.path.exists(os.path.join(env["XDG_RUNTIME_DIR"], env["WAYLAND_DISPLAY"]))
+
+
+def _reap_orbs() -> None:
+    """Mata overlays zumbis (GTK falhou, nome D-Bus preso, socket ausente)."""
+    me = os.getpid()
+    try:
+        out = subprocess.check_output(
+            ["pgrep", "-af", "hermes_voice_orb.py"], text=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return
+    for line in out.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) < 2:
+            continue
+        try:
+            pid = int(parts[0])
+        except ValueError:
+            continue
+        cmd = parts[1]
+        if pid == me or "pgrep" in cmd or "pkill" in cmd:
+            continue
+        if "hermes_voice_orb.py" not in cmd:
+            continue
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+
+
 def orb_cmd(line: str) -> None:
     """Fala com o orbe. Sobe o processo só na primeira chamada (zero idle)."""
     payload = (line.strip() + "\n").encode()
@@ -508,21 +734,47 @@ def orb_cmd(line: str) -> None:
     op = line.split()[0] if line else ""
     if op not in ("show", "state", "warm"):
         return
-    try:
-        logf = open("/tmp/hermes-voice-orb.log", "ab", buffering=0)
-        subprocess.Popen(
-            ["/usr/bin/python3", ORB_BIN],
-            env=get_desktop_env(),
-            start_new_session=True,
-            stdout=logf,
-            stderr=logf,
-        )
-    except Exception:
+    if not _ORB_LOCK.acquire(blocking=False):
+        for _ in range(80):
+            time.sleep(0.05)
+            if _send():
+                return
         return
-    for _ in range(80):
-        time.sleep(0.05)
+    try:
         if _send():
             return
+        if not _compositor_ready():
+            LOG.warning("orbe: compositor ausente, não spawnar")
+            return
+        _reap_orbs()
+        time.sleep(0.15)
+        try:
+            logf = open("/tmp/hermes-voice-orb.log", "ab", buffering=0)
+            subprocess.Popen(
+                ["/usr/bin/python3", ORB_BIN],
+                env=get_desktop_env(),
+                stdout=logf,
+                stderr=logf,
+            )
+        except Exception as e:
+            LOG.warning("orbe spawn: %s", e)
+            return
+        for _ in range(80):
+            time.sleep(0.05)
+            if _send():
+                return
+        LOG.warning("orbe: socket não subiu após spawn")
+    finally:
+        _ORB_LOCK.release()
+
+
+def _orb_boot() -> None:
+    for _ in range(80):
+        if _compositor_ready():
+            orb_cmd("warm")
+            return
+        time.sleep(0.25)
+    LOG.warning("orbe: compositor não apareceu no boot")
 
 
 def frame_rms(frame: bytes) -> float:
@@ -699,22 +951,6 @@ def _strip_cli_footer(text: str) -> str:
     return "\n".join(out).strip()
 
 
-# Bordas dos painéis do Rich. O CLI já entrega raciocínio e resposta em
-# caixas distintas, então o roteamento é estrutural: nenhuma linha é
-# classificada pelo conteúdo. Separar por idioma é impossível — o modelo
-# rascunha a resposta em português dentro do próprio raciocínio.
-#
-# Raciocínio  → painel de canto quadrado:     ┌─ Reasoning ─┐ … └─┘
-# Resposta    → caixa de canto arredondado:   ╭─ ⚔ Ares ─╮  … ╰─╯
-# O título da caixa de resposta vem do display.skin do perfil (hoje "Ares"),
-# por isso ele nunca é comparado com "Hermes".
-REASON_OPEN = "┌"
-REASON_CLOSE = "└"
-ANSWER_OPEN = "╭"
-ANSWER_CLOSE = "╰"
-TOOL_MARKS = ("╎", "┊")
-
-
 def _take_sentences(buf: str) -> tuple[list[str], str]:
     """Extrai frases completas; o resto fica no buffer."""
     out = []
@@ -747,7 +983,9 @@ def _scrub_cli(text: str) -> str:
 
 
 def _clean_tts(text: str) -> str:
-    return _scrub_cli(text)
+    t = _scrub_cli(text)
+    t = re.sub(r"[💻⚙🔧📁🔍📦🚀⏳].*?(?:…|\.\.\.|$)", "", t)
+    return " ".join(t.split())
 
 
 # ═══════════════════════════════════════════
@@ -790,19 +1028,73 @@ def ask_hermes(text: str) -> str:
 
 
 # ═══════════════════════════════════════════
+# Valores do app por cima das constantes
+# ═══════════════════════════════════════════
+def _aplicar_config():
+    """hermes_voice_config sobrepõe as constantes definidas acima."""
+    global SILENCE_TIMEOUT, MIN_SPEECH_RMS, SUSTAINED_SPEECH_FRAMES, BARGE_IN
+    global INTERRUPT_SPEECH_FRAMES, INTERRUPT_MIN_RMS, RECORD_MAX_SEC
+    global SESSION_IDLE_SEC, TOQUE_SEGURAR_SEC, RECORD_MAX_TOQUE_SEC
+    global GROQ_MODEL, STT_IDIOMA, DEBUG_LEVELS
+    c, t, v = VCFG["conversa"], VCFG["toque"], VCFG["voz"]
+    SILENCE_TIMEOUT = float(c["silencio_fim_s"])
+    MIN_SPEECH_RMS = int(c["fala_rms"])
+    SUSTAINED_SPEECH_FRAMES = int(c["fala_quadros"])
+    BARGE_IN = bool(c["barge_in"])
+    INTERRUPT_SPEECH_FRAMES = int(c["barge_quadros"])
+    INTERRUPT_MIN_RMS = int(c["barge_rms"])
+    RECORD_MAX_SEC = float(c["gravacao_max_s"])
+    SESSION_IDLE_SEC = float(c["sessao_ociosa_s"])
+    TOQUE_SEGURAR_SEC = float(t["segurar_s"])
+    RECORD_MAX_TOQUE_SEC = float(t["gravacao_max_s"])
+    GROQ_MODEL = str(v["stt_modelo"]) or GROQ_MODEL
+    STT_IDIOMA = str(v["stt_idioma"]) or "pt"
+    DEBUG_LEVELS = DEBUG_LEVELS or bool(VCFG["diagnostico"]["rastro_niveis"])
+
+
+BARGE_IN = True
+STT_IDIOMA = "pt"
+_aplicar_config()
+
+
+# ═══════════════════════════════════════════
 # Daemon Principal
 # ═══════════════════════════════════════════
 class Daemon:
     def __init__(self, device: int | None = None):
         self.device = device
         self.vad = webrtcvad.Vad(VAD_AGGRESSIVENESS)
+        try:
+            self.silero: SileroVad | None = SileroVad()
+            LOG.info("VAD: Silero (%s, limiar %.2f)", SILERO_MODEL, SILERO_THRESHOLD)
+        except Exception as e:
+            self.silero = None
+            LOG.warning("Silero indisponível (%s); VAD volta ao webrtcvad", e)
+        self._vad_max = 0.0
+        # Porteiro de voz: só o dono do PC comanda o orbe. Sem cadastro
+        # (hermes_voice_speaker.py enroll) ele fica desligado.
+        self.speaker = None
+        try:
+            from hermes_voice_speaker import SpeakerGate
+            gate = SpeakerGate()
+            if gate.ativo:
+                self.speaker = gate
+                LOG.info("Porteiro de voz: ativo (limiar %.3f)", gate.limiar)
+            else:
+                LOG.info("Porteiro de voz: sem cadastro, aceita qualquer voz")
+        except Exception as e:
+            LOG.warning("Porteiro de voz indisponível (%s); aceita qualquer voz", e)
         self.running = threading.Event()
         self.running.set()
-        self.audio_queue: queue.Queue = queue.Queue()
+        self.audio_queue: queue.Queue = queue.Queue(maxsize=120)  # ~3.6s; xrun não vira OOM
+        # Sem wake word, o microfone só abre com o orbe ativo (ver _mic_necessario).
+        self._mic_evento = threading.Event()
+        self._last_audio_t = time.monotonic()
+        self._xrun_log_t = 0.0
         self.speech_frames = 0
         self.state = "listening"
         self.expecting_command = False
-        self.preroll_buffer = collections.deque(maxlen=20)  # ~600ms de pre-roll
+        self.preroll_buffer = collections.deque(maxlen=32)  # ~960ms de pre-roll
         self.rec = None
 
         # ── Infraestrutura de interrupção ──
@@ -827,18 +1119,10 @@ class Daemon:
         self._tts_turn_n = 0
         self._tts_barge = False
         self._tts_barge_after = 0.0
+        self._echo_rms = 0.0
         self._tts_ring = collections.deque(maxlen=30)
         self._last_spoken = collections.deque(maxlen=8)
-        try:
-            self.oww = OpenWakeWordEar()
-            for aviso in LOGGER_WARN:
-                LOG.warning(aviso)
-            LOG.info("openWakeWord: %s (sensitivity=%.2f, confirmation_frames=%d "
-                     "— do wake_word: do perfil jarvis, mesma fonte da GUI)",
-                     OWW_MODEL, OWW_THRESHOLD, OWW_CONFIRM)
-        except Exception as e:
-            self.oww = None
-            LOG.error("openWakeWord falhou: %s", e)
+        self.oww = self._criar_ouvido()
 
         if not GROQ_API_KEY:
             LOG.warning("GROQ_API_KEY não definida! STT via Groq não funcionará.")
@@ -849,7 +1133,21 @@ class Daemon:
         self._pedido_aberto = ""  # pedido cuja geração foi abortada no meio
         self._pedido_ts = 0.0
         self._continuando = False
+        # Turno abortado por continuação: o turno novo espera ele guardar o
+        # pedido antes de emendar (ver _emendar_pedido).
+        self._thread_velho: threading.Thread | None = None
+        self._ctl_q: queue.Queue = queue.Queue()
+        self._toque_t = 0.0
+        self._toque_rec_novo = False
+        self._relatos: collections.deque = collections.deque()
         self._dbg_max, self._dbg_sf, self._dbg_next = 0.0, 0, 0.0
+        self._mic_orb_t = 0.0
+        self._hermes_rt = _hermes_runtime()
+        # Agente ACP: um processo, carregado entre os pedidos.
+        self.agente: acp.AgenteACP | None = None
+        self._agente_lock = threading.Lock()
+        self._agente_uso = time.monotonic()
+        self._instruido = False
         self.capture_rate, self.capture_block = self._resolve_capture()
         self._check_aec()
 
@@ -863,8 +1161,10 @@ class Daemon:
         dispositivo declara como nativa e reamostra em numpy. Aqui é o mesmo.
         """
         rate = SAMPLE_RATE
+        nome = ""
         try:
             info = sd.query_devices(self.device, "input")
+            nome = (info.get("name") or "").lower().strip()
             nativa = info.get("default_samplerate")
             if (isinstance(nativa, (int, float))
                     and not isinstance(nativa, bool) and nativa > 0):
@@ -872,6 +1172,13 @@ class Daemon:
         except Exception as e:
             LOG.warning("Sem taxa nativa do dispositivo (%s); abrindo em %d Hz",
                         e, SAMPLE_RATE)
+        # O plugin ALSA "pipewire"/"pulse"/"default" anuncia 44100. O grafo
+        # SOF+AEC neste host é 48 kHz; abrir em 44100 cria um cliente extra
+        # no mesmo relógio do speaker (AEC acopla captura e playback) e o
+        # SOF entra em resync — áudio engasga.
+        if rate == 44100 and nome in ("pipewire", "pulse", "default"):
+            rate = 48000
+            LOG.info("Captura: plugin anunciou 44100; abrindo a 48000 (taxa do grafo)")
         bloco = max(1, int(round(FRAME_SIZE * rate / SAMPLE_RATE)))
         LOG.info("Captura: %d Hz nativos, bloco de %d → quadro de %d @ %d Hz "
                  "(reamostragem por média de janela, igual à GUI)",
@@ -879,73 +1186,68 @@ class Daemon:
         return rate, bloco
 
     def _check_aec(self):
-        """Diz no log se o mic está atrás do cancelador de eco.
+        """Módulo no grafo → captura pelo nome. Default source intocada.
 
-        O daemon captura pelo nó "default" do PipeWire, então quem decide se
-        há AEC é a fonte padrão. Sem ela o barge-in degrada de volta pro
-        comportamento antigo: o mic ouve o próprio TTS a ~33 dB acima do
-        piso e qualquer resposta longa vira gravação e comando novo.
+        hermes_aec_source é a saída filtrada. Não vira o microfone do
+        desktop: o daemon amarra PIPEWIRE_NODE só no pw-record.
         """
-        if os.environ.get("HERMES_VOICE_NO_AEC") == "1":
-            # Saída para teste acústico: com AEC ligado, áudio tocado pelo
-            # alto-falante é justamente o que o módulo cancela, então não dá
-            # para exercitar wake e comando por voz sintetizada. Também serve
-            # para comparar A/B o efeito do cancelamento.
-            LOG.warning("HERMES_VOICE_NO_AEC=1: cancelamento de eco IGNORADO "
-                        "(o mic vai ouvir o próprio TTS)")
-            return
-        try:
-            atual = subprocess.run(
-                ["pactl", "get-default-source"],
-                capture_output=True, text=True, timeout=5, env=get_desktop_env(),
-            ).stdout.strip()
-        except Exception as e:
-            LOG.warning("Não deu pra checar a fonte padrão: %s", e)
-            return
-        if atual == AEC_SOURCE_NODE:
-            self._aec_ok = True
-            LOG.info("Cancelamento de eco ativo (fonte padrão: %s)", atual)
-            return
-        # A fonte padrão volta sozinha pro microfone de hardware: o
-        # WirePlumber prefere nó real a nó virtual, e a unit hermes-aec é
-        # oneshot com RemainAfterExit, então reiniciar só o daemon não a
-        # reafirma. Quem se importa com isso é este daemon, então é ele que
-        # corrige, em vez de depender de ordenação de unit.
-        try:
-            existe = subprocess.run(
-                ["pactl", "list", "short", "sources"],
-                capture_output=True, text=True, timeout=5, env=get_desktop_env(),
-            ).stdout
-        except Exception:
-            existe = ""
-        if AEC_SOURCE_NODE not in existe:
-            LOG.warning(
-                "SEM cancelamento de eco: a fonte '%s' não existe. O módulo do "
-                "PipeWire não subiu (ver ~/.config/pipewire/pipewire.conf.d/). "
-                "O mic vai ouvir o próprio TTS.", AEC_SOURCE_NODE,
-            )
-            return
-        try:
-            subprocess.run(
-                ["pactl", "set-default-source", AEC_SOURCE_NODE],
-                capture_output=True, timeout=5, env=get_desktop_env(),
-            )
-            self._aec_ok = True
-            LOG.info("Fonte padrão era '%s'; corrigida para '%s' "
-                     "(cancelamento de eco ativo)", atual, AEC_SOURCE_NODE)
-        except Exception as e:
-            LOG.warning("Não deu pra fixar a fonte padrão: %s", e)
+        self._aec_ok = False
+        for _ in range(3):
+            try:
+                r = subprocess.run(
+                    ["pactl", "list", "short", "sources"],
+                    capture_output=True, text=True, timeout=2,
+                )
+                txt = r.stdout or ""
+            except Exception as e:
+                LOG.warning("AEC: pactl falhou (%s)", e)
+                return
+            if re.search(rf"(^|\s){re.escape(AEC_SOURCE_NODE)}(\s|$)", txt):
+                self._aec_ok = True
+                LOG.info("AEC: %s no grafo; fonte padrão do sistema não será alterada",
+                         AEC_SOURCE_NODE)
+                try:
+                    subprocess.run(["pactl", "set-source-volume", AEC_SOURCE_NODE, "100%"], capture_output=True)
+                    subprocess.run(["pactl", "set-source-mute", AEC_SOURCE_NODE, "0"], capture_output=True)
+                except Exception:
+                    pass
+                return
+            time.sleep(0.1)
+        LOG.warning("AEC: %s ausente; Mic1 cru, sem cancelamento de eco", AEC_SOURCE_NODE)
 
     def _callback(self, indata, frames, time_info, status):
         if status:
-            LOG.warning("Audio: %s", status)
+            agora = time.monotonic()
+            if agora - self._xrun_log_t >= 5.0:
+                self._xrun_log_t = agora
+                LOG.warning("Audio: %s", status)
         bloco = indata[:, 0] if getattr(indata, "ndim", 1) == 2 else indata
         if self.capture_rate != SAMPLE_RATE:
             bloco = _resample_frame(bloco, FRAME_SIZE)
-        self.audio_queue.put(np.ascontiguousarray(bloco, dtype=np.int16).tobytes())
+        payload = np.ascontiguousarray(bloco, dtype=np.int16).tobytes()
+        self._last_audio_t = time.monotonic()
+        try:
+            self.audio_queue.put_nowait(payload)
+        except queue.Full:
+            try:
+                self.audio_queue.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                self.audio_queue.put_nowait(payload)
+            except queue.Full:
+                pass
 
     def _touch_session(self):
         self._session_until = time.monotonic() + SESSION_IDLE_SEC
+
+    def _mic_necessario(self) -> bool:
+        """Wake word precisa ouvir sempre; sem ela, só com o orbe ativo."""
+        return (self.oww is not None or self.expecting_command or self.allow_interrupt
+                or self._tts_playing)
+
+    def _abrir_mic(self):
+        self._mic_evento.set()
 
     def _end_session(self, reason: str = "idle"):
         if not (self.expecting_command or self.allow_interrupt):
@@ -954,15 +1256,41 @@ class Daemon:
         LOG.info("Sessão de voz encerrada (%s)", reason)
         self.expecting_command = False
         self.allow_interrupt = False
-        self._chat_id = None
-        self._voice_session = None
-        # A trava não sobrevive à sessão: senão a próxima nasceria travada sem
-        # ninguém ter pedido.
+        # NÃO zera _chat_id/_voice_session: a orbe reusa o Bot Chat forever
+        # do modo bot. Só a escuta de voz fecha; o thread Hermes continua.
         self._hold_until = 0.0
         self._pedido_aberto = ""
+        self._agente_uso = time.monotonic()
         self._bump_tts()
+        if self.oww is not None:
+            self.oww.cool_until = time.monotonic() + 4.0
         orb_cmd("hold 0")
         orb_cmd("hide")
+
+    def _trigger_session(self):
+        LOG.info("⚡ trigger da sessão de voz (teclado/gesto/wake)")
+        orb_cmd("clear")
+        orb_cmd("show listening")
+        self.expecting_command = True
+        self.allow_interrupt = True
+        self._from_wake = True
+        # Sempre o mesmo forever-chat do Bot Mode.
+        if not self._voice_session:
+            self._voice_session = HERMES_SESSION
+        self._preaquecer_agente()
+        self._abrir_mic()
+        self._pedido_aberto = ""
+        self._continuando = False
+        self._tts_barge = False
+        self._tts_barge_after = 0.0
+        if self.silero is not None:
+            self.silero.reset()
+        self._touch_session()
+        self._ensure_tts_worker()
+        self._tts_worker_warm()
+        ack = self._pick_ack()
+        if ack:
+            self._tts_push(ack)
 
     def _poll_cmdfile(self):
         p = Path(f"/run/user/{os.getuid()}/hermes-voice.cmd")
@@ -971,11 +1299,27 @@ class Daemon:
             p.unlink(missing_ok=True)
         except OSError:
             return
-        low = txt.lower()
-        if "dismiss" in low:
+        low = txt.lower().strip()
+        if any(w in low for w in ("dismiss", "stop", "hide", "tchau", "cancel")):
             LOG.info("dismiss via cmdfile")
             self._kill_active(hide=True)
             self._end_session("dismiss")
+        elif "toggle" in low:
+            in_session = self.expecting_command or self.allow_interrupt or self.state != "listening"
+            if self._gerando():
+                # Atalho no meio do raciocínio: o pedido não tinha acabado.
+                # Corta a geração e emenda a próxima fala, como a voz faz.
+                self._do_continuacao(0.0, origem="atalho")
+            elif in_session:
+                LOG.info("toggle: encerrando sessão ativa via cmdfile")
+                self._kill_active(hide=True)
+                self._end_session("toggle")
+            else:
+                LOG.info("toggle: iniciando sessão via cmdfile")
+                self._trigger_session()
+        elif any(w in low for w in ("trigger", "wake", "start", "show")):
+            LOG.info("trigger manual via cmdfile")
+            self._trigger_session()
         elif "hold" in low:
             self._hold_until = time.monotonic() + HOLD_MAX_SEC
             self._touch_session()
@@ -990,8 +1334,199 @@ class Daemon:
                 LOG.info("Trava de sessão solta; timeout de %.0fs volta a valer",
                          SESSION_IDLE_SEC)
 
+    def _gerando(self) -> bool:
+        """Turno em voo (STT ou Hermes) sem a resposta tocando."""
+        return (self.state == "processing" and not self._tts_playing
+                and self._processing_thread is not None
+                and self._processing_thread.is_alive())
+
+    # ── Controle externo: toque no orbe e relato de despacho ──
+
+    def _ctl_loop(self):
+        try:
+            os.unlink(CTL_SOCK)
+        except OSError:
+            pass
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            srv.bind(CTL_SOCK)
+            srv.listen(8)
+        except OSError as e:
+            LOG.warning("socket de controle indisponível (%s)", e)
+            return
+        while self.running.is_set():
+            try:
+                conn, _ = srv.accept()
+            except OSError:
+                continue
+            partes = []
+            try:
+                conn.settimeout(2.0)
+                while True:
+                    bloco = conn.recv(65536)
+                    if not bloco:
+                        break
+                    partes.append(bloco)
+            except OSError:
+                pass
+            finally:
+                conn.close()
+            for linha in b"".join(partes).decode("utf-8", "replace").splitlines():
+                if linha.strip():
+                    self._ctl_q.put(linha.strip())
+
+    def _poll_ctl(self):
+        """Roda no laço de áudio: o estado só muda numa thread."""
+        while True:
+            try:
+                linha = self._ctl_q.get_nowait()
+            except queue.Empty:
+                break
+            op, _, arg = linha.partition(" ")
+            if op == "touch" and arg == "down":
+                self._toque_down()
+            elif op == "touch" and arg == "up":
+                self._toque_up()
+            elif op == "relato":
+                try:
+                    rel = json.loads(arg)
+                except ValueError:
+                    LOG.warning("relato ilegível: %r", arg[:120])
+                    continue
+                self._relatos.append(rel)
+                LOG.info("Relato na fila (%s)", rel.get("perfil", "?"))
+        if (self._relatos and self.state == "listening" and self.rec is None
+                and not self._busy()):
+            self._iniciar_relato(self._relatos.popleft())
+        self._talvez_descarregar_agente()
+
+    def _toque_down(self):
+        self._toque_t = time.monotonic()
+        if self.state == "recording" and self.rec is not None and not self._tts_playing:
+            # Já gravando por voz: o dedo só passa a segurar a gravação.
+            self.rec.segurando = True
+            self.rec.por_toque = True
+            self._toque_rec_novo = False
+            LOG.info("toque: segurando a gravação em curso")
+            return
+        if self._tts_playing:
+            LOG.info("toque: fala interrompida")
+            self._continuando = False
+            self._pedido_aberto = ""
+            self._kill_active(hide=False)
+        elif self._gerando():
+            LOG.info("toque: geração cortada, o pedido continua")
+            self._continuando = True
+            self._kill_active(hide=False)
+        else:
+            LOG.info("toque: escutando")
+        self._thread_velho = self._processing_thread
+        self._processing_thread = None
+        if not self._voice_session:
+            self._voice_session = HERMES_SESSION
+        self._preaquecer_agente()
+        self._abrir_mic()
+        self.expecting_command = True
+        self.allow_interrupt = True
+        self.state = "recording"
+        self.rec = Recorder()
+        self.rec.segurando = True
+        self.rec.por_toque = True
+        self._toque_rec_novo = True
+        self.speech_frames = 0
+        self._int_frames = 0
+        self._deaf_until = 0.0
+        self.preroll_buffer.clear()
+        if self.silero is not None:
+            self.silero.reset()
+        self._touch_session()
+        orb_cmd("show listening")
+
+    def _toque_up(self):
+        rec = self.rec
+        if self.state != "recording" or rec is None or not rec.segurando:
+            return
+        rec.segurando = False
+        dur = time.monotonic() - self._toque_t
+        if dur >= TOQUE_SEGURAR_SEC:
+            LOG.info("toque solto após %.1fs: fim da fala", dur)
+            rec.fim = True
+        elif self._toque_rec_novo:
+            # Toque curto = só interromper. A gravação do dedo sai; a escuta
+            # por voz continua, e a fala seguinte emenda se o pedido ficou aberto.
+            LOG.info("toque curto: interrompido, escutando")
+            self.rec = None
+            self.state = "listening"
+            self.speech_frames = 0
+            orb_cmd("state listening")
+        else:
+            rec.por_toque = False
+
+    def _iniciar_relato(self, rel: dict):
+        perfil = str(rel.get("perfil") or "?")
+        texto = (f"Resultado do trabalho despachado ao perfil {perfil}.\n"
+                 f"Pedido: {rel.get('tarefa', '')}\n")
+        if rel.get("arquivo"):
+            texto += f"Saída completa em: {rel['arquivo']}\n"
+        texto += "\n" + str(rel.get("resultado") or "(sem saída)")
+        LOG.info("Relato do despacho (%s): %d caracteres", perfil, len(texto))
+        if not self._voice_session:
+            self._voice_session = HERMES_SESSION
+        self._preaquecer_agente()
+        self._abrir_mic()
+        self.allow_interrupt = True
+        self.expecting_command = False
+        self._continuando = False
+        self._interrupted.clear()
+        self.state = "processing"
+        orb_cmd("clear")
+        orb_cmd("show thinking")
+        self._touch_session()
+        gen = self._tts_gen
+        self._processing_thread = threading.Thread(
+            target=self._responder, args=(texto, gen), kwargs={"relato": True},
+            daemon=True)
+        self._processing_thread.start()
+
+    def _guardar_pedido(self, cmd: str, falou: bool = False):
+        """Geração abortada por continuação antes de qualquer palavra falada:
+        o pedido fica para a próxima fala emendar (_emendar_pedido)."""
+        if self._continuando and not falou and cmd:
+            self._pedido_aberto = cmd
+            self._pedido_ts = time.monotonic()
+            LOG.info("Pedido guardado para emenda: %r", cmd[:120])
+        self._continuando = False
+
     def _is_dismiss(self, text: str) -> bool:
         return bool(_DISMISS_RE.search(text or ""))
+
+    def _is_speech(self, frame: bytes, rms: float) -> bool:
+        """Voz neste quadro: piso de RMS e Silero (webrtcvad se ele faltar).
+
+        O Silero só roda com sessão aberta ou turno em andamento. Ocioso, o
+        daemon descarta os quadros (só o wake word, quando ligado, os lê), e
+        a sessão nova começa com o estado da rede zerado (_trigger_session).
+        """
+        if self.silero is None:
+            return rms >= MIN_SPEECH_RMS and self.vad.is_speech(frame, SAMPLE_RATE)
+        if not (self.expecting_command or self.allow_interrupt
+                or self.state != "listening"):
+            return False
+        p = self.silero.feed(frame)
+        self._vad_max = max(self._vad_max, p)
+        return rms >= MIN_SPEECH_RMS and p >= SILERO_THRESHOLD
+
+    def _voz_do_dono(self, pcm: np.ndarray, onde: str) -> bool:
+        """True = o dono falou (ou não dá para saber). Loga a similaridade."""
+        if self.speaker is None:
+            return True
+        t0 = time.monotonic()
+        ok, sim = self.speaker.e_o_dono(pcm)
+        LOG.info("porteiro %s: %s (sim=%s limiar=%.3f, %.0f ms)", onde,
+                 "dono" if ok else "OUTRA PESSOA, ignorada",
+                 "n/d" if sim is None else f"{sim:.3f}", self.speaker.limiar,
+                 (time.monotonic() - t0) * 1000)
+        return ok
 
     def _is_deaf(self) -> bool:
         return self._tts_playing or time.monotonic() < self._deaf_until
@@ -1054,9 +1589,7 @@ class Daemon:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=logf,
-            env={**get_desktop_env(),
-                 "HERMES_HOME": "/home/davi/.hermes",
-                 "HERMES_PROFILE": "jarvis"},
+            env=_tts_child_env(),
             text=True,
             bufsize=1,
         )
@@ -1124,12 +1657,13 @@ class Daemon:
             return
         self._tts_sent_q.put((s, gen))
         self._tts_turn_n += 1
+        self._tts_playing = True
+        self._last_spoken.append(s)
         if _normalize_utterance(s) not in _ACK_NORMS:
-            self._tts_barge = True
+            self._tts_barge = BARGE_IN
             if self._tts_barge_after == 0.0:
                 self._tts_barge_after = time.monotonic() + 0.55
-            self._tts_playing = True
-            self._last_spoken.append(s)
+                self._echo_rms = 0.0
         LOG.info("TTS queue [%d]: %s", self._tts_turn_n, s[:100])
 
     def _tts_drain(self):
@@ -1160,11 +1694,9 @@ class Daemon:
             finally:
                 if self._tts_sent_q.empty():
                     self._tts_playing = False
-                    self._deaf_until = time.monotonic() + 0.55
+                    self._deaf_until = time.monotonic() + 0.20
                     orb_cmd("level 0")
-                    self.speech_frames = 0
                     self._int_frames = 0
-                    self.preroll_buffer.clear()
                 self._touch_session()
 
     def _session_expired(self) -> bool:
@@ -1228,8 +1760,10 @@ class Daemon:
 
     def _pick_ack(self) -> str:
         """Sorteia o atendimento, nunca repetindo o imediatamente anterior."""
+        if not ACK_PHRASES:
+            return ""
         opcoes = [p for p in ACK_PHRASES if p != self._last_ack] or list(ACK_PHRASES)
-        self._last_ack = random.choice(opcoes)
+        self._last_ack = random.choice(opcoes) if opcoes else ""
         return self._last_ack
 
     def _do_barge(self, rms: float):
@@ -1244,20 +1778,21 @@ class Daemon:
         self._continuando = False
         self._pedido_aberto = ""
         self._kill_active(hide=False)
+        self._thread_velho = self._processing_thread
         self._processing_thread = None
         self.expecting_command = True
         self.allow_interrupt = True
         self.state = "recording"
         self.rec = Recorder()
-        self.rec.echo_skip_until = 6
+        self.rec.echo_skip_until = 0
         self.speech_frames = 0
-        tail = list(self._tts_ring)[-8:]
+        tail = list(self._tts_ring)
         self._tts_ring.clear()
         self.preroll_buffer.clear()
         for pf, ps in tail:
             self.rec.feed(pf, ps)
 
-    def _do_continuacao(self, rms: float):
+    def _do_continuacao(self, rms: float, origem: str = "voz"):
         """Fala durante a GERAÇÃO: o pedido não tinha terminado de ser dito.
 
         Falando devagar, a pausa entre palavras passa de SILENCE_TIMEOUT e a
@@ -1270,12 +1805,16 @@ class Daemon:
         está no anel capturado durante o TTS; aqui está no preroll, porque
         durante a geração o microfone não estava sendo desviado para o anel.
         """
-        LOG.info("Fala durante a geração (rms=%.0f, %dms): continuação do pedido",
-                 rms, INTERRUPT_SPEECH_FRAMES * FRAME_MS)
+        if origem == "voz":
+            LOG.info("Fala durante a geração (rms=%.0f, %dms): continuação do pedido",
+                     rms, INTERRUPT_SPEECH_FRAMES * FRAME_MS)
+        else:
+            LOG.info("Continuação do pedido pelo %s", origem)
         self._int_frames = 0
         self._deaf_until = 0.0
         self._continuando = True
         self._kill_active(hide=False)
+        self._thread_velho = self._processing_thread
         self._processing_thread = None
         self.expecting_command = True
         self.allow_interrupt = True
@@ -1310,36 +1849,34 @@ class Daemon:
         return emendado
 
     def _is_tts_echo(self, text: str) -> bool:
-        """Rede de segurança para quando NÃO há cancelamento de eco.
-
-        Com AEC não roda: o eco não chega mais ao sinal (medido, ele não
-        sustenta nem 2 quadros contínuos em nenhum piso testado), e este
-        filtro só produz dano.
-
-        O dano é estrutural, não de calibragem. Numa conversa a réplica é
-        lexicalmente parecida com a pergunta por construção: o Hermes
-        perguntou "Quer mais uma?", o Davi respondeu "Fala mais um aí", e a
-        similaridade difflib deu 0.643 contra um corte de 0.58 — a resposta
-        foi descartada em silêncio como se fosse eco. Quanto mais natural o
-        diálogo, mais o filtro barra. Por isso a comparação por similaridade
-        saiu de vez; sobrou só contenção literal de uma fala LONGA, que é o
-        que um eco de verdade produz.
-        """
         if self._aec_ok:
             return False
+        raw_clean = re.sub(r"[^a-z0-9]", "", (text or "").lower())
+        if not raw_clean:
+            return False
+        for ack in ("sim", "poisnao", "fala", "manda", "oi", "podefalar", "escuto", "estououvindo"):
+            if raw_clean in (ack, ack + "podefalar", ack + "estououvindo") or (
+                raw_clean.startswith(ack) and len(raw_clean) <= len(ack) + 8
+            ):
+                return True
         t = re.sub(r"[^a-z0-9áéíóúâêôãõç ]", "", (text or "").lower())
         t = " ".join(t.split())
-        if len(t) < 8:
+        if len(t) < 6:
             return False
+        import difflib
         for s in self._last_spoken:
             u = re.sub(r"[^a-z0-9áéíóúâêôãõç ]", "", s.lower())
             u = " ".join(u.split())
-            # Falas curtas envenenam a contenção: "fala" está dentro de
-            # metade das réplicas possíveis.
-            if len(u) < 20:
+            if not u:
                 continue
-            if t in u or u in t:
+            # "u in t" só com frase falada longa: uma curta ("Sim?", "Quatro.")
+            # cabe dentro de qualquer comando, e o comando inteiro ia fora
+            # como eco ("Sim? Que horas são agora?", 03/10).
+            if t in u or (len(u) >= 10 and u in t):
                 return True
+            if len(t) >= 10 and len(u) >= 10:
+                if difflib.SequenceMatcher(None, t, u).ratio() > 0.65:
+                    return True
         return False
 
     # ── TTS interruptível ──
@@ -1347,179 +1884,225 @@ class Daemon:
     def _speak(self, text: str):
         self._tts_push(text)
 
+    # ── Agente ACP ──
+
+    @staticmethod
+    def _hermes_env() -> dict:
+        env = get_desktop_env()
+        env.pop("HERMES_HOME", None)
+        env["TERM"] = "dumb"
+        env["PYTHONUNBUFFERED"] = "1"
+        return env
+
+    def _criar_ouvido(self):
+        """Ouvido de wake word do provedor escolhido no app; None = desligado."""
+        try:
+            if WAKE_PROVEDOR == "openwakeword":
+                ouvido = OpenWakeWordEar()
+                desc = f"openWakeWord {OWW_MODEL} (limiar {OWW_THRESHOLD:.2f}, {OWW_CONFIRM} quadros)"
+            elif WAKE_PROVEDOR == "sherpa":
+                ouvido = SherpaEar(_AT["sherpa_dir"], _AT["frase"], float(_AT["limiar_sherpa"]))
+                desc = f"sherpa-onnx, frase \"{_AT['frase']}\""
+            elif WAKE_PROVEDOR == "microwakeword":
+                ouvido = MicroWakeWordEar(MWW_MODEL, float(_AT["limiar_mww"]), OWW_CONFIRM)
+                desc = f"microWakeWord {MWW_MODEL}"
+            else:
+                LOG.info("Wake word desligado: ativação pelo atalho e pelo toque")
+                return None
+        except Exception as e:
+            LOG.error("Wake word (%s) falhou: %s", WAKE_PROVEDOR, e)
+            return None
+        LOG.info("Wake word: %s", desc)
+        return ouvido
+
+    def _agente_chave(self) -> str:
+        a = AGENTE_CFG
+        return "|".join((a["tipo"], a["perfil"] if a["tipo"] == "hermes" else "",
+                         a["comando"] if a["tipo"] == "comando" else ""))
+
+    def _agente_velho(self, ag: acp.AgenteACP) -> bool:
+        if AGENTE_CFG["tipo"] != "hermes":
+            return False
+        return any(_mtime(p) > ag.iniciado_em for p in WARM_STALE_PATHS)
+
+    def _agente_pronto(self) -> acp.AgenteACP:
+        """Agente vivo e com sessão; sobe, ou reinicia retomando a conversa."""
+        with self._agente_lock:
+            ag = self.agente
+            if ag is not None and ag.vivo() and ag.sessao and not self._agente_velho(ag):
+                return ag
+            if ag is not None:
+                LOG.info("agente ACP: reiniciando (%s)",
+                         "config mudou" if ag.vivo() else "processo saiu")
+                ag.fechar()
+                self.agente = None
+            t0 = time.monotonic()
+            if AGENTE_CFG["tipo"] == "claude":
+                # Sessão do Claude já aberta no terminal: nada a subir.
+                argv = ["claude"]
+                ag = canal.AgenteClaude()
+            else:
+                hermes = AGENTE_CFG["tipo"] == "hermes"
+                argv, extra = acp.comando(AGENTE_CFG, self._hermes_rt if hermes else None)
+                env = self._hermes_env()
+                env.update(extra)
+                ag = acp.AgenteACP(argv, env)
+            try:
+                ag.iniciar()
+                estado = vcfg.ler_estado()
+                retomar = estado.get("sessao") if estado.get("chave") == self._agente_chave() else None
+                ag.abrir_sessao(retomar)
+                if AGENTE_CFG["modelo"]:
+                    try:
+                        ag.definir_modelo(AGENTE_CFG["modelo"])
+                    except acp.ErroACP as e:
+                        LOG.warning("agente ACP: modelo %s recusado (%s)", AGENTE_CFG["modelo"], e)
+            except Exception:
+                ag.fechar()
+                raise
+            self.agente = ag
+            # A conversa retomada já recebeu a instrução de voz no 1º pedido.
+            self._instruido = bool(retomar) and ag.sessao == retomar
+            info = ag.info.get("agentInfo") or {}
+            if AGENTE_CFG["tipo"] == "claude":
+                LOG.info("Claude: sessão %s em %s", ag.sessao, ag.cwd or "?")
+            LOG.info("agente ACP pronto em %.1fs: %s %s, sessão %s (%s), modelo %s",
+                     time.monotonic() - t0, info.get("name", argv[0]), info.get("version", ""),
+                     ag.sessao, "retomada" if self._instruido or (retomar and ag.sessao == retomar) else "nova",
+                     ag.modelo_atual or "padrão")
+            try:
+                vcfg.gravar_estado({
+                    "chave": self._agente_chave(), "sessao": ag.sessao,
+                    "agente": info.get("title") or info.get("name") or "",
+                    "modelos": ag.modelos, "modelo_atual": ag.modelo_atual,
+                })
+            except OSError as e:
+                LOG.warning("estado do agente não gravado: %s", e)
+            return ag
+
+    def _preaquecer_agente(self):
+        """Sobe o agente em segundo plano enquanto o Davi ainda fala."""
+        ag = self.agente
+        if (ag is not None and ag.vivo()) or self._agente_lock.locked():
+            return
+
+        def _subir():
+            try:
+                self._agente_pronto()
+            except Exception as e:
+                LOG.warning("agente ACP não subiu: %s", e)
+        threading.Thread(target=_subir, daemon=True).start()
+
+    def _talvez_descarregar_agente(self):
+        if MANTER_MIN <= 0 or self.agente is None:
+            return
+        if (self.expecting_command or self.allow_interrupt or self._gerando()
+                or self._agente_lock.locked()):
+            return
+        if time.monotonic() - self._agente_uso < MANTER_MIN * 60:
+            return
+        with self._agente_lock:
+            ag, self.agente = self.agente, None
+        if ag is not None:
+            LOG.info("agente ACP descarregado (%.0f min sem sessão de voz)", MANTER_MIN)
+            threading.Thread(target=ag.fechar, daemon=True).start()
+
     def _ask_hermes(self, text: str) -> str:
-        """Consulta Jarvis: raciocínio pro orbe, só a resposta pro TTS.
+        """Pergunta ao agente por ACP. O texto chega em pedaços e vai ao TTS
+        frase a frase; pensamento vai para o orbe, nunca para a voz.
 
-        O roteamento é por borda de painel, não por conteúdo. O CLI já separa
-        os dois canais em caixas distintas (ver REASON_OPEN/ANSWER_OPEN), e o
-        que estiver fora de qualquer caixa é cromo de terminal: banner, aviso
-        de toolset, linha de sessão, rodapé de resume. Nada disso é falado.
-
-        stdout e stderr saem em pipes separados. O PTY anterior fundia os
-        dois num descritor só, e era daí que vinham falas como
-        "Session ... found but has no messages. Starting fresh."
+        Interromper (barge-in, toque, atalho) manda session/cancel: o turno
+        fecha e o processo do agente continua carregado.
         """
         if not text or self._interrupted.is_set():
             return ""
         gen = self._tts_gen
-        env = get_desktop_env()
-        env.pop("HERMES_HOME", None)
-        env["TERM"] = "dumb"
-        # Painel largo: evita que o Rich quebre a resposta no meio de uma
-        # frase e atrase o corte de sentença que alimenta o TTS.
-        env["COLUMNS"] = "400"
-        argv = [HERMES_BIN, "-p", HERMES_PROFILE, "chat",
-                "-q", text, "--cli", "--yolo",
-                "--reasoning", "low", "--max-turns", "8", "--run-budget", "45"]
-        if self._chat_id:
-            argv += ["--resume", self._chat_id]
-        elif self._voice_session:
-            argv += ["-c", self._voice_session, "--create-if-missing"]
-        try:
-            proc = subprocess.Popen(
-                argv,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=env,
-                close_fds=True,
-            )
-        except Exception as e:
-            LOG.warning("Falha ao iniciar hermes: %s", e)
-            return ""
-        with self._proc_lock:
-            self._active_proc = proc
-        # O modelo vai levar segundos pensando; abre o socket do TTS agora,
-        # em paralelo, pra primeira frase não pagar o handshake.
+        # O agente vai levar um tempo; abre o socket do TTS em paralelo.
         self._tts_worker_warm()
+        try:
+            ag = self._agente_pronto()
+        except Exception as e:
+            LOG.warning("agente ACP indisponível: %s", e)
+            return ""
+        pedido = text
+        instrucao = (AGENTE_CFG.get("instrucao_voz") or "").strip()
+        # Hermes usa o SOUL do perfil; o canal do Claude manda a instrução ao conectar.
+        if AGENTE_CFG["tipo"] not in ("hermes", "claude") and instrucao and not self._instruido:
+            pedido = f"{instrucao}\n\n{text}"
+            self._instruido = True
 
-        mode = None       # None = cromo do terminal | "reasoning" | "answer"
-        answers = []      # respostas completas do turno, em ordem
-        cur = []          # caixa de resposta em construção
-        sent_buf = ""
+        partes: list[str] = []
+        frase = [""]
+        pensado = [""]
 
-        def _consume(raw: str):
-            nonlocal mode, cur, sent_buf
+        def ao_texto(t: str):
             if self._tts_gen != gen:
                 return
-            line = _ANSI_RE.sub("", raw or "")
-            line = _CSI_LEFTOVER.sub("", line).replace("\r", "").strip()
-            line = line.strip("│").strip()   # borda lateral, quando desenhada
-            if not line:
-                return
-            head = line[0]
+            partes.append(t)
+            frase[0] += t
+            sents, frase[0] = _take_sentences(frase[0])
+            for sent in sents:
+                self._tts_push(sent, gen)
 
-            if head == ANSWER_OPEN:
-                mode, cur = "answer", []
+        def ao_pensamento(t: str):
+            if self._tts_gen != gen:
                 return
-            if head == ANSWER_CLOSE:
-                if mode == "answer" and cur:
-                    answers.append(" ".join(cur))
-                mode, cur = None, []
-                return
-            if head == REASON_OPEN:
-                mode = "reasoning"
+            if not pensado[0]:
                 orb_cmd("state thinking")
-                return
-            if head == REASON_CLOSE:
-                mode = None
-                return
+            pensado[0] += t
+            while "\n" in pensado[0] or len(pensado[0]) > 160:
+                corte = pensado[0].find("\n")
+                corte = corte if 0 <= corte <= 160 else 160
+                linha, pensado[0] = pensado[0][:corte].strip(), pensado[0][corte:].lstrip("\n")
+                if linha:
+                    orb_cmd("line " + linha[:200])
+            if not pensado[0]:
+                pensado[0] = " "
 
-            if mode == "reasoning":
-                # Raciocínio é exclusivo do overlay: nunca entra na fila de
-                # voz. O orbe já mantém janela rolante das últimas linhas.
-                orb_cmd("line " + line[:200])
-                return
-            if mode == "answer":
-                cur.append(line)
-                sent_buf += line + " "
-                sents, sent_buf = _take_sentences(sent_buf)
-                for s in sents:
-                    self._tts_push(s, gen)
-                return
-            if head in TOOL_MARKS:
+        def a_ferramenta(_titulo: str, _status: str):
+            if self._tts_gen == gen:
                 orb_cmd("state tools")
-                return
-            # Fora de caixa é cromo. A única coisa aproveitável é o id de
-            # sessão do rodapé, que encadeia o próximo turno no mesmo chat.
-            if line.lower().startswith("session:"):
-                sid = line.split(":", 1)[1].strip().split()
-                if sid:
-                    self._chat_id = sid[0]
-                    LOG.info("chat id %s", sid[0])
 
-        out_fd = proc.stdout.fileno()
-        err_fd = proc.stderr.fileno()
-        live = {out_fd, err_fd}
-        buf = ""
-        errbuf = ""
-        deadline = time.monotonic() + 120
+        daemon = self
+
+        class _Parar:
+            @staticmethod
+            def is_set() -> bool:
+                return daemon._interrupted.is_set() or daemon._tts_gen != gen
+
         try:
-            while live:
-                if self._tts_gen != gen or self._interrupted.is_set():
-                    proc.kill()
-                    return ""
-                if time.monotonic() > deadline:
-                    LOG.warning("hermes estourou o teto de 120s")
-                    proc.kill()
-                    break
-                r, _, _ = select.select(list(live), [], [], 0.12)
-                for fd in r:
-                    try:
-                        chunk = os.read(fd, 4096)
-                    except OSError:
-                        live.discard(fd)
-                        continue
-                    if not chunk:
-                        live.discard(fd)
-                        continue
-                    data = chunk.decode("utf-8", "replace").replace("\r\n", "\n")
-                    if fd == err_fd:
-                        errbuf += data
-                        while "\n" in errbuf:
-                            eline, errbuf = errbuf.split("\n", 1)
-                            if eline.strip():
-                                LOG.debug("hermes stderr: %s", eline.strip()[:200])
-                        continue
-                    buf += data
-                    while "\n" in buf:
-                        raw, buf = buf.split("\n", 1)
-                        _consume(raw)
-            if buf.strip():
-                _consume(buf)
-            proc.wait(timeout=8)
-        except Exception as e:
-            LOG.warning("hermes stream: %s", e)
-            try:
-                proc.kill()
-            except Exception:
-                pass
+            fim = ag.perguntar(pedido, ao_texto, ao_pensamento, a_ferramenta,
+                               parar=_Parar(),
+                               teto=600.0 if AGENTE_CFG["tipo"] == "claude" else 120.0)
+            if fim not in ("end_turn", "cancelled"):
+                LOG.info("agente ACP: turno terminou com %s", fim or "?")
+        except acp.ErroACP as e:
+            LOG.warning("agente ACP: %s", e)
         finally:
-            if sent_buf.strip() and self._tts_gen == gen:
-                self._tts_push(sent_buf.strip(), gen)
+            self._agente_uso = time.monotonic()
+            if frase[0].strip() and self._tts_gen == gen and not self._interrupted.is_set():
+                self._tts_push(frase[0].strip(), gen)
             if self._tts_gen == gen:
                 self._tts_drain()
-            for pipe in (proc.stdout, proc.stderr):
-                try:
-                    pipe.close()
-                except Exception:
-                    pass
-            with self._proc_lock:
-                self._active_proc = None
-        if mode == "answer" and cur:
-            answers.append(" ".join(cur))
-        return "\n".join(a.strip() for a in answers if a.strip()).strip()
+        if self._interrupted.is_set() or self._tts_gen != gen:
+            return ""
+        return "".join(partes).strip()
 
     # ── Main Loop ──
 
     def run(self):
         LOG.info("═══ Hermes Voice Daemon v4 (Groq Whisper) ═══")
         LOG.info("VAD: %d | Groq: %s", VAD_AGGRESSIVENESS, GROQ_MODEL)
-        LOG.info("Diga \"Ei Hermes\" seguido do comando...")
-        LOG.info("Wake: openWakeWord local (mesmo modelo da GUI)")
+        LOG.info("Agente: %s | wake word: %s | barge-in: %s",
+                 acp.NOMES.get(AGENTE_CFG["tipo"], AGENTE_CFG["tipo"])
+                 + (f" ({AGENTE_CFG['perfil']})" if AGENTE_CFG["tipo"] == "hermes" else ""),
+                 WAKE_PROVEDOR, "ligado" if BARGE_IN else "desligado")
         self._ensure_tts_worker()
         threading.Thread(target=self._tts_consumer, daemon=True).start()
-        threading.Thread(target=lambda: orb_cmd("warm"), daemon=True).start()
+        threading.Thread(target=_orb_boot, daemon=True).start()
+        threading.Thread(target=self._ctl_loop, daemon=True).start()
+        if MANTER_MIN <= 0:
+            self._preaquecer_agente()
 
         # Inicializa volume de áudio do sistema (sink e source) no máximo (100%)
         env = get_desktop_env()
@@ -1528,190 +2111,309 @@ class Daemon:
             subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SOURCE@", "1.0"], capture_output=True, env=env)
             subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", "100%"], capture_output=True, env=env)
             subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", "100%"], capture_output=True, env=env)
+            if self._aec_ok:
+                subprocess.run(["pactl", "set-source-volume", AEC_SOURCE_NODE, "100%"], capture_output=True, env=env)
+                subprocess.run(["pactl", "set-source-mute", AEC_SOURCE_NODE, "0"], capture_output=True, env=env)
             LOG.info("Volume de áudio inicializado no máximo (100%).")
         except Exception as e:
             LOG.warning("Erro ao inicializar volume de áudio: %s", e)
 
-        # Taxa NATIVA do dispositivo, com blocksize proporcional, e a
-        # reamostragem feita por nós em _callback. É o caminho da orelhinha da
-        # GUI (tools/wake_word.py): ela nunca pede 16 kHz ao PortAudio.
-        with sd.InputStream(
-            samplerate=self.capture_rate, channels=CHANNELS,
-            dtype=DTYPE, blocksize=self.capture_block,
-            device=self.device,
-            callback=self._callback,
-        ):
+        # Captura nativa PipeWire via pw-record (48000 Hz, 1 ch, s16le raw).
+        # Bypassa a camada ALSA do PortAudio (pa_linux_alsa.c) que sofre com
+        # xrun spinloops infinitos de AlsaRestart e deadlocks no PipeWire.
+        capture_bytes = self.capture_block * 2
+
+        def _capture_worker():
+            backoff = 0.5
             while self.running.is_set():
+                # Orbe inativo e sem wake word: nenhum stream aberto no mic.
+                if not self._mic_necessario() and not self._mic_evento.is_set():
+                    self._mic_evento.wait(0.5)
+                    continue
+                self._mic_evento.clear()
+                target = AEC_SOURCE_NODE if self._aec_ok else "@DEFAULT_AUDIO_SOURCE@"
+                if self._aec_ok:
+                    try:
+                        subprocess.run(["pactl", "set-source-volume", AEC_SOURCE_NODE, "100%"], capture_output=True)
+                        subprocess.run(["pactl", "set-source-mute", AEC_SOURCE_NODE, "0"], capture_output=True)
+                    except Exception:
+                        pass
+                latency_str = f"{int(round(self.capture_block * 1000 / self.capture_rate))}ms"
+                cmd = [
+                    "pw-record",
+                    "--target", target,
+                    "--rate", str(self.capture_rate),
+                    "--channels", "1",
+                    "--format", "s16",
+                    "--container", "raw",
+                    "--latency", latency_str,
+                    "-",
+                ]
                 try:
-                    frame = self.audio_queue.get(timeout=0.5)
-                except queue.Empty:
-                    if self.state == "processing" and self._processing_thread:
-                        if not self._processing_thread.is_alive():
-                            self._processing_thread = None
-                            self.state = "listening"
-                            self.speech_frames = 0
-                            self.preroll_buffer.clear()
-                    if self._should_idle_end():
-                        self._end_session("timeout 10s")
-                    self._poll_cmdfile()
-                    continue
-                if frame is None:
-                    break
-
-                if self._should_idle_end():
-                    self._end_session("timeout 10s")
-                self._poll_cmdfile()
-
-                rms = frame_rms(frame)
-                is_speech = (
-                    rms >= MIN_SPEECH_RMS
-                    and self.vad.is_speech(frame, SAMPLE_RATE)
-                )
-
-                if self._tts_playing and not self._tts_barge:
-                    pass
-                elif self.allow_interrupt and self._tts_playing and self._tts_barge:
-                    self._tts_ring.append((frame, is_speech))
-                    # O AEC tira a fala do orbe do sinal, então basta detectar
-                    # voz sustentada. O rastreador exponencial de eco e a
-                    # comparação rms > eco*1.45 saíram daqui: existiam só pra
-                    # adivinhar quanto do que o mic ouvia era o próprio orbe.
-                    onset = (
-                        time.monotonic() >= self._tts_barge_after
-                        and is_speech
-                        and rms >= INTERRUPT_MIN_RMS
+                    proc = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
                     )
-                    if onset:
-                        self._int_frames += 1
-                    else:
-                        self._int_frames = 0
-                    if self._int_frames >= INTERRUPT_SPEECH_FRAMES:
-                        self._do_barge(rms)
-                    else:
-                        continue
-
-                if time.monotonic() < self._deaf_until and self.state != "recording":
-                    self.speech_frames = 0
-                    self._int_frames = 0
-                    if self.state == "listening":
-                        self.preroll_buffer.clear()
+                except Exception as e:
+                    LOG.warning("pw-record falhou ao iniciar: %s", e)
+                    time.sleep(backoff)
+                    backoff = min(8.0, backoff * 2)
                     continue
 
-                if self.state == "listening":
-                    in_session = self.expecting_command or self.allow_interrupt
-                    if not in_session:
-                        # idle: só openWakeWord. sem Groq, sem gravação.
-                        if self.oww and self.oww.feed(frame):
-                            LOG.info("⚡ openWakeWord: ei hermes")
-                            orb_cmd("clear")
-                            orb_cmd("show listening")
-                            self.expecting_command = True
-                            self.allow_interrupt = True
-                            self._from_wake = True
-                            self._chat_id = None
-                            self._voice_session = f"orb-{int(time.time())}"
-                            # Wake novo é turno novo: nada de emendar num
-                            # pedido de uma sessão que já morreu.
-                            self._pedido_aberto = ""
-                            self._continuando = False
-                            self._tts_barge = False
-                            self._tts_barge_after = 0.0
-                            self._touch_session()
-                            self._tts_push(self._pick_ack())
-                        continue
+                LOG.info("Captura ativa via pw-record (alvo=%s latency=%s)", target, latency_str)
+                backoff = 0.5
+                self._last_audio_t = time.monotonic()
+                aberto_em = time.monotonic()
+                fechou = False
+                while self.running.is_set():
+                    if not proc.stdout:
+                        break
+                    # 1 s de folga: a sessão marca expecting_command logo
+                    # depois de pedir o microfone.
+                    if (time.monotonic() - aberto_em > 1.0 and not self._mic_necessario()
+                            and not self._mic_evento.is_set()):
+                        fechou = True
+                        break
+                    try:
+                        raw = proc.stdout.read(capture_bytes)
+                    except Exception:
+                        break
+                    if not raw or len(raw) < capture_bytes:
+                        break
+                    bloco = np.frombuffer(raw, dtype=np.int16)
+                    if self.capture_rate != SAMPLE_RATE:
+                        bloco = _resample_frame(bloco, FRAME_SIZE)
+                    payload = np.ascontiguousarray(bloco, dtype=np.int16).tobytes()
+                    self._last_audio_t = time.monotonic()
+                    try:
+                        self.audio_queue.put_nowait(payload)
+                    except queue.Full:
+                        try:
+                            self.audio_queue.get_nowait()
+                        except queue.Empty:
+                            pass
+                        try:
+                            self.audio_queue.put_nowait(payload)
+                        except queue.Full:
+                            pass
 
-                    self.preroll_buffer.append((frame, is_speech))
-                    if is_speech:
-                        self.speech_frames += 1
-                        self._touch_session()
-                    else:
-                        # Decaimento -1, não -2. Com -2, fala pausada (razão de
-                        # voz ~70%) rende saldo quase nulo e a gravação nunca
-                        # abre: medido, o acumulador empacava em 8 de 15 num
-                        # comando a 154 wpm. Medido nos dois decaimentos:
-                        #   comando pausado 154 wpm: pico 16 (-2) contra 25 (-1)
-                        #   ambiente ruidoso:        pico 10 nos DOIS
-                        # A margem contra ruído não muda; a tolerância a pausa
-                        # entre palavras dobra.
-                        self.speech_frames = max(0, self.speech_frames - 1)
+                err_msg = ""
+                if fechou:
+                    # Vivo ainda: ler o stderr até EOF travaria aqui.
+                    proc.terminate()
+                if proc.stderr and not fechou:
+                    try:
+                        err_msg = proc.stderr.read().decode("utf-8", "replace").strip()
+                    except Exception:
+                        pass
+                if err_msg:
+                    LOG.warning("pw-record stderr: %s", err_msg[:200])
 
-                    if DEBUG_LEVELS:
-                        # Por que a fala não abriu gravação: mostra o nível que
-                        # chegou, se o VAD concordou, e até onde o acumulador
-                        # subiu. Sem isto o sintoma é mudo e só resta supor.
-                        self._dbg_max = max(self._dbg_max, rms)
-                        self._dbg_sf = max(self._dbg_sf, self.speech_frames)
-                        if time.monotonic() >= self._dbg_next:
-                            self._dbg_next = time.monotonic() + 1.0
-                            LOG.info("[dbg] escutando: rms_max=%.0f (piso %d) "
-                                     "speech_frames_max=%d (precisa %d)",
-                                     self._dbg_max, MIN_SPEECH_RMS,
-                                     self._dbg_sf, SUSTAINED_SPEECH_FRAMES)
-                            self._dbg_max = 0.0
-                            self._dbg_sf = 0
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=1.0)
+                except Exception:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                for f in (proc.stdout, proc.stderr):
+                    if f:
+                        f.close()
+                if fechou:
+                    LOG.info("Microfone fechado: orbe inativo")
+                elif self.running.is_set():
+                    LOG.warning("Fluxo de áudio pw-record desconectado; reconectando em %.1fs...", backoff)
+                    time.sleep(backoff)
 
-                    if self.speech_frames >= SUSTAINED_SPEECH_FRAMES:
-                        LOG.info("▶ Fala detectada, gravando...")
-                        orb_cmd("warm")
-                        self.state = "recording"
-                        self.rec = Recorder()
-                        for pf, ps in self.preroll_buffer:
-                            self.rec.feed(pf, ps)
-                        self.preroll_buffer.clear()
-                        self.rec.echo_skip_until = 20 if self._tts_playing else 8
+        threading.Thread(target=_capture_worker, daemon=True).start()
 
-                elif self.state == "recording":
-                    assert self.rec
-                    self.rec.feed(frame, is_speech)
-                    if self.rec.seconds > RECORD_MAX_SEC or self.rec.is_done():
-                        LOG.info("□ Gravação: %.1fs", self.rec.seconds)
-                        # Inicia processamento em thread background
-                        self.state = "processing"
-                        self.speech_frames = 0
-                        self._int_frames = 0
-                        self.preroll_buffer.clear()
-                        self._interrupted.clear()
-                        rec = self.rec
-                        self.rec = None
-                        self._processing_thread = threading.Thread(
-                            target=self._handle, args=(rec,), daemon=True
-                        )
-                        self._processing_thread.start()
-
-                elif self.state == "processing":
-                    # Continua monitorando mic enquanto processa em background
-                    self.preroll_buffer.append((frame, is_speech))
-                    if is_speech:
-                        self.speech_frames += 1
-                    else:
-                        self.speech_frames = max(0, self.speech_frames - 2)
-                    # contador de interrupção: exige voz FORTE e sustentada;
-                    # ruído ambiente/teclado ficam abaixo do piso de RMS
-                    if is_speech and rms >= INTERRUPT_MIN_RMS:
-                        self._int_frames += 1
-                    else:
-                        self._int_frames = max(0, self._int_frames - 3)
-
-                    # Esse contador existia e nunca era lido: falar durante a
-                    # geração não produzia efeito nenhum, e o resto da frase só
-                    # era ouvido depois da resposta inteira sair.
-                    if (self._int_frames >= INTERRUPT_SPEECH_FRAMES
-                            and self._processing_thread
-                            and self._processing_thread.is_alive()):
-                        self._do_continuacao(rms)
-                        continue
-
-                    # Thread de processamento terminou naturalmente
-                    if self._processing_thread and not self._processing_thread.is_alive():
+        while self.running.is_set():
+            try:
+                frame = self.audio_queue.get(timeout=0.5)
+            except queue.Empty:
+                if self.state == "processing" and self._processing_thread:
+                    if not self._processing_thread.is_alive():
                         self._processing_thread = None
                         self.state = "listening"
                         self.speech_frames = 0
                         self.preroll_buffer.clear()
+                if self._should_idle_end():
+                    self._end_session("timeout 10s")
+                self._poll_cmdfile()
+                self._poll_ctl()
+                continue
+            if frame is None:
+                break
+
+            if self._should_idle_end():
+                self._end_session("timeout 10s")
+            self._poll_cmdfile()
+            self._poll_ctl()
+
+            rms = frame_rms(frame)
+            if self.expecting_command or self.allow_interrupt:
+                agora = time.monotonic()
+                if agora - self._mic_orb_t >= 0.05:
+                    self._mic_orb_t = agora
+                    orb_cmd(f"mic {min(1.0, (rms / 32768.0) * 12.0):.3f}")
+            is_speech = self._is_speech(frame, rms)
+
+            if self._tts_playing and not self._tts_barge:
+                # ACK do robô ("Sim?", "Pois não?"):
+                # Ignora retorno do speaker para não abrir gravação sozinho sobre o ACK.
+                # Só permite abrir fala se o usuário falar com energia real (> 3000 RMS).
+                if rms < 3000:
+                    self.speech_frames = 0
+                    continue
+            elif self.allow_interrupt and self._tts_playing and self._tts_barge:
+                self._tts_ring.append((frame, is_speech))
+                # Barge-in do commit 3c2b7c1: voz sustentada acima do piso,
+                # sem estimar o eco. O rastreador exponencial de eco e a razão
+                # rms > eco*1.40 saíram de novo: o rastreador subia junto com a
+                # voz do Davi e a razão nunca se sustentava por cima da fala.
+                agora = time.monotonic()
+                onset = (
+                    agora >= self._tts_barge_after
+                    and is_speech
+                    and rms >= INTERRUPT_MIN_RMS
+                )
+                if onset:
+                    self._int_frames += 1
+                else:
+                    self._int_frames = 0
+                if DEBUG_LEVELS:
+                    self._dbg_max = max(self._dbg_max, rms)
+                    self._dbg_sf = max(self._dbg_sf, self._int_frames)
+                    if agora >= self._dbg_next:
+                        self._dbg_next = agora + 1.0
+                        LOG.info("[dbg] falando: rms_max=%.0f (piso %d) vad_max=%.2f "
+                                 "int_frames_max=%d (precisa %d)",
+                                 self._dbg_max, INTERRUPT_MIN_RMS, self._vad_max,
+                                 self._dbg_sf, INTERRUPT_SPEECH_FRAMES)
+                        self._dbg_max, self._dbg_sf = 0.0, 0
+                        self._vad_max = 0.0
+                if self._int_frames >= INTERRUPT_SPEECH_FRAMES:
+                    anel = b"".join(f for f, _ in self._tts_ring)
+                    if not self._voz_do_dono(np.frombuffer(anel, dtype=np.int16), "barge-in"):
+                        self._int_frames = 0
+                        continue
+                    LOG.info("⚡ barge-in (rms=%.0f, piso=%d, %dms sustentados)",
+                             rms, INTERRUPT_MIN_RMS,
+                             INTERRUPT_SPEECH_FRAMES * FRAME_MS)
+                    self._do_barge(rms)
+                else:
+                    continue
+
+            if time.monotonic() < self._deaf_until and self.state != "recording":
+                # Janela surda pós-TTS: não acumula speech_frames nem
+                # preroll — eco residual abria gravação sozinho no Mic1.
+                self._int_frames = 0
+                self.speech_frames = 0
+                continue
+
+            if self.state == "listening":
+                in_session = self.expecting_command or self.allow_interrupt
+                if not in_session:
+                    # idle: se oww estiver ativo, escuta wake word; senão, aguarda atalho/gesto
+                    if self._tts_playing:
+                        continue
+                    if self.oww and self.oww.feed(frame):
+                        LOG.info("⚡ wake word (%s)", WAKE_PROVEDOR)
+                        self._trigger_session()
+                    continue
+
+                self.preroll_buffer.append((frame, is_speech))
+                if is_speech:
+                    self.speech_frames += 1
+                    self._touch_session()
+                else:
+                    # Decaimento -1, não -2. Com -2, fala pausada (razão de
+                    # voz ~70%) rende saldo quase nulo e a gravação nunca
+                    # abre: medido, o acumulador empacava em 8 de 15 num
+                    # comando a 154 wpm. Medido nos dois decaimentos:
+                    #   comando pausado 154 wpm: pico 16 (-2) contra 25 (-1)
+                    #   ambiente ruidoso:        pico 10 nos DOIS
+                    # A margem contra ruído não muda; a tolerância a pausa
+                    # entre palavras dobra.
+                    self.speech_frames = max(0, self.speech_frames - 2)
+
+                if DEBUG_LEVELS:
+                    # Por que a fala não abriu gravação: mostra o nível que
+                    # chegou, se o VAD concordou, e até onde o acumulador
+                    # subiu. Sem isto o sintoma é mudo e só resta supor.
+                    self._dbg_max = max(self._dbg_max, rms)
+                    self._dbg_sf = max(self._dbg_sf, self.speech_frames)
+                    if time.monotonic() >= self._dbg_next:
+                        self._dbg_next = time.monotonic() + 1.0
+                        LOG.info("[dbg] escutando: rms_max=%.0f (piso %d) "
+                                 "vad_max=%.2f (limiar %.2f) "
+                                 "speech_frames_max=%d (precisa %d)",
+                                 self._dbg_max, MIN_SPEECH_RMS,
+                                 self._vad_max, SILERO_THRESHOLD,
+                                 self._dbg_sf, SUSTAINED_SPEECH_FRAMES)
+                        self._dbg_max = 0.0
+                        self._vad_max = 0.0
+                        self._dbg_sf = 0
+
+                if self.speech_frames >= SUSTAINED_SPEECH_FRAMES:
+                    LOG.info("▶ Fala detectada, gravando...")
+                    orb_cmd("warm")
+                    self.state = "recording"
+                    self.rec = Recorder()
+                    for pf, ps in self.preroll_buffer:
+                        self.rec.feed(pf, ps)
+                    self.preroll_buffer.clear()
+                    self.rec.echo_skip_until = 0
+
+            elif self.state == "recording":
+                assert self.rec
+                self.rec.feed(frame, is_speech)
+                teto = RECORD_MAX_TOQUE_SEC if self.rec.por_toque else RECORD_MAX_SEC
+                if self.rec.seconds > teto or self.rec.is_done():
+                    LOG.info("□ Gravação: %.1fs", self.rec.seconds)
+                    # Inicia processamento em thread background
+                    self.state = "processing"
+                    self.speech_frames = 0
+                    self._int_frames = 0
+                    self.preroll_buffer.clear()
+                    self._interrupted.clear()
+                    rec = self.rec
+                    self.rec = None
+                    self._processing_thread = threading.Thread(
+                        target=self._handle, args=(rec,), daemon=True
+                    )
+                    self._processing_thread.start()
+
+            elif self.state == "processing":
+                # Fala durante o raciocínio vira continuação do pedido
+                # (_do_continuacao), com o critério do commit 3c2b7c1: voz
+                # forte e sustentada, decaindo 3 quadros por quadro sem voz.
+                self.preroll_buffer.append((frame, is_speech))
+                if is_speech and rms >= INTERRUPT_MIN_RMS:
+                    self._int_frames += 1
+                else:
+                    self._int_frames = max(0, self._int_frames - 3)
+                if (BARGE_IN and self._int_frames >= INTERRUPT_SPEECH_FRAMES
+                        and self._processing_thread
+                        and self._processing_thread.is_alive()):
+                    pre = b"".join(f for f, _ in self.preroll_buffer)
+                    if not self._voz_do_dono(np.frombuffer(pre, dtype=np.int16), "continuação"):
+                        self._int_frames = 0
+                        continue
+                    self._do_continuacao(rms)
+                    continue
+                if self._processing_thread and not self._processing_thread.is_alive():
+                    self._processing_thread = None
+                    self.state = "listening"
+                    self.speech_frames = 0
+                    self.preroll_buffer.clear()
 
         LOG.info("Daemon encerrado")
 
     def _handle(self, rec: Recorder):
-        """Processa gravação: STT → comando. Wake já veio do openWakeWord."""
+        """Processa gravação: STT → comando. Wake já veio do microWakeWord."""
         handle_gen = self._tts_gen
         self._interrupted.clear()
         if not rec.has_spoken:
@@ -1733,7 +2435,7 @@ class Daemon:
         if (
             rec.speech_frames_recorded < MIN_UTTER_SPEECH_FRAMES
             or rms < MIN_UTTER_RMS
-            or (rec.seconds >= RECORD_MAX_SEC - 0.4 and ratio < 0.30)
+            or (not rec.por_toque and rec.seconds >= RECORD_MAX_SEC - 0.4 and ratio < 0.30)
         ):
             LOG.info(
                 "STT recusado (ruído) rms=%.0f ratio=%.2f speech=%d dur=%.1fs",
@@ -1749,11 +2451,24 @@ class Daemon:
                 orb_cmd("state listening")
             return
 
+        # Antes do Groq: voz de outra pessoa nem sai da máquina.
+        if not self._voz_do_dono(rec.voice_pcm(), "gravação"):
+            try:
+                os.unlink(wav_path)
+            except OSError:
+                pass
+            if self.expecting_command or self._from_wake:
+                self.expecting_command = True
+                orb_cmd("state listening")
+            return
+
         LOG.info("Enviando para Groq Whisper API...")
         t0 = time.time()
         text = transcribe_groq(wav_path)
         lat = time.time() - t0
         LOG.info("Groq respondeu em %.1fs: '%s'", lat, text[:200])
+        if text:
+            orb_cmd("line " + text[:200])
 
         try:
             os.unlink(wav_path)
@@ -1762,6 +2477,7 @@ class Daemon:
 
         if handle_gen != self._tts_gen:
             LOG.info("⚡ Processamento interrompido após STT")
+            self._guardar_pedido(text)
             return
 
         from_wake = self._from_wake
@@ -1827,10 +2543,21 @@ class Daemon:
         if self._interrupted.is_set():
             # barge-in: o orbe FICA na tela para o novo comando
             LOG.info("⚡ Processamento interrompido antes do Hermes")
+            self._guardar_pedido(cmd)
             return
 
+        # O turno abortado pela continuação pode ainda estar no Groq: espera
+        # ele guardar o pedido, senão a emenda chega antes do que emendar.
+        velho, self._thread_velho = self._thread_velho, None
+        if velho is not None and velho is not threading.current_thread():
+            velho.join(timeout=4.0)
         cmd = self._emendar_pedido(cmd)
         LOG.info("Comando: \"%s\"", cmd)
+        self._responder(cmd, handle_gen)
+
+    def _responder(self, cmd: str, handle_gen: int, relato: bool = False):
+        """Hermes + TTS de um turno. ``relato``: resultado de despacho, que
+        nunca vira pedido em aberto para emenda."""
         self._touch_session()
         orb_cmd("state thinking")
 
@@ -1840,12 +2567,8 @@ class Daemon:
 
         if handle_gen != self._tts_gen or self._interrupted.is_set():
             LOG.info("⚡ Processamento interrompido após Hermes")
-            if self._continuando and self._tts_turn_n == 0:
-                # Nenhuma palavra da resposta foi falada: o Davi ainda estava
-                # formulando. Guarda o pedido para a próxima fala emendar.
-                self._pedido_aberto = cmd
-                self._pedido_ts = time.monotonic()
-            self._continuando = False
+            # Nenhuma palavra da resposta falada = o Davi ainda formulava.
+            self._guardar_pedido("" if relato else cmd, falou=self._tts_turn_n > 0)
             return
         if resposta and self._tts_turn_n == 0:
             self._tts_push(resposta)

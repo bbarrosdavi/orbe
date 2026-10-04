@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 from pathlib import Path
 
 ENV_PATH = Path.home() / ".hermes" / ".env"
@@ -23,6 +24,10 @@ PIPER_BIN = "/home/davi/.hermes/hermes-agent/venv/bin/piper"
 PIPER_MODEL = "/home/davi/.hermes/piper_models/pt_BR-faber-medium.onnx"
 RATE = 24000
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+ACK_DIR = Path.home() / ".hermes" / "cache" / "voice_ack"
+ACK_PHRASES = (
+    "Sim?", "Pois não?", "Manda.", "Escuto.",
+)
 
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
 
@@ -46,7 +51,7 @@ def _jarvis_tts() -> dict:
     out = {
         "provider": "gemini",
         "gemini_model": "gemini-3.1-flash-tts-preview",
-        "gemini_voice": "Leda",
+        "gemini_voice": "Kore",
         "xai_voice": "eve",
         "xai_language": "pt",
     }
@@ -64,8 +69,23 @@ def _jarvis_tts() -> dict:
         if p in ("grok", "grok-tts", "xai-oauth"):
             p = "xai"
         out["provider"] = p
+        out["piper_voice"] = str((tts.get("piper") or {}).get("voice") or "")
     except Exception as e:
         sys.stderr.write(f"cfg: {e}\n")
+    # Escolhas do app de configuração do orbe; vazio = segue o perfil.
+    try:
+        import hermes_voice_config as vcfg
+        v = vcfg.carregar()["voz"]
+        if v.get("tts_provedor"):
+            out["provider"] = str(v["tts_provedor"])
+        if v.get("gemini_voz"):
+            out["gemini_voice"] = str(v["gemini_voz"])
+        if v.get("xai_voz"):
+            out["xai_voice"] = str(v["xai_voz"])
+        if v.get("piper_voz"):
+            out["piper_voice"] = str(v["piper_voz"])
+    except Exception as e:
+        sys.stderr.write(f"cfg do app: {e}\n")
     return out
 
 
@@ -78,6 +98,21 @@ def clean(text: str) -> str:
     t = re.sub(r"[\u2500-\u257F╭╮╰╯│─┌┐└┘┊╌╎]+", " ", t)
     t = "".join(ch for ch in t if ch >= " " or ch in "\n")
     return " ".join(t.split())
+
+
+def _ack_key(text: str) -> str:
+    t = unicodedata.normalize("NFD", (text or "").strip().lower())
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    t = re.sub(r"[^\w]+", "_", t).strip("_")
+    return t
+
+
+def _ack_path(text: str) -> Path:
+    return ACK_DIR / (_ack_key(text) + ".s16")
+
+
+def _is_ack(text: str) -> bool:
+    return _ack_key(text) in {_ack_key(p) for p in ACK_PHRASES}
 
 
 class Worker:
@@ -119,6 +154,14 @@ class Worker:
         )
         with self._play_lock:
             self._play = proc
+        # pw-cat descarta o primeiro buffer; 80ms de silêncio evita a fala
+        # começar no meio da primeira sílaba.
+        if proc.stdin:
+            try:
+                proc.stdin.write(b"\x00" * (rate * 2 * 80 // 1000))
+                proc.stdin.flush()
+            except BrokenPipeError:
+                pass
         return proc
 
     LEVEL_WIN_MS = 40
@@ -173,6 +216,81 @@ class Worker:
                 return False
         self._level(raw)
         return True
+
+    def _save_ack(self, text: str, pcm: bytes) -> None:
+        if not _is_ack(text) or len(pcm) < 64:
+            return
+        try:
+            ACK_DIR.mkdir(parents=True, exist_ok=True)
+            path = _ack_path(text)
+            if path.exists() and path.stat().st_size >= len(pcm):
+                return
+            path.write_bytes(pcm)
+            sys.stderr.write(f"ack cache write {path.name} {len(pcm)}b\n")
+        except OSError as e:
+            sys.stderr.write(f"ack cache write fail {e}\n")
+
+    def _play_ack_cache(self, text: str) -> bool:
+        path = _ack_path(text)
+        if not path.exists() or path.stat().st_size < 64:
+            return False
+        t0 = time.time()
+        data = path.read_bytes()
+        play = self._open_play(RATE)
+        sys.stderr.write(f"ack cache {path.name} ttfa {time.time() - t0:.3f}s\n")
+        step = int(RATE * self.LEVEL_WIN_MS / 1000) * 2
+        for off in range(0, len(data), max(step, 2)):
+            if not self._feed(play, data[off:off + step]):
+                break
+        if play and play.stdin:
+            try:
+                play.stdin.close()
+            except OSError:
+                pass
+        if play:
+            try:
+                play.wait(timeout=8)
+            except Exception:
+                pass
+        return True
+
+    def _fill_ack_cache(self) -> None:
+        """Sintetiza ACKs via HTTP, sem tocar no speaker."""
+        missing = [p for p in ACK_PHRASES if not (_ack_path(p).exists() and _ack_path(p).stat().st_size > 64)]
+        if not missing:
+            return
+        try:
+            from tools.xai_http import resolve_xai_http_credentials
+            import requests
+        except Exception as e:
+            sys.stderr.write(f"ack cache deps {e}\n")
+            return
+        cfg = _jarvis_tts()
+        token = str(resolve_xai_http_credentials(prefer_api_key=False).get("api_key") or "").strip()
+        if not token:
+            sys.stderr.write("ack cache: sem token\n")
+            return
+        ACK_DIR.mkdir(parents=True, exist_ok=True)
+        for phrase in missing:
+            if self.cancel.is_set():
+                return
+            try:
+                r = requests.post(
+                    "https://api.x.ai/v1/tts",
+                    headers={"Authorization": f"Bearer {token}",
+                             "Content-Type": "application/json"},
+                    json={"text": phrase, "voice_id": cfg["xai_voice"],
+                          "language": cfg["xai_language"],
+                          "output_format": {"codec": "pcm", "sample_rate": RATE}},
+                    timeout=40,
+                )
+                if r.status_code != 200 or len(r.content) < 64:
+                    sys.stderr.write(f"ack cache {phrase!r} http {r.status_code}\n")
+                    continue
+                _ack_path(phrase).write_bytes(r.content)
+                sys.stderr.write(f"ack cache fill {_ack_path(phrase).name} {len(r.content)}b\n")
+            except Exception as e:
+                sys.stderr.write(f"ack cache fill {phrase!r}: {e}\n")
 
     def gemini(self, text: str, model: str, voice: str) -> bool:
         import requests
@@ -345,6 +463,7 @@ class Worker:
         async def _pump(ws, quente: bool):
             play = None
             n = 0
+            pcm = bytearray()
             await ws.send(json.dumps({"type": "text.delta", "delta": text}))
             await ws.send(json.dumps({"type": "text.done"}))
             async for message in ws:
@@ -371,6 +490,7 @@ class Worker:
                             raw = base64.b64decode(delta)
                 if not raw:
                     continue
+                pcm.extend(raw)
                 if play is None:
                     play = self._open_play(RATE)
                     sys.stderr.write(
@@ -390,6 +510,8 @@ class Worker:
                     play.wait(timeout=8)
                 except Exception:
                     pass
+            if n > 0:
+                self._save_ack(text, bytes(pcm))
             return n > 0
 
         async def _fresh():
@@ -468,13 +590,13 @@ class Worker:
                     pass
         return n > 0
 
-    def piper(self, text: str) -> bool:
-        if not Path(PIPER_BIN).exists() or not Path(PIPER_MODEL).exists():
+    def piper(self, text: str, modelo: str = PIPER_MODEL) -> bool:
+        if not Path(PIPER_BIN).exists() or not Path(modelo).exists():
             return False
         wav = f"/tmp/hermes-orb-tts-{os.getpid()}.wav"
         try:
             r = subprocess.run(
-                [PIPER_BIN, "--model", PIPER_MODEL, "--output_file", wav],
+                [PIPER_BIN, "--model", modelo, "--output_file", wav],
                 input=text, text=True, capture_output=True, timeout=12,
             )
             if r.returncode != 0 or not os.path.exists(wav) or os.path.getsize(wav) < 64:
@@ -495,6 +617,9 @@ class Worker:
             print("DONE", flush=True)
             return
         self.cancel.clear()
+        if _is_ack(text) and self._play_ack_cache(text):
+            print("DONE", flush=True)
+            return
         cfg = _jarvis_tts()
         provider = cfg["provider"]
         sys.stderr.write(f"say provider={provider}\n")
@@ -504,19 +629,21 @@ class Worker:
                 ok = self.xai(text, cfg["xai_voice"], cfg["xai_language"])
             elif provider == "gemini":
                 ok = self.gemini(text, cfg["gemini_model"], cfg["gemini_voice"])
+            elif provider == "piper":
+                ok = self.piper(text, cfg.get("piper_voice") or PIPER_MODEL)
             else:
                 sys.stderr.write(f"provider {provider} não suportado no orb, tentando xai\n")
                 ok = self.xai(text, cfg["xai_voice"], cfg["xai_language"])
         except Exception as e:
             sys.stderr.write(f"{provider} fail {e}\n")
-        if not ok and not self.cancel.is_set() and provider != "gemini":
+        if not ok and not self.cancel.is_set() and provider not in ("gemini", "piper"):
             try:
                 ok = self.gemini(text, cfg["gemini_model"], cfg["gemini_voice"])
             except Exception as e:
                 sys.stderr.write(f"gemini fallback {e}\n")
         if not ok and not self.cancel.is_set():
             try:
-                ok = self.piper(text)
+                ok = self.piper(text, cfg.get("piper_voice") or PIPER_MODEL)
             except Exception as e:
                 sys.stderr.write(f"piper fail {e}\n")
         if self.cancel.is_set():
@@ -556,6 +683,8 @@ class Worker:
 
     def run(self):
         threading.Thread(target=self._stdin, daemon=True).start()
+        threading.Thread(target=self.prewarm, daemon=True).start()
+        threading.Thread(target=self._fill_ack_cache, daemon=True).start()
         while True:
             item = self._cmds.get()
             if item is None:

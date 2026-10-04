@@ -29,6 +29,11 @@ Rebuild dos frames:
 g='g(X,Y)':b='b(X,Y)':a='clip((b(X,Y)-r(X,Y)-20)*1.4,0,255)'" \
     -start_number 0 orb_frames/f_%02d.png
 
+Skins (config do app, orbe.skin): "ofanim" desenha o anjo de rodas com olhos
+do app de configuração (hermes_voice_ofanim.py), com os olhos seguindo o
+ponteiro sobre o orbe; "anel" é este rotoscope. Os dois respeitam entrada e
+saída, toque, sessão travada e a coluna de texto.
+
 Modos: produção (daemon, socket padrão) · --preview (socket/app-id/namespace
 -live e janela 136px abaixo, para testar ao lado da produção; sink promovido a
 fonte prioritária e gerador silábico sintético quando não há áudio).
@@ -50,6 +55,10 @@ PREVIEW = "--preview" in sys.argv
 SFX = "-live" if PREVIEW else ""
 SOCK = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/run/user/1000"),
                     f"hermes-voice-orb{SFX}.sock")
+# Toque no orbe vai para o daemon (touch down / touch up). O preview não tem
+# daemon por trás e fica sem toque.
+CTL_SOCK = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/run/user/1000"),
+                        "hermes-voice-ctl.sock")
 # ART_BOX é o tamanho VISUAL da arte; ORB_BOX é a célula que o overlay reserva
 # para ela. Os dois eram a mesma constante, e por isso aumentar a janela nunca
 # resolvia o recorte: crescia a arte junto. Medido antes de separar, com o raio
@@ -92,6 +101,42 @@ SPRING_C = 6.5
 # DENTRO do anel quando ele passava de 57px em fala alta, e as chamas
 # sumiam justamente no pico. 70 fica abaixo dos 74px de meia-altura.
 R_LIM = 70.0                 # teto absoluto em px de tela
+# Dedo no orbe: a arte cresce enquanto o toque dura, para o Davi saber que o
+# toque pegou. 12% no repouso (46.9 -> 52.5 px) e no pico do thinking (55.6 ->
+# 62.3 px) ainda cabem nos 74 px de meia-altura da célula.
+TOQUE_CRESCE = 0.12
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import hermes_voice_config as _vcfg
+    _ORBE = _vcfg.carregar()["orbe"]
+except Exception:
+    _ORBE = {}
+SKIN = str(_ORBE.get("skin", "ofanim"))
+GLITCH = bool(_ORBE.get("glitch", True))
+VIDRO = bool(_ORBE.get("vidro", False))
+AVATAR = SKIN in ("ofanim", "ofanim_alado", "serafim")
+if AVATAR:
+    import hermes_voice_avatares as _avatares
+    import hermes_voice_ponteiro as _ponteiro
+if VIDRO:
+    try:
+        import hermes_voice_blur as _blur
+    except Exception:
+        _blur = None
+DANK_CSS = os.path.expanduser("~/.config/gtk-4.0/dank-colors.css")
+
+def _ctl_send(msg: str):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(0.3)
+    try:
+        s.connect(CTL_SOCK)
+        s.sendall((msg + "\n").encode())
+    except OSError as e:
+        _log(f"ctl {msg}: {e}")
+    finally:
+        s.close()
+
 
 def _log(msg):
     try:
@@ -242,10 +287,11 @@ def _build_glows(frames):
     return glows
 
 
-FRAMES = _load_frames()
+# Os avatares desenham tudo em vetor; os quadros só pesam na RAM do anel.
+FRAMES = _load_frames() if not AVATAR else []
 GLOWS = []
 NF = len(FRAMES)
-if not NF:
+if not NF and not AVATAR:
     _log(f"sem frames em {FRAME_DIR}")
 
 
@@ -254,7 +300,8 @@ def _glow_worker():
     GLOWS.extend(_build_glows(FRAMES))
 
 
-threading.Thread(target=_glow_worker, daemon=True).start()
+if FRAMES:
+    threading.Thread(target=_glow_worker, daemon=True).start()
 
 
 def _ease_out_back(p: float) -> float:
@@ -304,6 +351,8 @@ class Ring(Gtk.DrawingArea):
         # Sessão travada pelo Jarvis: sem isto não há como distinguir "ele
         # continua me ouvindo" de "ele esqueceu de fechar".
         self.held = False
+        self.toque = False   # dedo no orbe agora
+        self.toque_s = 0.0   # 0..1 suavizado: sobe rápido, desce devagar
         self.lines = []
         self._rows = None    # cache das linhas quebradas por largura
         # física (convenção de ângulo do cairo: y para baixo, +sin)
@@ -339,6 +388,19 @@ class Ring(Gtk.DrawingArea):
         self._raw_prev = 0.0
         self._max_r = 50.0
         self._pb = self._params("listening")
+        # avatar (ophanim, ophanim com asas, serafim) ou None no anel
+        self.arte = _avatares.criar(SKIN) if AVATAR else None
+        self.olhar = None              # ponteiro sobre o orbe, em coordenadas da janela
+        self.olhar_global = None       # função: ponteiro fora do orbe (evdev), ou None
+        self._fundo = (0.07, 0.08, 0.08)
+        self._fundo_mtime = 0.0
+        if self.arte is not None:
+            # cor = @accent_bg_color do GTK (matugen do wallpaper atual), a
+            # mesma do app; ver o CSS em OrbWin
+            self.add_css_class("ofanim")
+            self.arte.glitch = GLITCH
+            self.arte.contorno = True   # lê sobre fundo claro ou cheio
+            self.arte.peso = 1.4        # o traço do menu some numa área de 148 px
 
     def clear_lines(self):
         self.lines = []
@@ -446,10 +508,22 @@ class Ring(Gtk.DrawingArea):
             self.mix[st] += (tgt - self.mix[st]) * 0.16
         pb = self.blend()
         self._pb = pb
+        if self.arte is not None:
+            # as reações por estado moram no avatar; despertar segue a entrada
+            # e a saída do orbe (rodas desdobrando, olhos abrindo em cascata)
+            if self.phase == "in":
+                desperto = min(1.0, self.phase_t / 0.35)
+            elif self.phase == "out":
+                desperto = 1.0 - min(1.0, self.phase_t / 0.25)
+            else:
+                desperto = 1.0
+            self.arte.avancar(dt, self.mix, self.level_s, self.mic_s, desperto)
         omega, chaos, ampL, tgain, fsp, _tint, _br, _pu = pb
         self._ampL = ampL
 
         self.level_s += (self.level - self.level_s) * (0.55 if self.level > self.level_s else 0.16)
+        alvo = 1.0 if self.toque else 0.0
+        self.toque_s += (alvo - self.toque_s) * (0.45 if alvo > self.toque_s else 0.20)
         self.tone_s += (self.tone - self.tone_s) * 0.25
         self.mic_s += (self.mic - self.mic_s) * (0.50 if self.mic > self.mic_s else 0.20)
 
@@ -495,7 +569,7 @@ class Ring(Gtk.DrawingArea):
         # intervalo encurta conforme o thinking domina o mix, então o anel
         # "trava" mais quando está fundo no raciocínio.
         w_think = self.mix.get("thinking", 0.0)
-        if w_think > 0.25:
+        if w_think > 0.25 and GLITCH:
             if self.t >= self._gl_next:
                 self._gl_until = self.t + random.uniform(0.05, 0.20)
                 self._gl_next = self._gl_until + random.uniform(0.06, 0.75) / (0.4 + w_think)
@@ -594,7 +668,7 @@ class Ring(Gtk.DrawingArea):
         cr.set_source_rgba(0, 0, 0, 0)
         cr.paint()
         cr.set_operator(cairo.OPERATOR_OVER)
-        if not NF:
+        if not NF and self.arte is None:
             return
 
         if self.phase == "in":
@@ -608,6 +682,7 @@ class Ring(Gtk.DrawingArea):
         else:
             env_sc, env_a = 1.0, 1.0
 
+        env_sc *= 1.0 + TOQUE_CRESCE * self.toque_s
         _om, _ch, _aL, _tg, _fs, tint, bright, pulse = self._pb
         cx = PANEL + (w - PANEL) * 0.50
         cy = h * 0.50
@@ -617,6 +692,22 @@ class Ring(Gtk.DrawingArea):
         g = min(1.0, tint[1] * bright + lift)
         b = min(1.0, tint[2] * bright)
         glow_k = env_a * max(0.0, min(1.0, 0.55 + (bright - 0.80)))
+
+        if VIDRO:
+            self._vidro(cr, cx, cy, env_sc, env_a)
+
+        if self.arte is not None:
+            c = self.get_color()
+            olhar = self.olhar
+            if olhar is None and self.olhar_global is not None:
+                olhar = self.olhar_global()
+            R = self.arte.raio(w - PANEL, h, (ORB_BOX / 2.0 - 5.0) if VIDRO else None)
+            self.arte.desenhar(cr, PANEL, 0, w - PANEL, h, float(self.get_scale_factor()),
+                               (c.red, c.green, c.blue), olhar, R=R, zoom=env_sc, alfa=env_a)
+            if self.held:
+                self._ponto_travado(cr, cx, cy, c.red, c.green, c.blue, env_a)
+            self._texto(cr, cx, cy, env_a)
+            return
 
         # Rajada de glitch ativa: salta o frame e rasga um setor contíguo.
         # A intensidade é ponderada pelo peso do thinking no mix, então a
@@ -698,22 +789,9 @@ class Ring(Gtk.DrawingArea):
             self._draw_glitch(cr, frame, scb, env_a, gl_k, r, g, b)
 
         if self.held:
-            # Sessão travada: ponto fixo no topo, fora do giro do anel, com um
-            # respiro lento. Fixo porque precisa ser lido de canto de olho como
-            # estado, e não confundido com a animação; com respiro porque um
-            # ponto parado lê como travamento, e é o oposto do que ele diz.
             cr.save()
             cr.rotate(-self.rot)
-            pulso = 0.62 + 0.38 * (0.5 + 0.5 * math.sin(self.t * 2.0))
-            rp = ORB_BOX / 2.0 - 7.0
-            cr.arc(0.0, -rp, 3.0, 0.0, math.tau)
-            cr.set_source_rgba(r, g, b, 0.90 * pulso * env_a)
-            cr.fill()
-            cr.set_operator(cairo.OPERATOR_ADD)
-            cr.arc(0.0, -rp, 6.0, 0.0, math.tau)
-            cr.set_source_rgba(r, g, b, 0.22 * pulso * env_a)
-            cr.fill()
-            cr.set_operator(cairo.OPERATOR_OVER)
+            self._ponto_travado(cr, 0.0, 0.0, r, g, b, env_a)
             cr.restore()
 
         max_ext = ART_EDGE * scb * smax
@@ -761,7 +839,65 @@ class Ring(Gtk.DrawingArea):
         cr.restore()
 
         self._max_r = max_ext
+        self._texto(cr, cx, cy, env_a)
 
+    def raio_vidro(self) -> float:
+        """Raio do disco de vidro na entrada/saída; 0 com o orbe escondido."""
+        if self.phase == "in":
+            p = min(1.0, self.phase_t / 0.35)
+            sc, a = 0.45 + 0.55 * _ease_out_back(p), min(1.0, p * 2.2)
+        elif self.phase == "out":
+            p = min(1.0, self.phase_t / 0.25)
+            sc, a = 1.0 - 0.35 * (p * p), 1.0 - p
+        else:
+            sc, a = 1.0, 1.0
+        return 0.0 if a < 0.05 else (ORB_BOX / 2.0 - 3.0) * min(1.0, sc)
+
+    def _cor_fundo(self):
+        """@window_bg_color do matugen, o mesmo fundo do vidro do app."""
+        try:
+            mt = os.path.getmtime(DANK_CSS)
+            if mt != self._fundo_mtime:
+                self._fundo_mtime = mt
+                m = re.search(r"@define-color\s+window_bg_color\s+#([0-9a-fA-F]{6})", open(DANK_CSS).read())
+                if m:
+                    v = m.group(1)
+                    self._fundo = tuple(int(v[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+        except OSError:
+            pass
+        return self._fundo
+
+    def _vidro(self, cr, cx, cy, env_sc, env_a):
+        """Disco de vidro fosco: o tom translúcido do app; o blur é do niri."""
+        r = (ORB_BOX / 2.0 - 3.0) * min(1.0, env_sc)
+        if r <= 1 or env_a <= 0.01:
+            return
+        cr.arc(cx, cy, r, 0.0, math.tau)
+        cr.set_source_rgba(*self._cor_fundo(), 0.58 * env_a)
+        cr.fill_preserve()
+        cr.set_source_rgba(1.0, 1.0, 1.0, 0.10 * env_a)
+        cr.set_line_width(1.0)
+        cr.stroke()
+
+    def _ponto_travado(self, cr, cx, cy, r, g, b, env_a):
+        """Sessão travada: ponto fixo no topo, fora do giro, com respiro lento.
+
+        Fixo porque precisa ser lido de canto de olho como estado, e não
+        confundido com a animação; com respiro porque um ponto parado lê como
+        travamento, e é o oposto do que ele diz.
+        """
+        pulso = 0.62 + 0.38 * (0.5 + 0.5 * math.sin(self.t * 2.0))
+        rp = ORB_BOX / 2.0 - 7.0
+        cr.arc(cx, cy - rp, 3.0, 0.0, math.tau)
+        cr.set_source_rgba(r, g, b, 0.90 * pulso * env_a)
+        cr.fill()
+        cr.set_operator(cairo.OPERATOR_ADD)
+        cr.arc(cx, cy - rp, 6.0, 0.0, math.tau)
+        cr.set_source_rgba(r, g, b, 0.22 * pulso * env_a)
+        cr.fill()
+        cr.set_operator(cairo.OPERATOR_OVER)
+
+    def _texto(self, cr, cx, cy, env_a):
         if not self.lines or env_a < 0.5:
             return
         cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
@@ -817,6 +953,7 @@ class OrbWin(Gtk.ApplicationWindow):
         css = Gtk.CssProvider()
         css.load_from_data(
             b"window, drawing { background-color: transparent; background-image: none; }"
+            b" drawing.ofanim { color: @accent_bg_color; }"
         )
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
@@ -835,7 +972,52 @@ class OrbWin(Gtk.ApplicationWindow):
             self._pin_laptop()
             _log("layer-shell ok")
         self.connect("realize", self._on_realize)
+        self.connect("map", lambda *_: self._regiao_de_toque())
+        self._toque_ativo = False
+        if not PREVIEW:
+            # Controlador cru: o GestureClick desiste do clique quando o dedo
+            # escorrega, e aí o "solto" nunca chegaria ao daemon.
+            # Na janela, não no Ring: o Ring tem can_target False, então o GTK
+            # nunca o escolhia como alvo e este controlador não recebia nada.
+            ev = Gtk.EventControllerLegacy()
+            ev.connect("event", self._on_evento)
+            self.add_controller(ev)
+        # Olhos seguem o ponteiro. Sobre o orbe a posição vem do GTK e é exata
+        # (e vira âncora); fora dele, do hermes_voice_ponteiro (evdev).
+        self.ponteiro = None
+        if AVATAR:
+            self.ponteiro = _ponteiro.Ponteiro()
+            self.ponteiro.iniciar()
+            self.ring.olhar_global = self._olhar_global
+        mov = Gtk.EventControllerMotion()
+        mov.connect("motion", self._sobre_orbe)
+        mov.connect("leave", lambda _c: setattr(self.ring, "olhar", None))
+        self.add_controller(mov)
+        self.desfoque = None
+        if VIDRO and _blur is not None:
+            self.desfoque = _blur.Desfoque(self)
+            _log(f"vidro: blur {'ok' if self.desfoque.ok else 'indisponível: ' + self.desfoque.erro}")
         GLib.timeout_add(33, self._tick)
+
+    def _origem(self):
+        """Canto da superfície em coordenadas globais (ancorada no topo direito do eDP-1)."""
+        s = self.ponteiro.saidas.get("eDP-1") if self.ponteiro else None
+        if not s:
+            return None
+        return (s["x"] + s["width"] - MARGIN_RIGHT - SIZE_W, s["y"] + MARGIN_TOP)
+
+    def _sobre_orbe(self, _c, x, y):
+        self.ring.olhar = (x, y)
+        o = self._origem()
+        if o is not None:
+            self.ponteiro.ancorar(o[0] + x, o[1] + y)
+
+    def _olhar_global(self):
+        o = self._origem()
+        pos = self.ponteiro.posicao() if self.ponteiro else None
+        if o is None or pos is None:
+            return None
+        return (pos[0] - o[0], pos[1] - o[1])
 
     def _pin_laptop(self):
         display = Gdk.Display.get_default()
@@ -850,13 +1032,46 @@ class OrbWin(Gtk.ApplicationWindow):
 
     def _on_realize(self, *_):
         self._mapped = True
-        surf = self.get_surface()
-        if surf is not None:
-            try:
-                surf.set_input_region(cairo.Region())
-            except Exception as e:
-                _log(f"input_region: {e}")
+        self._regiao_de_toque()
         _log("realized")
+
+    def _regiao_de_toque(self):
+        """Só o círculo do orbe recebe toque; a coluna de texto deixa passar."""
+        surf = self.get_surface()
+        if surf is None:
+            return
+        try:
+            if PREVIEW:
+                surf.set_input_region(cairo.Region())
+                return
+            lado = ART_BOX
+            x0 = PANEL + (ORB_BOX - lado) // 2
+            y0 = (ORB_BOX - lado) // 2
+            surf.set_input_region(cairo.Region(cairo.RectangleInt(x0, y0, lado, lado)))
+            _log(f"regiao de toque {x0},{y0} {lado}x{lado}")
+        except Exception as e:
+            _log(f"input_region: {e}")
+
+    def _on_evento(self, _ctl, ev):
+        if ev is None:      # o PyGObject entrega None para alguns GdkEvent
+            return False
+        t = ev.get_event_type()
+        if t not in (Gdk.EventType.MOTION_NOTIFY, Gdk.EventType.TOUCH_UPDATE):
+            _log(f"evento {t.value_nick}")
+        if t in (Gdk.EventType.TOUCH_BEGIN, Gdk.EventType.BUTTON_PRESS):
+            if not self._toque_ativo:
+                self._toque_ativo = True
+                self.ring.toque = True
+                _ctl_send("touch down")
+            return True
+        if t in (Gdk.EventType.TOUCH_END, Gdk.EventType.TOUCH_CANCEL,
+                 Gdk.EventType.BUTTON_RELEASE):
+            if self._toque_ativo:
+                self._toque_ativo = False
+                self.ring.toque = False
+                _ctl_send("touch up")
+            return True
+        return False
 
     def _tick(self):
         o = self.ring
@@ -870,6 +1085,10 @@ class OrbWin(Gtk.ApplicationWindow):
                 self._arm_idle(400)
         o.step(0.033)
         o.queue_draw()
+        if self.desfoque is not None and self._mapped:
+            r = o.raio_vidro() if self.is_visible() else 0.0
+            self.desfoque.aplicar(_blur.disco(PANEL + ORB_BOX / 2.0, ORB_BOX / 2.0, round(r))
+                                  if r > 1 else None)
         return True
 
     def show_orb(self, state="listening"):
@@ -1074,25 +1293,36 @@ class App(Gtk.Application):
         self.hold()
 
     def do_activate(self):
-        if self.win is None:
+        if self.win is not None:
+            return
+        if Gdk.Display.get_default() is None:
+            _log("no Gdk display — compositor ausente, saindo")
+            self.release()
+            self.quit()
+            return
+        try:
             self.win = OrbWin(self)
-            threading.Thread(target=self._sock_loop, daemon=True).start()
-            # Os dois monitores estavam definidos e nunca iniciados: nenhuma
-            # thread os lançava no arquivo. Com isso self.mic ficava fixo em
-            # zero e TODO o listening — que é inteiro função do microfone —
-            # ficava multiplicado por zero. O orbe não reagia à voz porque
-            # nunca soube que havia voz.
-            threading.Thread(target=_mic_monitor, args=(self.win,),
-                             daemon=True).start()
+        except Exception as e:
+            _log(f"OrbWin init failed: {e}")
+            self.release()
+            self.quit()
+            return
+        threading.Thread(target=self._sock_loop, daemon=True).start()
+        # Produção: envelope vem do daemon (`mic` / `level`). parec no
+        # sink.monitor e na fonte AEC entra no mesmo grafo SOF (o AEC
+        # acopla mic e speaker) a 16 kHz com quantum ~2s e o playback
+        # entra em resync — áudio do PC engasga. Preview ainda usa o
+        # monitor do sink porque não há daemon mandando level.
+        if PREVIEW:
             threading.Thread(target=_sink_monitor, args=(self.win,),
                              daemon=True).start()
-            threading.Thread(target=_accent_watcher, daemon=True).start()
-            if PREVIEW:
-                self.win.show_orb("listening")
-                for t in ("lendo contexto", "chamando tool", "filtrando saida"):
-                    self.win.ring.push_line(t)
-                GLib.timeout_add(5000, self._preview_cycle)
-                GLib.timeout_add(50, self._preview_synth)
+        threading.Thread(target=_accent_watcher, daemon=True).start()
+        if PREVIEW:
+            self.win.show_orb("listening")
+            for t in ("lendo contexto", "chamando tool", "filtrando saida"):
+                self.win.ring.push_line(t)
+            GLib.timeout_add(5000, self._preview_cycle)
+            GLib.timeout_add(50, self._preview_synth)
 
     def _preview_cycle(self):
         seq = ("thinking", "tools", "speaking", "listening")
@@ -1154,6 +1384,11 @@ class App(Gtk.Application):
                 self.win.set_daemon_level(lv, tn)
             except (ValueError, IndexError):
                 pass
+        elif op == "mic":
+            try:
+                self.win.set_mic(float(arg.split()[0]))
+            except (ValueError, IndexError):
+                pass
         elif op == "line":
             self.win.ring.push_line(arg)
             if self.win.ring.state not in ("tools", "thinking"):
@@ -1169,4 +1404,10 @@ class App(Gtk.Application):
 
 if __name__ == "__main__":
     _log(f"start warp-ring ({NF} frames)")
+    if not Gtk.init_check():
+        _log("Gtk.init_check failed")
+        sys.exit(1)
+    if Gdk.Display.get_default() is None:
+        _log("Gdk.Display.get_default() is None")
+        sys.exit(1)
     App().run(None)

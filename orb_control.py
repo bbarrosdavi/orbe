@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 """Controle do overlay de voz.
 
-Uso: orb_control.py hide|quit|dismiss|hold|release
+Uso: orb_control.py toggle|trigger|hide|quit|dismiss|hold|release
 
 `hold` e `release` são para o próprio Jarvis chamar (skill voice-orb-hold):
 `hold` desliga o timeout de inatividade, e a sessão passa a durar até uma
@@ -9,7 +9,9 @@ dispensa explícita; `release` devolve o timeout sem encerrar a sessão.
 """
 import os
 import socket
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 SOCK = Path(f"/run/user/{os.getuid()}/hermes-voice-orb.sock")
@@ -30,8 +32,24 @@ def sock(msg: str):
         s.close()
 
 
+def ensure_daemon():
+    try:
+        r = subprocess.run(
+            ["systemctl", "--user", "is-active", "--quiet", "hermes-voice.service"],
+            timeout=1,
+        )
+        if r.returncode != 0:
+            subprocess.run(
+                ["systemctl", "--user", "start", "hermes-voice.service"],
+                timeout=3,
+            )
+            time.sleep(0.3)
+    except Exception:
+        pass
+
+
 def main():
-    op = (sys.argv[1] if len(sys.argv) > 1 else "hide").lower()
+    op = (sys.argv[1] if len(sys.argv) > 1 else "toggle").lower()
     if op in ("hide", "quit"):
         sock(op)
         return
@@ -45,7 +63,11 @@ def main():
     if op in ("release", "solta", "unhold"):
         CMD.write_text("release\n")
         return
-    print("uso: orb_control.py hide|quit|dismiss|hold|release", file=sys.stderr)
+    if op in ("toggle", "trigger", "wake", "start"):
+        ensure_daemon()
+        CMD.write_text(f"{op}\n")
+        return
+    print("uso: orb_control.py toggle|trigger|hide|quit|dismiss|hold|release", file=sys.stderr)
     sys.exit(2)
 
 

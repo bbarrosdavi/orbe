@@ -8,9 +8,9 @@ quando a janela fecha: nada fica residente.
 Grava ~/.config/hermes-voice/config.json (hermes_voice_config.py), o atalho
 em ~/.config/niri/dms/binds.kdl, e reinicia o hermes-voice ao aplicar.
 
-O desenho do topo é um ofanim ("rodas dentro de rodas, os aros cheios de
+O desenho do topo é um ophanim ("rodas dentro de rodas, os aros cheios de
 olhos", Ezequiel 1:16-18 e 10:12): anéis girando em eixos diferentes, olhos
-nos aros, com glitch errático (hermes_voice_ofanim.py, o mesmo da skin do orbe).
+nos aros, com glitch errático (hermes_voice_avatares.py, o mesmo do orbe).
 
   hermes_voice_app.py              abre o app
   hermes_voice_app.py --captura P [páginas]  PNG de cada página em P_<página>.png
@@ -27,18 +27,21 @@ import threading
 import time
 from pathlib import Path
 
+import cairo
+
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Gsk", "4.0")
-from gi.repository import Adw, Gdk, Gio, GLib, Gsk, Gtk  # noqa: E402
+gi.require_version("Graphene", "1.0")
+from gi.repository import Adw, Gdk, Gio, GLib, Graphene, Gsk, Gtk  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hermes_voice_acp as acp  # noqa: E402
 import hermes_voice_canal as canal  # noqa: E402
 import hermes_voice_config as vcfg  # noqa: E402
-import hermes_voice_ofanim as ofanim  # noqa: E402
+import hermes_voice_avatares as avatares  # noqa: E402
 
 APP_ID = "io.hermes.Orbe"
 SERVICO = "hermes-voice"
@@ -104,6 +107,23 @@ window.orbe .menu button:focus:not(:checked) {
 window.orbe .ofanim {
   color: @accent_bg_color;
 }
+window.orbe .cartao {
+  padding: 6px 6px 8px 6px;
+  border-radius: 14px;
+  background-color: alpha(@window_fg_color, 0.04);
+  border: 1px solid alpha(@window_fg_color, 0.08);
+}
+window.orbe .cartao:hover {
+  background-color: alpha(@window_fg_color, 0.07);
+}
+window.orbe .cartao:checked {
+  background-color: alpha(@accent_bg_color, 0.14);
+  border-color: alpha(@accent_bg_color, 0.55);
+  color: @accent_bg_color;
+}
+window.orbe .cartao label {
+  font-size: 12px;
+}
 window.orbe .rodape {
   border-top: 1px solid alpha(@accent_bg_color, 0.12);
   padding: 8px 14px 10px 14px;
@@ -138,7 +158,8 @@ def _cor_accent(widget) -> tuple[float, float, float]:
 
 
 class Ofanim(Gtk.DrawingArea):
-    """Topo do app: o mesmo desenho da skin "ofanim" do orbe."""
+    """Topo do app: o mesmo Ophanim do orbe. O olhar vem da janela inteira
+    (ver Janela._seguir), não só de cima do desenho."""
 
     def __init__(self):
         super().__init__()
@@ -146,13 +167,9 @@ class Ofanim(Gtk.DrawingArea):
         self.set_hexpand(True)
         self.add_css_class("ofanim")
         self.set_draw_func(self._desenhar)
-        self.arte = ofanim.Ofanim()
+        self.arte = avatares.Ofanim()
         self._ultimo = None
         self._olhar = None            # ponteiro em coordenadas do widget
-        mov = Gtk.EventControllerMotion()
-        mov.connect("motion", lambda _c, x, y: setattr(self, "_olhar", (x, y)))
-        mov.connect("leave", lambda _c: setattr(self, "_olhar", None))
-        self.add_controller(mov)
         self.add_tick_callback(self._tique)
 
     def _tique(self, _w, relogio):
@@ -170,7 +187,75 @@ class Ofanim(Gtk.DrawingArea):
 
     def _desenhar(self, _area, cr, w, h):
         self.arte.desenhar(cr, 0, 0, w, h, float(self.get_scale_factor()),
-                           _cor_accent(self), self._olhar)
+                           _cor_accent(self), self._olhar, R=min(h * 0.42, w * 0.32))
+
+
+class Cartao(Gtk.ToggleButton):
+    """Miniatura animada de um avatar no seletor da Aparência."""
+
+    QUADROS_ANEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "orb_frames")
+
+    def __init__(self, skin: str):
+        super().__init__()
+        self.skin = skin
+        self.add_css_class("cartao")
+        caixa = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.area = Gtk.DrawingArea(content_height=118, hexpand=True)
+        self.area.add_css_class("ofanim")
+        self.area.set_draw_func(self._desenhar)
+        caixa.append(self.area)
+        caixa.append(Gtk.Label(label=avatares.NOMES[skin]))
+        self.set_child(caixa)
+        self.arte = avatares.criar(skin)
+        if self.arte is not None:
+            self.arte.peso = 1.2
+        self._quadros = None
+        self._ultimo = None
+        self._i = 0.0
+        self.area.add_tick_callback(self._tique)
+
+    def definir_glitch(self, ligado: bool):
+        if self.arte is not None:
+            self.arte.glitch = ligado
+
+    def _tique(self, area, relogio):
+        # Só anima com a página visível; 15 quadros/s bastam numa miniatura.
+        if not area.get_mapped():
+            self._ultimo = None
+            return GLib.SOURCE_CONTINUE
+        agora = relogio.get_frame_time() / 1e6
+        if self._ultimo is None:
+            self._ultimo = agora
+        dt = agora - self._ultimo
+        if dt >= 1 / 15:
+            self._ultimo = agora
+            if self.arte is not None:
+                self.arte.avancar(min(dt, 0.1))
+            self._i += dt * 20
+            area.queue_draw()
+        return GLib.SOURCE_CONTINUE
+
+    def _desenhar(self, area, cr, w, h):
+        cor = _cor_accent(area)
+        if self.arte is not None:
+            self.arte.desenhar(cr, 0, 0, w, h, float(self.get_scale_factor()), cor)
+            return
+        # anel: o rotoscope do orbe, 1 em cada 4 quadros, carregado só aqui
+        if self._quadros is None:
+            self._quadros = []
+            for i in range(0, 62, 4):
+                caminho = os.path.join(self.QUADROS_ANEL, f"f_{i:02d}.png")
+                if os.path.exists(caminho):
+                    self._quadros.append(cairo.ImageSurface.create_from_png(caminho))
+        if not self._quadros:
+            return
+        q = self._quadros[int(self._i) % len(self._quadros)]
+        lado = min(w, h) * 0.92
+        e = lado / q.get_width()
+        cr.translate((w - lado) / 2, (h - lado) / 2)
+        cr.scale(e, e)
+        cr.set_source_rgb(*cor)
+        cr.mask_surface(q, 0, 0)
 
 
 # ═══════════════════════════════════════════
@@ -319,6 +404,10 @@ class Janela(Adw.ApplicationWindow):
         topo.set_title_widget(Gtk.Box())
 
         self.anjo = Ofanim()
+        mov = Gtk.EventControllerMotion()
+        mov.connect("motion", self._seguir)
+        mov.connect("leave", lambda _c: setattr(self.anjo, "_olhar", None))
+        self.add_controller(mov)
         self.legenda = Gtk.Label(label="ORBE")
         self.legenda.add_css_class("legenda")
         self.legenda.set_margin_bottom(4)
@@ -372,6 +461,11 @@ class Janela(Adw.ApplicationWindow):
         GLib.timeout_add_seconds(3, self._atualizar_estado)
 
     # ── páginas ──
+
+    def _seguir(self, _ctl, x, y):
+        """Ponteiro em qualquer ponto da janela, nas coordenadas do herói."""
+        ok, p = self.compute_point(self.anjo, Graphene.Point().init(x, y))
+        self.anjo._olhar = (p.x, p.y) if ok else None
 
     def _pagina(self, nome, titulo, icone):
         pag = Adw.PreferencesPage()
@@ -527,11 +621,31 @@ class Janela(Adw.ApplicationWindow):
 
     def _pagina_aparencia(self):
         pag = self._pagina("aparencia", "Aparência", "applications-graphics-symbolic")
-        g = Adw.PreferencesGroup(title="Orbe")
-        self.r_skin = _combo("Skin", [("ofanim", "Ofanim (o anjo deste menu)"),
-                                      ("anel", "Anel de energia")])
-        g.add(self.r_skin)
+        g = Adw.PreferencesGroup(title="Avatar do orbe")
+        grade = Gtk.Grid(column_spacing=10, row_spacing=10, column_homogeneous=True)
+        self.cartoes = {}
+        primeiro = None
+        for i, sk in enumerate(("ofanim", "ofanim_alado", "serafim", "anel")):
+            c = Cartao(sk)
+            if primeiro is None:
+                primeiro = c
+            else:
+                c.set_group(primeiro)
+            grade.attach(c, i % 2, i // 2, 1, 1)
+            self.cartoes[sk] = c
+        g.add(grade)
         pag.add(g)
+
+        g2 = Adw.PreferencesGroup()
+        self.r_glitch = Adw.SwitchRow(title="Glitch",
+                                      subtitle="aberração cromática, faixas arrancadas e linhas de varredura")
+        self.r_glitch.connect("notify::active", lambda *_: [
+            c.definir_glitch(self.r_glitch.get_active()) for c in self.cartoes.values()])
+        self.r_vidro = Adw.SwitchRow(title="Fundo de vidro fosco",
+                                     subtitle="disco translúcido com blur atrás do orbe, como esta janela")
+        g2.add(self.r_glitch)
+        g2.add(self.r_vidro)
+        pag.add(g2)
 
     # ── carregar / coletar ──
 
@@ -570,7 +684,10 @@ class Janela(Adw.ApplicationWindow):
         self.r_segurar.set_value(t["segurar_s"])
         self.r_tmax.set_value(t["gravacao_max_s"])
         self.r_rastro.set_active(bool(self.cfg["diagnostico"]["rastro_niveis"]))
-        _combo_set(self.r_skin, self.cfg["orbe"]["skin"])
+        o = self.cfg["orbe"]
+        (self.cartoes.get(o["skin"]) or self.cartoes["ofanim"]).set_active(True)
+        self.r_glitch.set_active(bool(o["glitch"]))
+        self.r_vidro.set_active(bool(o["vidro"]))
         self._mudou_agente(inicial=True)
         self._mudou_wake()
         self._mudou_tts()
@@ -614,7 +731,9 @@ class Janela(Adw.ApplicationWindow):
         t["segurar_s"] = round(self.r_segurar.get_value(), 2)
         t["gravacao_max_s"] = float(self.r_tmax.get_value())
         cfg["diagnostico"]["rastro_niveis"] = self.r_rastro.get_active()
-        cfg["orbe"]["skin"] = _combo_get(self.r_skin)
+        cfg["orbe"]["skin"] = next((k for k, c in self.cartoes.items() if c.get_active()), "ofanim")
+        cfg["orbe"]["glitch"] = self.r_glitch.get_active()
+        cfg["orbe"]["vidro"] = self.r_vidro.get_active()
         return cfg
 
     # ── reações ──
