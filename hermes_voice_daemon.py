@@ -563,7 +563,7 @@ HERMES_SESSION = "Bot Chat"
 HERMES_PATH = "/home/davi/.hermes/hermes-agent/venv/bin:/home/davi/.local/bin:/usr/local/bin:/usr/bin:/bin"
 # Orbe em Quickshell (desenho na GPU). O hermes_voice_orb.py (GTK) continua
 # no disco e entra na faxina de órfãos, para a troca não deixar dois orbes.
-ORB_QML = "/home/davi/.hermes/scripts/orbe-qt/orbe.qml"
+ORB_QML = str(Path(__file__).resolve().parent / "orbe-qt" / "orbe.qml")
 ORB_PADROES = ("hermes_voice_orb.py", ORB_QML)
 ORB_SOCK = "/run/user/1000/hermes-voice-orb.sock"
 # Entrada de controle do daemon, uma linha por mensagem:
@@ -689,6 +689,18 @@ def _compositor_ready() -> bool:
     return os.path.exists(os.path.join(env["XDG_RUNTIME_DIR"], env["WAYLAND_DISPLAY"]))
 
 
+def _sock_do_orbe(pid: int):
+    """HERMES_ORB_SOCK do ambiente do processo; None quando usa o padrão."""
+    try:
+        env = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0")
+    except OSError:
+        return None
+    for kv in env:
+        if kv.startswith(b"HERMES_ORB_SOCK="):
+            return kv.split(b"=", 1)[1].decode(errors="replace") or None
+    return None
+
+
 def _reap_orbs() -> None:
     """Mata overlays zumbis (GTK falhou, nome D-Bus preso, socket ausente)."""
     me = os.getpid()
@@ -711,6 +723,8 @@ def _reap_orbs() -> None:
             continue
         if not any(pd in cmd for pd in ORB_PADROES):
             continue
+        if _sock_do_orbe(pid) not in (None, ORB_SOCK):
+            continue    # instância de outro socket (pré-visualização do app, teste)
         try:
             os.kill(pid, signal.SIGTERM)
         except OSError:

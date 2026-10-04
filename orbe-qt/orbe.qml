@@ -17,10 +17,14 @@ ShellRoot {
 
     readonly property string runtime: Quickshell.env("XDG_RUNTIME_DIR") || "/run/user/1000"
     readonly property string home: Quickshell.env("HOME") || "/home/davi"
-    readonly property string scripts: home + "/.hermes/scripts"
-    // sobrescrevíveis para testar uma instância ao lado do orbe em uso
+    // ajudante do ponteiro na pasta acima desta, onde quer que ela esteja
+    // (no arquivo raiz o Qt.resolvedUrl do Quickshell dá qrc:/qs-blackhole)
+    readonly property string ponteiroPy: Quickshell.shellPath("../hermes_voice_ponteiro.py")
+    // sobrescrevíveis para uma instância ao lado do orbe em uso (teste e a
+    // pré-visualização do app, que aponta o config para um arquivo próprio)
     readonly property string sockOrbe: Quickshell.env("HERMES_ORB_SOCK") || runtime + "/hermes-voice-orb.sock"
     readonly property string sockCtl: Quickshell.env("HERMES_CTL_SOCK") || runtime + "/hermes-voice-ctl.sock"
+    readonly property string arqConfig: Quickshell.env("HERMES_ORB_CONFIG") || home + "/.config/hermes-voice/config.json"
     readonly property var tela: {
         var ts = Quickshell.screens
         for (var i = 0; i < ts.length; i++)
@@ -44,7 +48,7 @@ ShellRoot {
     }
 
     FileView {
-        path: raiz.home + "/.config/hermes-voice/config.json"
+        path: raiz.arqConfig
         watchChanges: true
         printErrors: false
         onFileChanged: reload()
@@ -137,7 +141,7 @@ ShellRoot {
     Process {
         id: ponteiro
         running: janela.visible && conteudo.avatar
-        command: ["/usr/bin/python3", raiz.scripts + "/hermes_voice_ponteiro.py", "--stdio"]
+        command: ["/usr/bin/python3", raiz.ponteiroPy, "--stdio"]
         stdinEnabled: true
         stdout: SplitParser {
             onRead: linha => {

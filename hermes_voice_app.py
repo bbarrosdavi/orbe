@@ -12,6 +12,7 @@ Este arquivo é a ponte: lê e grava ~/.config/hermes-voice/config.json
 consulta agentes e sessões do Claude e reinicia o hermes-voice ao aplicar.
 
   hermes_voice_app.py              abre o app
+  hermes_voice_app.py --previa     abre o app com a pré-visualização do orbe ligada
   hermes_voice_app.py --captura P [páginas]  PNG de cada página em P_<página>.png
       (renderizado offscreen pela GPU, sem janela)
 """
@@ -20,12 +21,14 @@ import ctypes.util
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import (QEvent, QObject, Property, QTimer, QUrl, Qt, Signal, Slot)
+from PySide6.QtCore import (QEvent, QObject, QProcess, QProcessEnvironment, Property, QTimer,
+                            QUrl, Qt, Signal, Slot)
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtQml import QQmlApplicationEngine
@@ -39,6 +42,13 @@ import hermes_voice_config as vcfg  # noqa: E402
 APP_ID = "io.hermes.Orbe"
 SERVICO = "hermes-voice"
 QML_DIR = Path(__file__).resolve().parent / "orbe-qt" / "app"
+ORBE_QML = Path(__file__).resolve().parent / "orbe-qt" / "orbe.qml"
+# Pré-visualização: uma instância do orbe ao lado da do daemon, com socket e
+# config próprios. O toque vai para um socket sem ouvinte, longe do daemon.
+RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}")
+PREVIA_SOCK = RUNTIME / "hermes-voice-previa.sock"
+PREVIA_CFG = RUNTIME / "hermes-voice-previa.json"
+PREVIA_CTL = RUNTIME / "hermes-voice-previa-ctl.sock"
 BINDS = Path.home() / ".config" / "niri" / "dms" / "binds.kdl"
 DANK_CSS = Path.home() / ".config" / "gtk-4.0" / "dank-colors.css"
 ACCENT_CSS = Path("/home/davi/Projetos/Docs_rice_sistema/main.css")
@@ -224,6 +234,7 @@ class Ponte(QObject):
     atalhoCancelado = Signal()
     estadoMudou = Signal()
     apresentar = Signal()
+    previaMudou = Signal()
 
     def __init__(self):
         super().__init__()
@@ -234,6 +245,12 @@ class Ponte(QObject):
         self._capturando = False
         self._relogio = QTimer(self)
         self._relogio.timeout.connect(self._atualizar_estado)
+        self._previa = None
+        self._previa_sock = None
+        self._previa_tentativas = 0
+        self._previa_espera = QTimer(self)
+        self._previa_espera.setInterval(100)
+        self._previa_espera.timeout.connect(self._previa_conectar)
 
     def iniciar_relogio(self):
         self._atualizar_estado()
@@ -370,6 +387,96 @@ class Ponte(QObject):
             return True
         return False
 
+    # ── pré-visualização ──
+
+    @Property(bool, notify=previaMudou)
+    def previa(self):
+        return self._previa is not None
+
+    @Slot("QVariant")
+    def ligarPrevia(self, aparencia):
+        if self._previa is not None:
+            return
+        self.atualizarPrevia(aparencia)
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("HERMES_ORB_SOCK", str(PREVIA_SOCK))
+        env.insert("HERMES_CTL_SOCK", str(PREVIA_CTL))
+        env.insert("HERMES_ORB_CONFIG", str(PREVIA_CFG))
+        p = QProcess(self)
+        p.setProcessEnvironment(env)
+        # pdeathsig: o orbe da prévia morre junto com o app, mesmo num kill
+        p.setProgram("/usr/bin/setpriv")
+        p.setArguments(["--pdeathsig", "TERM", "--", "/usr/bin/qs", "-p", str(ORBE_QML)])
+        p.setStandardOutputFile(QProcess.nullDevice())
+        p.setStandardErrorFile(QProcess.nullDevice())
+        p.finished.connect(self._previa_saiu)
+        self._previa = p
+        self._previa_tentativas = 0
+        p.start()
+        self._previa_espera.start()
+        self.previaMudou.emit()
+
+    def _previa_conectar(self):
+        self._previa_tentativas += 1
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(0.2)
+        try:
+            s.connect(str(PREVIA_SOCK))
+        except OSError:
+            s.close()
+            if self._previa_tentativas >= 50:      # 5 s sem o socket subir
+                self.desligarPrevia()
+            return
+        self._previa_espera.stop()
+        self._previa_sock = s
+        try:
+            s.sendall(b"show listening\n")
+        except OSError:
+            pass
+
+    @Slot("QVariant")
+    def atualizarPrevia(self, aparencia):
+        orbe = json.loads(json.dumps(aparencia or {}))
+        tmp = PREVIA_CFG.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"orbe": orbe}), encoding="utf-8")
+        os.replace(tmp, PREVIA_CFG)
+
+    @Slot()
+    def desligarPrevia(self):
+        p = self._previa
+        if p is None:
+            return
+        self._previa_espera.stop()
+        if self._previa_sock is not None:
+            try:
+                self._previa_sock.sendall(b"quit\n")
+            except OSError:
+                pass
+        QTimer.singleShot(1000, p.terminate)
+
+    def _previa_saiu(self, *_):
+        self._previa_espera.stop()
+        if self._previa_sock is not None:
+            self._previa_sock.close()
+        self._previa_sock = None
+        self._previa = None
+        for f in (PREVIA_CFG, PREVIA_SOCK):
+            try:
+                f.unlink()
+            except OSError:
+                pass
+        self.previaMudou.emit()
+
+    def encerrar(self):
+        """Fecha a prévia antes de o app sair."""
+        p = self._previa
+        if p is not None:
+            p.finished.disconnect(self._previa_saiu)
+            p.terminate()
+            p.waitForFinished(1000)
+            self._previa = p = None
+            self._previa_saiu()
+
     # ── aplicar ──
 
     @Slot("QVariant", str, result="QVariant")
@@ -451,7 +558,10 @@ def main():
     if not eng.rootObjects():
         sys.exit(1)
     ponte.iniciar_relogio()
+    if "--previa" in sys.argv:
+        ponte.ligarPrevia(ponte.cfg["orbe"])
     rc = app.exec()
+    ponte.encerrar()
     del eng
     sys.exit(rc)
 

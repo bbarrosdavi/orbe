@@ -476,7 +476,7 @@ Item {
             Text {
                 anchors.left: parent.left
                 anchors.leftMargin: 14
-                anchors.right: aplicar.left
+                anchors.right: bPrevia.left
                 anchors.rightMargin: 10
                 anchors.verticalCenter: parent.verticalCenter
                 text: ponte.estado
@@ -485,6 +485,15 @@ Item {
                 font.family: "monospace"
                 font.pixelSize: 10
                 elide: Text.ElideRight
+            }
+            Botao {
+                id: bPrevia
+                anchors.right: aplicar.left
+                anchors.rightMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                texto: ponte.previa ? "Fechar prévia" : "Pré-visualizar"
+                ligado: ponte.previa
+                onClicado: ponte.previa ? ponte.desligarPrevia() : ponte.ligarPrevia(raiz.aparencia)
             }
             Botao {
                 id: aplicar
@@ -596,6 +605,10 @@ Item {
 
     // ── estado que outras linhas leem ──
     property string skin: "ofanim"
+    // aparência ainda não aplicada; a prévia do orbe acompanha cada mudança
+    readonly property var aparencia: ({ skin: raiz.skin, glitch: rGlitch.ligado,
+                                        vidro: rVidro.ligado, tamanho: tamanho.valor })
+    onAparenciaChanged: if (ponte.previa) ponte.atualizarPrevia(aparencia)
     readonly property string ttsEfetivo: rTts.efetivo || ponte.ttsPerfil
 
     // ── reações (mesma lógica do GTK) ──
