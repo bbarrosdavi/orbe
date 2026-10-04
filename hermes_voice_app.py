@@ -19,12 +19,15 @@ consulta agentes e sessões do Claude e reinicia o hermes-voice ao aplicar.
 import ctypes
 import ctypes.util
 import json
+import math
 import os
+import random
 import re
 import socket
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 from PySide6.QtCore import (QEvent, QObject, QProcess, QProcessEnvironment, Property, QTimer,
@@ -49,6 +52,16 @@ RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}")
 PREVIA_SOCK = RUNTIME / "hermes-voice-previa.sock"
 PREVIA_CFG = RUNTIME / "hermes-voice-previa.json"
 PREVIA_CTL = RUNTIME / "hermes-voice-previa-ctl.sock"
+# Ciclo da prévia: todos os estados, com som simulado onde o orbe reage a ele
+# (mic ao ouvir, nível e tom da voz ao responder). Nenhum áudio é tocado.
+PREVIA_CICLO = [("idle", "idle", 4.0), ("listening", "ouvindo", 5.0),
+                ("thinking", "pensando", 5.0), ("speaking", "respondendo", 6.0)]
+PREVIA_LINHAS = [
+    "Pedido: resumir as mensagens não lidas de hoje.",
+    "Começo pelas conversas com menções diretas.",
+    "São três threads; a mais longa trata do prazo da entrega.",
+    "Junto um resumo de uma frase por thread e respondo.",
+]
 BINDS = Path.home() / ".config" / "niri" / "dms" / "binds.kdl"
 DANK_CSS = Path.home() / ".config" / "gtk-4.0" / "dank-colors.css"
 ACCENT_CSS = Path("/home/davi/Projetos/Docs_rice_sistema/main.css")
@@ -228,6 +241,30 @@ class Icones(QQuickImageProvider):
         return pm
 
 
+class _Fala:
+    """Envelope de fala sintético: sílabas de 120 a 240 ms, pausas entre
+    palavras e um tom que anda por sílaba."""
+
+    def __init__(self):
+        self.r = random.Random()
+        self.t = self.ini = self.fim = 0.0
+        self.pico = 0.0
+        self.tom = 0.5
+
+    def passo(self, dt):
+        self.t += dt
+        if self.t >= self.fim:
+            self.ini = self.t
+            if self.r.random() < 0.2:
+                self.pico, dur = 0.0, self.r.uniform(0.12, 0.35)
+            else:
+                self.pico, dur = self.r.uniform(0.45, 1.0), self.r.uniform(0.12, 0.24)
+                self.tom = min(1.0, max(0.0, self.tom + self.r.uniform(-0.25, 0.25)))
+            self.fim = self.t + dur
+        u = (self.t - self.ini) / max(1e-3, self.fim - self.ini)
+        return self.pico * math.sin(math.pi * min(1.0, u)) ** 0.8, self.tom
+
+
 def _do_js(v) -> dict:
     """Cópia Python de um objeto vindo do QML (um objeto JS guardado numa
     propriedade `var` chega como QJSValue, não como dict)."""
@@ -259,6 +296,15 @@ class Ponte(QObject):
         self._previa_espera = QTimer(self)
         self._previa_espera.setInterval(100)
         self._previa_espera.timeout.connect(self._previa_conectar)
+        self._previa_ciclo = QTimer(self)
+        self._previa_ciclo.setInterval(33)
+        self._previa_ciclo.timeout.connect(self._previa_tique)
+        self._previa_fase = 0
+        self._previa_t = 0.0
+        self._previa_rel = 0.0
+        self._previa_linha = 0
+        self._previa_estado = ""
+        self._fala = _Fala()
 
     def iniciar_relogio(self):
         self._atualizar_estado()
@@ -401,6 +447,10 @@ class Ponte(QObject):
     def previa(self):
         return self._previa is not None
 
+    @Property(str, notify=previaMudou)
+    def previaEstado(self):
+        return self._previa_estado
+
     @Slot("QVariant")
     def ligarPrevia(self, aparencia):
         if self._previa is not None:
@@ -437,10 +487,48 @@ class Ponte(QObject):
             return
         self._previa_espera.stop()
         self._previa_sock = s
+        self._previa_enviar("show idle")
+        self._previa_entrar(0)
+        self._previa_rel = time.monotonic()
+        self._previa_ciclo.start()
+
+    def _previa_enviar(self, *linhas):
+        if self._previa_sock is None:
+            return
         try:
-            s.sendall(b"show listening\n")
+            self._previa_sock.sendall("".join(l + "\n" for l in linhas).encode())
         except OSError:
             pass
+
+    def _previa_entrar(self, fase):
+        self._previa_fase = fase
+        self._previa_t = 0.0
+        self._previa_linha = 0
+        estado, rotulo, _dur = PREVIA_CICLO[fase]
+        if fase == 0:
+            self._previa_enviar("level 0", "mic 0", "clear")
+        self._previa_enviar(f"state {estado}")
+        self._previa_estado = rotulo
+        self.previaMudou.emit()
+
+    def _previa_tique(self):
+        agora = time.monotonic()
+        dt = min(0.1, agora - self._previa_rel)
+        self._previa_rel = agora
+        self._previa_t += dt
+        estado, _rotulo, dur = PREVIA_CICLO[self._previa_fase]
+        if estado == "listening":
+            env, _tom = self._fala.passo(dt)
+            self._previa_enviar(f"mic {0.03 + 0.75 * env:.3f}")
+        elif estado == "speaking":
+            env, tom = self._fala.passo(dt)
+            self._previa_enviar(f"level {0.9 * env:.3f} {tom:.2f}")
+        elif estado == "thinking":
+            if self._previa_linha < len(PREVIA_LINHAS) and self._previa_t >= 0.3 + self._previa_linha:
+                self._previa_enviar("line " + PREVIA_LINHAS[self._previa_linha])
+                self._previa_linha += 1
+        if self._previa_t >= dur:
+            self._previa_entrar((self._previa_fase + 1) % len(PREVIA_CICLO))
 
     @Slot("QVariant")
     def atualizarPrevia(self, aparencia):
@@ -455,6 +543,7 @@ class Ponte(QObject):
         if p is None:
             return
         self._previa_espera.stop()
+        self._previa_ciclo.stop()
         if self._previa_sock is not None:
             try:
                 self._previa_sock.sendall(b"quit\n")
@@ -464,6 +553,8 @@ class Ponte(QObject):
 
     def _previa_saiu(self, *_):
         self._previa_espera.stop()
+        self._previa_ciclo.stop()
+        self._previa_estado = ""
         if self._previa_sock is not None:
             self._previa_sock.close()
         self._previa_sock = None
@@ -577,7 +668,6 @@ def main():
 def _capturar(destino, paginas):
     """PNG de cada página, renderizado offscreen pela GPU (QQuickRenderControl)."""
     os.environ.setdefault("QT_QPA_PLATFORM", "wayland")
-    import time
     from PySide6.QtCore import QSize
     from PySide6.QtGui import QOffscreenSurface, QOpenGLContext, QSurfaceFormat
     from PySide6.QtOpenGL import QOpenGLFramebufferObject, QOpenGLFramebufferObjectFormat

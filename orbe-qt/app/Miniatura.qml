@@ -37,6 +37,7 @@ Item {
             esc: width / 148
             glitch: m.glitch
             accent: Estilo.anel
+            olharAlvo: m.olhar ? Qt.point(m.olhar.x - arte.x, m.olhar.y - arte.y) : null
         }
     }
 }

@@ -32,7 +32,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 w0a; vec4 w0b; vec4 w1a; vec4 w1b; vec4 w2a; vec4 w2b;   // asas: raiz, ângulo, L;
     vec4 w3a; vec4 w3b; vec4 w4a; vec4 w4b; vec4 w5a; vec4 w5b;   //   lado, abertura, olhos, ocultar
     vec4 sera;       // fogo, trisagion, abertura do rosto, brasa
-    vec4 sera2;      // ângulo da brasa, —, —, —
+    vec4 sera2;      // ângulo da brasa, olhos (0 de cima, 1 do meio, 2 os dois), —, —
     vec4 lacos;      // nº de olhos (30), vagas de brasa (24), vagas de fumaça (10), asas
 };
 
@@ -560,9 +560,12 @@ void serafim(inout float A, vec2 p, float aa) {
     for (int i = 0; i < na; i++) { if (i >= 2) break; asa(A, p, asaA(i), asaB(i), float(i), lw, aa); }
     chamas(A, p, c, R, sera.x, lw, aa);
 
-    // o rosto: só aparece quando as asas de cima se abrem para ouvir
+    // olhos: sera2.y = 0 só o de cima, 1 só o do meio, 2 os dois
+    int modoOlhos = int(sera2.y + 0.5);
+
+    // o rosto (olho de cima): só aparece quando as asas da frente se abrem para ouvir
     float abre = sera.z;
-    if (abre > 0.05) {
+    if (modoOlhos != 1 && abre > 0.05) {
         vec2 e = c + vec2(0.0, -0.20 * R);
         vec2 dv = olhar - e;
         float dl = length(dv);
@@ -572,6 +575,19 @@ void serafim(inout float A, vec2 p, float aa) {
 
     // com duas cobria os pés e com duas o rosto: na frente, escondendo
     for (int i = 2; i < na; i++) asa(A, p, asaA(i), asaB(i), float(i), lw, aa);
+
+    // olho do meio, sempre à vista: na frente das asas, com o fundo limpo atrás
+    if (modoOlhos != 0) {
+        float tam_ = R * 0.22;
+        float de = ofa2.y;
+        vec2 m = c + vec2(0.0, 0.07 * R);     // um pouco abaixo: respiro para o de cima
+        vec2 dv = olhar - m;
+        float dl = length(dv);
+        vec2 dq = (p - m) / vec2(tam_ * 1.08, tam_ * 0.52);
+        A *= 1.0 - cobre((length(dq) - 1.0) * tam_ * 0.52, aa) * de;
+        olho(A, p, m, 0.0, tam_, pisca(78.0) * de, dl > 1e-4 ? dv / dl : vec2(1.0, 0.0),
+             1.0, 1.0 + 0.5 * est2.y, lw, aa);
+    }
 
     // "a casa se encheu de fumaça" (Is 6:4): 10 vagas que renascem a cada 2,9 s
     float taxa = 3.5 * pensar / (10.0 / 2.9);

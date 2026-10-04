@@ -13,9 +13,12 @@
 // clareia a chama anterior onde as duas se cruzam, como no GTK; por isso a
 // saída guarda alfa e intensidade separados.
 //
+// No meio, um olho como o dos avatares (figura.frag), fora do giro do anel:
+// pisca, segue o olhar e dilata a pupila com o microfone.
+//
 // Saída: r = alfa final, g = intensidade da cor / 2 (passa de 1 onde há ADD
-// sobre área já opaca), b = cobertura só do quadro (fonte do glitch). A cor
-// é do pos.frag.
+// sobre área já opaca), b = cobertura do quadro e do olho (fonte do glitch).
+// A cor é do pos.frag.
 
 layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
@@ -34,6 +37,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 lingua5; vec4 lingua6; vec4 lingua7; vec4 lingua8; vec4 lingua9;   // ângulo, rb, ponta, largura
     vec4 gota0; vec4 gota1; vec4 gota2; vec4 gota3; vec4 gota4; vec4 gota5; vec4 gota6;  // x, y, e, —
     vec4 tempo;      // t, alfa da entrada/saída, —, —
+    vec4 olho;       // alvo do olhar (x, y no item), abertura, pupila
 };
 layout(binding = 1) uniform sampler2D atlas;
 
@@ -79,6 +83,65 @@ void adiciona(inout float A, inout float I, float v) {
 void cobre(inout float A, inout float I, float v) {
     I = v + I * (1.0 - v);
     A = v + A * (1.0 - v);
+}
+
+// ── olho (o mesmo desenho do figura.frag, composto em OVER) ──
+
+float hash(float n) {
+    n = fract(n * 0.1031);
+    n *= n + 33.33;
+    n *= n + n;
+    return fract(n);
+}
+
+// piscada: uma vez a cada 9 a 18 s, por 0,22 s
+float pisca(float chave) {
+    float T = 9.0 + 9.0 * hash(chave * 7.13 + 0.7);
+    float ph = mod(tempo.x + hash(chave * 3.71 + 1.3) * T, T);
+    return ph >= 0.22 ? 1.0 : abs(1.0 - 2.0 * ph / 0.22);
+}
+
+float traco(float d, float w, float aa) {
+    float we = max(w, aa);
+    return (w / we) * sat((0.5 * we - d) / aa + 0.5);
+}
+
+float dentroDe(float sd, float aa) { return sat(0.5 - sd / aa); }
+
+// olho amendoado com íris e pupila vazada; devolve a cobertura do traço e da íris
+float desenhaOlho(inout float A, inout float I, vec2 p, vec2 pos, float tam_, float ab,
+                  vec2 alvo, float alfa, float pup, float aa) {
+    vec2 q = p - pos;
+    float rmax = tam_ * 1.3 + 4.0 + aa * 2.0;
+    if (dot(q, q) > rmax * rmax) return 0.0;
+    float w = tam_, h = tam_ * 0.48 * ab;
+    float u = q.x / w;
+    float dponta = length(vec2(abs(q.x) - w, q.y));
+    float sd;
+    if (abs(u) >= 1.0) {
+        sd = dponta;
+    } else {
+        float s = 1.0 - u * u;
+        float Y = 0.9375 * h * pow(s, 0.85);
+        float dY = 0.9375 * h * 0.85 * pow(max(s, 1e-3), -0.15) * (-2.0 * u) / w;
+        sd = (abs(q.y) - Y) / sqrt(1.0 + dY * dY);
+        if (sd > 0.0) sd = min(sd, dponta);
+    }
+    float tr = traco(abs(sd), max(0.8, tam_ * 0.11), aa) * sat(alfa * 0.95);
+    cobre(A, I, tr);
+    float dentro = dentroDe(sd, aa);
+    cobre(A, I, dentro * sat(alfa * 0.10));
+    float iris = 0.0;
+    if (ab > 0.25) {
+        vec2 ic = vec2(alvo.x * w * 0.35, alvo.y * h * 0.35);
+        iris = dentro * dentroDe(length(q - ic) - tam_ * 0.42, aa) * sat(alfa * 0.85);
+        cobre(A, I, iris);
+        vec2 pc = vec2(alvo.x * w * 0.40, alvo.y * h * 0.40);
+        float furo = dentro * dentroDe(length(q - pc) - tam_ * 0.17 * pup, aa);
+        A *= 1.0 - furo;
+        I *= 1.0 - furo;
+    }
+    return max(tr, iris);
 }
 
 vec2 gira(vec2 v, float a) {
@@ -186,5 +249,17 @@ void main() {
         cobre(A, I, 0.9 * e * env * sat((r - dl) / aa + 0.5));
     }
 
-    fragColor = vec4(A, min(I, 2.0) * 0.5, fq, A) * qt_Opacity;
+    // olho no meio, parado enquanto o anel gira; cresce com a entrada (scb)
+    float tamOlho = 0.42 * 100.0 * scb;
+    vec2 dv = olho.xy - centro;
+    float dl = length(dv);
+    // fundo limpo atrás do olho: o redemoinho do quadro cruza o meio no thinking
+    vec2 dq = (p - centro) / vec2(tamOlho * 1.12, tamOlho * 0.62);
+    float limpa = dentroDe((length(dq) - 1.0) * tamOlho * 0.62, aa) * env;
+    A *= 1.0 - limpa;
+    I *= 1.0 - limpa;
+    float ol = desenhaOlho(A, I, p, centro, tamOlho, olho.z * pisca(91.0),
+                           dl > 1e-4 ? dv / dl : vec2(1.0, 0.0), env, olho.w, aa);
+
+    fragColor = vec4(A, min(I, 2.0) * 0.5, sat(fq + ol), A) * qt_Opacity;
 }

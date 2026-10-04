@@ -26,6 +26,7 @@ Item {
     property real zoom: 1.0
     property real alfa: 1.0
     property var olharAlvo: null           // Qt.point no item, ou null (olhos vagam)
+    property int olhosSerafim: 2           // 0 só o de cima, 1 só o do meio, 2 os dois
     property var mix: ({ idle: 1.0 })      // pesos por estado
     property real voz: 0
     property real mic: 0
@@ -265,7 +266,7 @@ Item {
                        0.85 * R * de, para, ab * de, 0, true)
             }
             fx.sera = v4(s.fogo, s.tri, s.abre, s.brasa)
-            fx.sera2 = v4(s.brasaAng, 0, 0, 0)
+            fx.sera2 = v4(s.brasaAng, olhosSerafim, 0, 0)
             fx.ofa2 = v4(0, de, 6, 0)
         } else {
             var d = desperto

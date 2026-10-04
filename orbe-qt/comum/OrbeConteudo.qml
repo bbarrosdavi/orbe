@@ -16,6 +16,7 @@ Item {
     property bool glitch: true
     property bool vidro: false
     property real tamanho: 1.0
+    property string textoPos: "lado"       // lado | abaixo: onde fica o raciocínio
     property color corTema: "#b8cacb"      // @accent_bg_color: cor dos avatares
     property color accent: "#f3b2e3"       // --colorAccentBg: paleta do anel
     property color corFundo: "#121414"     // @window_bg_color: tom do vidro
@@ -27,13 +28,15 @@ Item {
     readonly property int painel: 296      // coluna de texto: o raciocínio legível
     readonly property real cx: painel + orbBox / 2
     readonly property real cy: orbBox / 2
+    readonly property bool textoAbaixo: textoPos === "abaixo"
+    // abaixo, o orbe fica no mesmo lugar e a janela desce 5 linhas de texto
     width: painel + orbBox
-    height: orbBox
+    height: orbBox + (textoAbaixo ? 5 * 17 + 8 : 0)
 
     // ── estado ──
-    readonly property var estados: ["listening", "thinking", "speaking", "tools"]
+    readonly property var estados: ["idle", "listening", "thinking", "speaking", "tools"]
     property string estado: "listening"
-    property var mix: ({ listening: 1, thinking: 0, speaking: 0, tools: 0 })
+    property var mix: ({ idle: 0, listening: 1, thinking: 0, speaking: 0, tools: 0 })
     property real nivel: 0
     property real nivelS: 0
     property real tom: 0.5
@@ -240,6 +243,7 @@ Item {
             esc: orbe.tamanho
             glitch: orbe.glitch
             accent: orbe.accent
+            olharAlvo: orbe.olhar
             vidroLigado: orbe.vidro
             vidroRaio: orbe.raioVidro
             vidroCor: orbe.corFundo
@@ -270,8 +274,10 @@ Item {
         font.family: "Sans"
         font.pixelSize: 11
     }
-    readonly property real textoDireita: cx - 66 * tamanho   // coluna fixa: não respira com o anel
-    readonly property var linhasQuebradas: quebrar(linhas, textoDireita - 4)
+    // ao lado: coluna fixa à esquerda do orbe (não respira com o anel);
+    // abaixo: alinhado pela borda direita da arte, que encosta no canto da tela
+    readonly property real textoDireita: textoAbaixo ? cx + artBox / 2 : cx - 66 * tamanho
+    readonly property var linhasQuebradas: quebrar(linhas, Math.min(textoDireita - 4, cx - 66 * tamanho - 4))
     function quebrar(ls, larg) {
         var rows = []
         for (var i = 0; i < ls.length; i++) {
@@ -307,7 +313,8 @@ Item {
                 renderType: Text.NativeRendering
                 color: Qt.rgba(0.88, 0.84, 0.92, texto.alfas[5 - n + index] * orbe.envAlfa)
                 x: Math.max(2, orbe.textoDireita - fm.advanceWidth(modelData))
-                y: orbe.cy - (n - 1) * 8.5 + index * 17 - fm.ascent
+                y: orbe.textoAbaixo ? orbe.orbBox + 4 + index * 17
+                                    : orbe.cy - (n - 1) * 8.5 + index * 17 - fm.ascent
             }
         }
     }

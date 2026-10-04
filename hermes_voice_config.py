@@ -90,6 +90,8 @@ DEFAULTS = {
         "vidro": False,
         # escala do orbe na tela (0.6 a 1.6); 1.0 = célula de 148 px
         "tamanho": 1.0,
+        # onde aparece o texto do raciocínio: lado | abaixo
+        "texto": "lado",
     },
 }
 

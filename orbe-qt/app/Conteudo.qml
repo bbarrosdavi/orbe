@@ -460,6 +460,12 @@ Item {
                         titulo: "Fundo de vidro fosco"
                         subtitulo: "disco translúcido com blur atrás do orbe, como esta janela"
                     }
+                    LinhaCombo {
+                        id: rTexto
+                        titulo: "Texto do raciocínio"
+                        subtitulo: "onde aparecem as linhas do agente"
+                        itens: [{ id: "lado", nome: "Ao lado do orbe" }, { id: "abaixo", nome: "Abaixo do orbe" }]
+                    }
                 }
             }
         }
@@ -479,7 +485,7 @@ Item {
                 anchors.right: bPrevia.left
                 anchors.rightMargin: 10
                 anchors.verticalCenter: parent.verticalCenter
-                text: ponte.estado
+                text: ponte.previa && ponte.previaEstado ? "prévia: " + ponte.previaEstado : ponte.estado
                 color: Estilo.texto
                 opacity: 0.6
                 font.family: "monospace"
@@ -607,7 +613,8 @@ Item {
     property string skin: "ofanim"
     // aparência ainda não aplicada; a prévia do orbe acompanha cada mudança
     readonly property var aparencia: ({ skin: raiz.skin, glitch: rGlitch.ligado,
-                                        vidro: rVidro.ligado, tamanho: tamanho.valor })
+                                        vidro: rVidro.ligado, tamanho: tamanho.valor,
+                                        texto: rTexto.efetivo })
     onAparenciaChanged: if (ponte.previa) ponte.atualizarPrevia(aparencia)
     readonly property string ttsEfetivo: rTts.efetivo || ponte.ttsPerfil
 
@@ -692,6 +699,7 @@ Item {
         skin = ["ofanim", "ofanim_alado", "serafim", "anel"].indexOf(o.skin) >= 0 ? o.skin : "ofanim"
         rGlitch.ligado = !!o.glitch
         rVidro.ligado = !!o.vidro
+        rTexto.valor = o.texto || "lado"
         tamanho.definir(o.tamanho === undefined ? 1.0 : o.tamanho)
         mudouAgente(true)
         mudouWake()
@@ -734,6 +742,7 @@ Item {
         cfg.orbe.glitch = rGlitch.ligado
         cfg.orbe.vidro = rVidro.ligado
         cfg.orbe.tamanho = tamanho.valor
+        cfg.orbe.texto = rTexto.efetivo
         return cfg
     }
     function aplicar() {

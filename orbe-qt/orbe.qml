@@ -41,6 +41,7 @@ ShellRoot {
         conteudo.vidro = !!o.vidro
         var tam = parseFloat(o.tamanho)
         conteudo.tamanho = isNaN(tam) ? 1.0 : Math.min(1.6, Math.max(0.6, tam))
+        conteudo.textoPos = o.texto === "abaixo" ? "abaixo" : "lado"
     }
     function corCss(texto, re, padrao) {
         var m = re.exec(texto || "")

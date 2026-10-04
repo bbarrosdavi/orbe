@@ -4,7 +4,7 @@ import "../comum"
 Rectangle {
     id: folha
     property int lado: 148
-    property var estados: ["listening", "thinking", "tools", "speaking"]
+    property var estados: ["idle", "listening", "thinking", "speaking"]
     property bool soFala: false
     property real t: 0
     width: lado * estados.length
@@ -19,7 +19,8 @@ Rectangle {
                 width: folha.lado; height: folha.lado
                 property string est: folha.estados[index % folha.estados.length]
                 estado: est
-                mix: { var m = { listening: 0, thinking: 0, tools: 0, speaking: 0 }; m[est] = 1; return m }
+                mix: { var m = { idle: 0, listening: 0, thinking: 0, tools: 0, speaking: 0 }; m[est] = 1; return m }
+                olharAlvo: Qt.point(-300, 260)
                 accent: "#f3b2e3"
                 vidroLigado: index >= folha.estados.length
                 vidroRaio: folha.lado / 2 - 3
