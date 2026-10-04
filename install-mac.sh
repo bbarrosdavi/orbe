@@ -19,6 +19,7 @@ if [ "${1:-}" = "--remover" ]; then
     pkill -f "$ORBE/orbe-qt/orbe_mac.py" 2>/dev/null || true
     rm -f "$PLIST"
     rm -rf "$APP"
+    [ -L "$HOME/.local/bin/claude-orbe" ] && rm -f "$HOME/.local/bin/claude-orbe"
     echo "Orbe removido (o config em ~/.config/hermes-voice fica)."
     exit 0
 fi
@@ -127,6 +128,10 @@ for lado in (16, 32, 128, 256, 512):
 FIM
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/orbe.icns" 2>/dev/null || true
 
+# claude-orbe no PATH (o ~/.local/bin é onde o instalador do Claude Code põe o claude)
+mkdir -p "$HOME/.local/bin"
+ln -sf "$ORBE/claude-orbe" "$HOME/.local/bin/claude-orbe"
+
 # ── skills do Hermes ──
 if [ -d "$HOME/.hermes" ]; then
     for s in "$ORBE"/skills/*/; do
@@ -145,6 +150,7 @@ Orbe instalado a partir de $ORBE (Python: $PY)
 
   serviço:  $PLIST  (log em $LOG)
   app:      $APP
+  claude:   $HOME/.local/bin/claude-orbe
 FIM
 [ -d "$HOME/.hermes" ] && echo "  skills:   $HOME/.hermes/skills/voice-orb-{hold,dismiss}"
 cat <<FIM

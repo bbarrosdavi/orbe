@@ -142,8 +142,8 @@ cd ~/.local/share/orbe
 O `install-mac.sh` cria um venv Python 3.11 em `.venv` com as dependências
 (PySide6 incluso), baixa o detector de voz Silero, instala o LaunchAgent
 `io.hermes.orbe` (sobe no login e volta se cair; log em
-`~/Library/Logs/orbe.log`), o app **Orbe** em `~/Applications` e as skills do
-Hermes. Na primeira sessão o macOS pede acesso ao microfone para o Python
+`~/Library/Logs/orbe.log`), o app **Orbe** em `~/Applications`, o
+`claude-orbe` em `~/.local/bin` e as skills do Hermes. Na primeira sessão o macOS pede acesso ao microfone para o Python
 do venv: aceite (ou ative em Ajustes do Sistema › Privacidade e Segurança ›
 Microfone). `./install-mac.sh --remover` desfaz tudo menos o config.
 
