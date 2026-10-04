@@ -86,7 +86,7 @@ DEFAULTS = {
         # ofanim | ofanim_alado | serafim (orbe-qt/comum/Figura.qml) | anel (rotoscope)
         "skin": "ofanim",
         "glitch": True,
-        # disco translúcido com blur atrás do orbe (ext-background-effect no niri)
+        # sombra radial atrás do orbe (pos.frag); a chave guarda o nome antigo
         "vidro": False,
         # escala do orbe na tela (0.6 a 1.6); 1.0 = célula de 148 px
         "tamanho": 1.0,

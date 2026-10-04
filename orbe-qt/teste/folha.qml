@@ -28,8 +28,8 @@ Rectangle {
                 voz: estado === "speaking" ? 0.8 : 0
                 mic: estado === "listening" ? 0.3 : 0
                 olharAlvo: Qt.point(-600, 400)
-                vidroLigado: folha.vidro
-                vidroRaio: folha.lado / 2 - 3
+                sombraLigada: folha.vidro
+                sombraRaio: folha.lado / 2 - 3
                 disco: folha.vidro ? folha.lado / 2 - 5 : -1
             }
         }
