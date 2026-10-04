@@ -243,7 +243,6 @@ Item {
             esc: orbe.tamanho
             glitch: orbe.glitch
             accent: orbe.accent
-            olharAlvo: orbe.olhar
             vidroLigado: orbe.vidro
             vidroRaio: orbe.raioVidro
             vidroCor: orbe.corFundo

@@ -131,6 +131,19 @@ _NARRATE_RE = re.compile(
     r"executando comando|rodando comando)\b",
     re.I,
 )
+# Travar e soltar a sessão por voz. A dispensa já é decidida aqui no daemon,
+# sem passar pelo agente; a trava ("fica", "segura") passava pela skill
+# voice-orb-hold, que depende de o agente ter terminal e lembrar da skill, e
+# na prática não disparava. Agora é o espelho da dispensa.
+_HOLD_RE = re.compile(
+    r"\b(fica( a[ií])?|fica comigo|fica aberto|fica ligado|n[aã]o some|n[aã]o desliga|"
+    r"segura( a sess[aã]o| a[ií])?|me espera|espera a[ií]|continua ouvindo|trava( a[ií])?)\b",
+    re.I,
+)
+_RELEASE_RE = re.compile(
+    r"\b(pode soltar|solta( a sess[aã]o| a[ií])?|destrava|volta ao normal|n[aã]o precisa (mais )?segurar)\b",
+    re.I,
+)
 _DISMISS_RE = re.compile(
     r"\b(cala a boca|cala boca|cala-te|tchau|até logo|ate logo|"
     r"dispensa(?:do)?|pode ir|vai embora|para de falar|sil[eê]ncio|"
@@ -571,6 +584,7 @@ CTL_SOCK = "/run/user/1000/hermes-voice-ctl.sock"
 # Toque mais curto que isto é só "interromper"; mais longo, o dedo segura a
 # gravação aberta até ser solto, e pausa entre palavras não fecha nada.
 TOQUE_SEGURAR_SEC = 0.35
+TOQUE_DUPLO_SEC = 0.45    # dois toques curtos dentro disso travam a sessão
 RECORD_MAX_TOQUE_SEC = 90.0
 
 # Runtime oficial do Hermes: o venv/bin/hermes sobe no Python 3.11 e o
@@ -1176,6 +1190,7 @@ class Daemon:
         self._ctl_q: queue.Queue = queue.Queue()
         self._toque_t = 0.0
         self._toque_rec_novo = False
+        self._toque_curto_t = 0.0   # último toque curto: dois seguidos travam a sessão
         self._relatos: collections.deque = collections.deque()
         self._dbg_max, self._dbg_sf, self._dbg_next = 0.0, 0, 0.0
         self._mic_orb_t = 0.0
@@ -1358,18 +1373,9 @@ class Daemon:
             LOG.info("trigger manual via cmdfile")
             self._trigger_session()
         elif "hold" in low:
-            self._hold_until = time.monotonic() + HOLD_MAX_SEC
-            self._touch_session()
-            orb_cmd("hold 1")
-            LOG.info("Sessão travada a pedido do Jarvis (teto de %d min)",
-                     int(HOLD_MAX_SEC // 60))
+            self._travar("cmdfile", falar=False)
         elif "release" in low:
-            if self._hold_until:
-                self._hold_until = 0.0
-                self._touch_session()
-                orb_cmd("hold 0")
-                LOG.info("Trava de sessão solta; timeout de %.0fs volta a valer",
-                         SESSION_IDLE_SEC)
+            self._destravar("cmdfile", falar=False)
 
     def _gerando(self) -> bool:
         """Turno em voo (STT ou Hermes) sem a resposta tocando."""
@@ -1491,11 +1497,21 @@ class Daemon:
         elif self._toque_rec_novo:
             # Toque curto = só interromper. A gravação do dedo sai; a escuta
             # por voz continua, e a fala seguinte emenda se o pedido ficou aberto.
-            LOG.info("toque curto: interrompido, escutando")
             self.rec = None
             self.state = "listening"
             self.speech_frames = 0
             orb_cmd("state listening")
+            agora = time.monotonic()
+            if agora - self._toque_curto_t < TOQUE_DUPLO_SEC:
+                # dois toques curtos seguidos: trava a sessão (de novo, solta)
+                self._toque_curto_t = 0.0
+                if self._hold_until:
+                    self._destravar("duplo toque", falar=False)
+                else:
+                    self._travar("duplo toque", falar=False)
+            else:
+                self._toque_curto_t = agora
+                LOG.info("toque curto: interrompido, escutando")
         else:
             rec.por_toque = False
 
@@ -1536,6 +1552,33 @@ class Daemon:
 
     def _is_dismiss(self, text: str) -> bool:
         return bool(_DISMISS_RE.search(text or ""))
+
+    @staticmethod
+    def _so_isso(text: str, rx) -> bool:
+        """A frase é só o comando (com no máximo o nome do assistente ou uma
+        interjeição em volta); "fica atento ao e-mail" não trava."""
+        t = re.sub(r"[^\w\s]", " ", (text or "").lower())
+        t = re.sub(r"\b(ei|ok|okay|t[áa]|ent[ãa]o|por favor|hermes|jarvis|a[ií])\b", " ", t)
+        t = re.sub(r"\s+", " ", t).strip()
+        return bool(t) and rx.fullmatch(t) is not None
+
+    def _travar(self, origem: str, falar: bool = True):
+        self._hold_until = time.monotonic() + HOLD_MAX_SEC
+        self._touch_session()
+        orb_cmd("hold 1")
+        LOG.info("Sessão travada (%s), teto de %d min", origem, int(HOLD_MAX_SEC // 60))
+        if falar:
+            self._speak("Fico.")
+
+    def _destravar(self, origem: str, falar: bool = True):
+        if not self._hold_until:
+            return
+        self._hold_until = 0.0
+        self._touch_session()
+        orb_cmd("hold 0")
+        LOG.info("Trava solta (%s); timeout de %.0fs volta a valer", origem, SESSION_IDLE_SEC)
+        if falar:
+            self._speak("Solto.")
 
     def _is_speech(self, frame: bytes, rms: float) -> bool:
         """Voz neste quadro: piso de RMS e Silero (webrtcvad se ele faltar).
@@ -2537,6 +2580,17 @@ class Daemon:
         if self._is_dismiss(text):
             LOG.info("dismiss: %s", text[:80])
             self._end_session("dismiss")
+            return
+
+        # "fica" / "solta" sozinhos são decididos aqui, sem ir ao agente
+        if self._so_isso(text, _HOLD_RE) or self._so_isso(text, _RELEASE_RE):
+            if self._so_isso(text, _HOLD_RE):
+                self._travar("voz: " + text[:40])
+            else:
+                self._destravar("voz: " + text[:40])
+            self.expecting_command = True
+            self._touch_session()
+            orb_cmd("state listening")
             return
 
         if self.expecting_command or from_wake:

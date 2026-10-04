@@ -24,7 +24,6 @@ Item {
     property real esc: 1            // tamanho do orbe (slider)
     property bool glitch: true
     property color accent: "#0087fc" // --colorAccentBg do matugen
-    property var olharAlvo: null    // Qt.point no item, ou null (o olho vaga)
 
     readonly property real artBox: 120
     readonly property real artEdge: 100
@@ -64,9 +63,7 @@ Item {
         return s
     }
     function uni(a, b) { return a + Math.random() * (b - a) }
-    function ruido(t, s) {
-        return Math.sin(t * 1.31 + s) * 0.5 + Math.sin(t * 2.17 + s * 1.7) * 0.3 + Math.sin(t * 0.53 + s * 2.9) * 0.2
-    }
+
     function sorteia(n) { return Math.floor(Math.random() * n) }
     function wrap(a) { return ((a + Math.PI) % tau + tau) % tau - Math.PI }
     function lim(v, a, b) { return v < a ? a : (v > b ? b : v) }
@@ -243,11 +240,6 @@ Item {
         fx.extra = v4(glowk, fmax < 0.8 ? 1 : 0, esc, rLim * esc)
         fx.gl = v4(s.glLo, glk > 0 && s.glShear ? s.glSpan : 0, s.glShear * glk, 0)
         fx.tempo = v4(s.t, envAlfa, 0, 0)
-        // olho do meio: segue o ponteiro ou vaga devagar, como os dos avatares
-        var R = artEdge * scb
-        var gx = olharAlvo ? olharAlvo.x : width / 2 + ruido(s.t * 0.6, 3) * R * 1.4
-        var gy = olharAlvo ? olharAlvo.y : height / 2 + ruido(s.t * 0.5, 9) * R * 0.8
-        fx.olho = v4(gx, gy, 1, 1 + 0.5 * micS)
 
         for (var j = 0; j < nLingua; j++) {
             var h = s.tH[j]
@@ -321,7 +313,6 @@ Item {
         property vector4d gota5
         property vector4d gota6
         property vector4d tempo
-        property vector4d olho: Qt.vector4d(0, 0, 1, 1)
     }
 
     // vidro (no passe de pós, atrás do anel)

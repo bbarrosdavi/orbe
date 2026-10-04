@@ -20,7 +20,6 @@ Rectangle {
                 property string est: folha.estados[index % folha.estados.length]
                 estado: est
                 mix: { var m = { idle: 0, listening: 0, thinking: 0, tools: 0, speaking: 0 }; m[est] = 1; return m }
-                olharAlvo: Qt.point(-300, 260)
                 accent: "#f3b2e3"
                 vidroLigado: index >= folha.estados.length
                 vidroRaio: folha.lado / 2 - 3
