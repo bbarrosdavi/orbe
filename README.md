@@ -7,29 +7,30 @@ em voz, e um orbe animado no canto da tela mostra o estado da conversa
 Funciona com qualquer agente que fale ACP (Agent Client Protocol), como
 Hermes Agent, OpenCode e Gemini CLI, e com o Claude Code por um canal MCP.
 
-<table>
+<table align="center">
 <tr>
-<td align="center"><img src="imagens/orbe-ofanim.gif" width="400" alt="Ophanim"><br>Ophanim</td>
-<td align="center"><img src="imagens/orbe-ofanim-alado.gif" width="400" alt="Ophanim com asas"><br>Ophanim com asas</td>
+<td align="center"><img src="imagens/orbe-ofanim.gif" width="250" alt="Ophanim"><br>Ophanim</td>
+<td align="center"><img src="imagens/orbe-ofanim-alado.gif" width="250" alt="Ophanim com asas"><br>Ophanim com asas</td>
 </tr>
 <tr>
-<td align="center"><img src="imagens/orbe-serafim.gif" width="400" alt="Seraphim"><br>Seraphim</td>
-<td align="center"><img src="imagens/orbe-anel.gif" width="400" alt="Anel de energia"><br>Anel de energia</td>
+<td align="center"><img src="imagens/orbe-serafim.gif" width="250" alt="Seraphim"><br>Seraphim</td>
+<td align="center"><img src="imagens/orbe-anel.gif" width="250" alt="Anel de energia"><br>Anel de energia</td>
 </tr>
 </table>
 
-Cada avatar passa por ouvindo, pensando (com as linhas do raciocínio ao lado)
-e respondendo, gravado na área de trabalho.
+Cada avatar passa por ouvindo, pensando e respondendo, gravado na área de
+trabalho.
 
 ## O que ele faz
 
 - **Ativação** por atalho de teclado, toque no orbe ou palavra de ativação
-  local (openWakeWord, sherpa-onnx com frase livre ou microWakeWord).
+  local (openWakeWord, sherpa-onnx com frase livre ou microWakeWord). O
+  toque vale com o dedo, em telas touchscreen, e com o clique do cursor.
 - **Transcrição** pelo Groq Whisper; **síntese** por Gemini, xAI ou Piper
   (local).
 - **Conversa por voz**: falar por cima interrompe (opcional), "tchau"
   dispensa o orbe, "fica" trava a sessão aberta e "pode soltar" destrava.
-  Dois toques no orbe também travam.
+  Dois toques (ou cliques) no orbe também travam.
 - **Avatares desenhados na GPU**: Ophanim, Ophanim com asas, Seraphim e anel
   de energia, com glitch, sombra opcional e o texto do raciocínio ao lado ou
   abaixo do orbe.
