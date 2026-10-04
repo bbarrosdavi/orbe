@@ -2705,11 +2705,12 @@ class Daemon:
                 orb_cmd("state listening")
             return
 
-        LOG.info("Enviando para Groq Whisper API...")
+        stt = "Gemini" if _stt_provedor() == "gemini" else "Groq"
+        LOG.info("Enviando para %s...", stt)
         t0 = time.time()
         text = transcribe_groq(wav_path)
         lat = time.time() - t0
-        LOG.info("Groq respondeu em %.1fs: '%s'", lat, text[:200])
+        LOG.info("%s respondeu em %.1fs: '%s'", stt, lat, text[:200])
         if text:
             orb_cmd("line " + text[:200])
 
