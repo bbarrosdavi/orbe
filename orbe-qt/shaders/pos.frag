@@ -146,11 +146,12 @@ void main() {
     c = min(c, vec3(1.0));
 
     if (vidro.w > 0.5 && vidro.x > 1.0) {
-        // vidro: cheio até início*raio (onde o blur binário do niri termina),
-        // cai suave dali e some na borda
+        // vidro: tintura cheia só no miolo (até início*raio), caindo em
+        // degradê até zero na borda, com o fundo aparecendo; o blur binário
+        // do niri fica num disco menor, encoberto pela parte forte da tintura
         float r = length(p - centro) / vidro.x;
         float q = sat((r - vidro.z) / max(1.0 - vidro.z, 1e-3));
-        float ga = vidro.y * (1.0 - q * q * (3.0 - 2.0 * q)) * env;
+        float ga = vidro.y * pow(1.0 - q, 1.6) * env;
         ga *= step(r, 1.0);
         c += corVidro.rgb * ga * (1.0 - a);
         a += ga * (1.0 - a);

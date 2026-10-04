@@ -38,7 +38,7 @@ Item {
     property bool vidroLigado: false
     property real vidroRaio: 0
     property real vidroAlfa: 0.58
-    property real vidroInicio: 0.82    // cheio até a borda do blur (VidroRegiao.fracao), some na borda
+    property real vidroInicio: 0.20    // tintura cheia só até aqui; degradê até a borda
     property color vidroCor: "#121414"
 
     readonly property real rRef: 82.0      // raio em que o glitch foi afinado

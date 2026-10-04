@@ -11,7 +11,7 @@ Item {
     property real passo: 0.05
     property string skin: "ofanim"
     property bool glitch: true
-    readonly property int lado: 44
+    readonly property int lado: 58
     readonly property real fracao: (valor - de) / (ate - de)
     function avancar(dt) { mini.avancar(dt) }
     function definir(v) {
@@ -61,7 +61,7 @@ Item {
         y: 72
         height: 6
         // o trilho abre um vão ao redor do botão, que é só o orbe sobre o vidro
-        readonly property real vao: s.lado / 2 + 6
+        readonly property real vao: s.lado / 2 + 2
         readonly property real pos: s.fracao * width
         Rectangle {
             // trecho percorrido, até o vão
@@ -97,18 +97,10 @@ Item {
         y: trilho.y + trilho.height / 2 - s.lado / 2
         scale: arrasto.pressed ? 1.12 : (hv.hovered ? 1.05 : 1.0)
         Behavior on scale { NumberAnimation { duration: 120 } }
-        Rectangle {
-            // só o aro: o orbe fica sobre o vidro da janela, sem disco escuro
-            anchors.fill: parent
-            radius: width / 2
-            color: "transparent"
-            border.width: 1.5
-            border.color: Estilo.alfa(Estilo.accent, 0.7)
-        }
+        // o botão é só o orbe, sem aro nem disco
         Miniatura {
             id: mini
             anchors.fill: parent
-            anchors.margins: 3
             skin: s.skin
             glitch: s.glitch
             peso: 0.9
