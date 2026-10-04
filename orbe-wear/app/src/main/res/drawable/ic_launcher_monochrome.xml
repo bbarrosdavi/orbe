@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- O Ophanim numa cor só, para o sistema tingir com o tema do relógio. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.6"
+        android:scaleY="0.6"
+        android:translateX="15.6"
+        android:translateY="15.6">
+        <group android:pivotX="64" android:pivotY="64" android:rotation="-28">
+            <path android:pathData="M24,64a40,15 0 1,0 80,0a40,15 0 1,0 -80,0" android:strokeColor="#ffffff" android:strokeWidth="2.4" />
+        </group>
+        <group android:pivotX="64" android:pivotY="64" android:rotation="40">
+            <path android:pathData="M26,64a38,13 0 1,0 76,0a38,13 0 1,0 -76,0" android:strokeColor="#ffffff" android:strokeWidth="2.4" />
+        </group>
+        <path android:pathData="M49,64a15,37 0 1,0 30,0a15,37 0 1,0 -30,0" android:strokeColor="#ffffff" android:strokeWidth="2.4" />
+        <path android:pathData="M48 64C55 53 73 53 80 64C73 75 55 75 48 64Z" android:strokeColor="#ffffff" android:strokeWidth="2.6" />
+        <path android:fillColor="#ffffff" android:pathData="M58.5,64a5.5,5.5 0 1,0 11,0a5.5,5.5 0 1,0 -11,0" />
+    </group>
+</vector>
