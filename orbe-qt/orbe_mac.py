@@ -297,6 +297,17 @@ class Servidor(QObject):
         if not self._srv.listen(caminho):
             sys.exit(f"orbe: não abriu {caminho}: {self._srv.errorString()}")
         self._srv.newConnection.connect(self._nova)
+        self.caminho = caminho
+        self.inode = os.stat(caminho).st_ino
+
+    def remover(self):
+        """Apaga o socket só se ainda for o nosso: num reinício o orbe novo
+        já pode ter criado outro no mesmo caminho."""
+        try:
+            if os.stat(self.caminho).st_ino == self.inode:
+                os.unlink(self.caminho)
+        except OSError:
+            pass
 
     def _nova(self):
         while self._srv.hasPendingConnections():
@@ -337,7 +348,7 @@ def main():
         print(f"orbe: sem política de acessório: {e}", file=sys.stderr)
 
     ponte = Ponte(app, args.ctl, Path(args.config))
-    servidor = Servidor(args.sock, ponte, app)  # noqa: F841 - vive com o app
+    servidor = Servidor(args.sock, ponte, app)
 
     # atalho global só na instância do daemon, nunca na pré-visualização
     atalho = None
@@ -378,10 +389,7 @@ def main():
     tique.start(500)
 
     rc = app.exec()
-    try:
-        os.unlink(args.sock)
-    except OSError:
-        pass
+    servidor.remover()
     del eng
     sys.exit(rc)
 

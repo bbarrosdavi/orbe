@@ -915,6 +915,11 @@ def orb_cmd(line: str) -> None:
 
 
 def _orb_boot() -> None:
+    if MAC:
+        # Orbe de um daemon anterior (reinício): ainda vivo por até 1 s, ele
+        # responderia ao warm e sairia logo depois, levando o atalho junto.
+        _reap_orbs()
+        time.sleep(0.3)
     for _ in range(80):
         if _compositor_ready():
             orb_cmd("warm")
@@ -1481,6 +1486,19 @@ class Daemon:
             self._travar("cmdfile", falar=False)
         elif "release" in low:
             self._destravar("cmdfile", falar=False)
+
+    def _vigiar_orbe(self):
+        """No Mac o atalho global mora no processo do orbe: se ele cair (ou
+        nunca subir), sobe de novo, senão a tecla para de funcionar."""
+        if not MAC:
+            return
+        agora = time.monotonic()
+        if agora < getattr(self, "_orbe_visto", 0.0):
+            return
+        self._orbe_visto = agora + 5.0
+        if not os.path.exists(ORB_SOCK):
+            LOG.info("orbe ausente; subindo de novo (atalho global)")
+            threading.Thread(target=orb_cmd, args=("warm",), daemon=True).start()
 
     def _gerando(self) -> bool:
         """Turno em voo (STT ou Hermes) sem a resposta tocando."""
@@ -2484,6 +2502,7 @@ class Daemon:
                         self.preroll_buffer.clear()
                 if self._should_idle_end():
                     self._end_session("timeout 10s")
+                self._vigiar_orbe()
                 self._poll_cmdfile()
                 self._poll_ctl()
                 continue
