@@ -29,7 +29,7 @@ Item {
     // Seraphim: 0 só o olho de cima, 1 só o do meio, 2 os dois, 3 só o do
     // meio na vertical, 4 os dois com o do meio na vertical
     property int olhosSerafim: 3
-    property bool penasEncorpadas: true
+    property bool penasEncorpadas: false
     property var mix: ({ idle: 1.0 })      // pesos por estado
     property real voz: 0
     property real mic: 0
