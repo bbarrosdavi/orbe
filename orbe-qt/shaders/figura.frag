@@ -612,11 +612,11 @@ void serafim(inout float A, vec2 p, float aa) {
 
     // olho do meio, sempre à vista: na frente das asas, com o fundo limpo atrás
     if (olhoMeio) {
-        float tam_ = R * 0.22;
+        // o vertical é maior e fica no centro exato; o horizontal desce um
+        // pouco para dar respiro ao de cima
+        float tam_ = R * (angMeio > 0.0 ? 0.30 : 0.22);
         float de = ofa2.y;
-        // um pouco abaixo do centro: respiro para o de cima; o vertical desce
-        // mais porque ocupa a altura que o horizontal ocupa na largura
-        vec2 m = c + vec2(0.0, (angMeio > 0.0 ? 0.14 : 0.07) * R);
+        vec2 m = c + vec2(0.0, (angMeio > 0.0 ? 0.0 : 0.07) * R);
         float ca = cos(angMeio), sa = sin(angMeio);
         vec2 dm = p - m;
         vec2 dq = vec2(ca * dm.x + sa * dm.y, -sa * dm.x + ca * dm.y) / vec2(tam_ * 1.08, tam_ * 0.52);
