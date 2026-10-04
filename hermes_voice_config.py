@@ -142,11 +142,15 @@ DEFAULTS = {
     },
     "conversa": {
         "silencio_fim_s": 0.90,
-        "fala_rms": 1500,
+        # Pisos de RMS medidos no microfone do Linux (ruído de sala ~1700). O
+        # do MacBook capta mais baixo: sala ~200, fala 1000 a 2400 (medido em
+        # 2026-10-04); com 1500 a fala não sustentava 12 quadros e o orbe não
+        # ouvia nada. O Silero segue decidindo o que é voz.
+        "fala_rms": 450 if MAC else 1500,
         "fala_quadros": 12,
         "barge_in": True,
         "barge_quadros": 12,
-        "barge_rms": 2000,
+        "barge_rms": 1500 if MAC else 2000,
         "gravacao_max_s": 12,
         "sessao_ociosa_s": 10.0,
     },

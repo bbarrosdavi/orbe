@@ -1183,13 +1183,15 @@ def ask_hermes(text: str) -> str:
 # ═══════════════════════════════════════════
 def _aplicar_config():
     """hermes_voice_config sobrepõe as constantes definidas acima."""
-    global SILENCE_TIMEOUT, MIN_SPEECH_RMS, SUSTAINED_SPEECH_FRAMES, BARGE_IN
+    global SILENCE_TIMEOUT, MIN_SPEECH_RMS, MIN_UTTER_RMS, SUSTAINED_SPEECH_FRAMES, BARGE_IN
     global INTERRUPT_SPEECH_FRAMES, INTERRUPT_MIN_RMS, RECORD_MAX_SEC
     global SESSION_IDLE_SEC, TOQUE_SEGURAR_SEC, RECORD_MAX_TOQUE_SEC
     global GROQ_MODEL, STT_IDIOMA, DEBUG_LEVELS, STT_PROVEDOR, STT_GEMINI_MODELO
     c, t, v = VCFG["conversa"], VCFG["toque"], VCFG["voz"]
     SILENCE_TIMEOUT = float(c["silencio_fim_s"])
     MIN_SPEECH_RMS = int(c["fala_rms"])
+    # média da gravação inteira (com as pausas): 2/3 do piso, como 1000/1500
+    MIN_UTTER_RMS = min(1000, int(MIN_SPEECH_RMS * 2 / 3))
     SUSTAINED_SPEECH_FRAMES = int(c["fala_quadros"])
     BARGE_IN = bool(c["barge_in"])
     INTERRUPT_SPEECH_FRAMES = int(c["barge_quadros"])
