@@ -387,12 +387,13 @@ fun LinhaSwitch(
     }
 }
 
-/** Miniatura animada de uma skin no seletor de avatar. */
+/** Miniatura animada de uma skin, com o nome e, embaixo, a [nota] (o agente dela). */
 @Composable
 fun Cartao(
     previa: ChavePrevia,
     marcado: Boolean,
     modifier: Modifier = Modifier,
+    nota: String? = null,
     aoEscolher: () -> Unit,
 ) {
     val fonte = remember { MutableInteractionSource() }
@@ -411,6 +412,9 @@ fun Cartao(
         // os nomes compridos ("Ophanim com asas") quebram em duas linhas; a caixa reserva as duas
         Box(Modifier.fillMaxWidth().height(21.dp), contentAlignment = Alignment.Center) {
             Texto(previa.skin.nome, Estilo.cartao, cor = if (marcado) Estilo.accent else Estilo.texto, alinhar = TextAlign.Center, linhas = 2)
+        }
+        if (nota != null) {
+            Texto(nota, Estilo.subtitulo, Modifier.fillMaxWidth(), cor = Estilo.texto.alfa(0.55f), alinhar = TextAlign.Center, linhas = 1)
         }
     }
 }

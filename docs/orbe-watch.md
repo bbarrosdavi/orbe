@@ -186,10 +186,10 @@ O toque vale como no orbe do desktop:
 | **Segurar** (mais de 350 ms) | Segurar para falar: a fala vai para o agente enquanto o dedo estiver na tela. Soltar encerra a fala. O relógio vibra ao segurar e ao soltar. |
 | **Toque curto** | Abre a sessão, ou interrompe a resposta e volta a ouvir. |
 | **Dois toques curtos** | Travam a sessão aberta (um ponto aparece acima da figura). |
-| **Arrastar para cima ou para baixo**, ou girar a coroa (nos relógios que têm) | Rola a lista dos orbes, com inércia: um arremesso passa por vários antes de parar num deles. Os pontos na borda direita mostram em que lugar da lista você está, e depois do último orbe vem o primeiro. A ordem padrão é Anel de energia, Seraphim, Ophanim e Ophanim com asas, e o menu a troca (aba Skins). Cada skin tem o seu agente (veja [Sessão aberta pelo relógio](#sessão-aberta-pelo-relógio)). Desliga o "Seguir o orbe do PC". |
+| **Arrastar para cima ou para baixo**, ou girar a coroa (nos relógios que têm) | Rola a lista dos orbes, com inércia: um arremesso passa por vários antes de parar num deles. Os pontos na borda direita mostram em que lugar da lista você está, e depois do último orbe vem o primeiro. A ordem padrão é Anel de energia, Seraphim, Ophanim e Ophanim com asas, e o menu a troca (aba Agentes). Cada skin tem o seu agente (veja [Sessão aberta pelo relógio](#sessão-aberta-pelo-relógio)). Desliga o "Seguir o orbe do PC". |
 | **Dois dedos para a esquerda ou para a direita**, num orbe do Claude | Passa pelas sessões do Claude Code abertas no computador, cada uma ao lado da outra e na sua cor (veja [Sessões do Claude Code](#sessões-do-claude-code)). |
 | **Arrastar para a esquerda** | Abre o menu, que fica ao lado do orbe. |
-| **Sacudir o pulso só para fora** | Sai do orbe e volta ao mostrador, como a Hina aberta no HinaWatch. Sai no pico do giro para fora, sem esperar a volta do pulso. A chave e a calibração ficam na aba Gestos do menu. |
+| **Sacudir o pulso só para fora** | Sai do orbe e volta ao mostrador, como a Hina aberta no HinaWatch. Sai no pico do giro para fora, sem esperar a volta do pulso. A chave e a calibração ficam na aba Ativação do menu. |
 
 O microfone já começa a guardar um segundo de áudio quando o dedo encosta,
 para a primeira sílaba não se perder entre o toque e o "segurar". Com a
@@ -231,11 +231,9 @@ Voltando ao orbe, a próxima visita ao menu começa pela gaveta.
 | Aba | O que tem |
 |---|---|
 | **Conexão** | O **servidor** (o endereço da ponte), o **token** (o par do servidor, só como pontos) e o **estado**: `conectado`, `conectando…` ou o motivo da falha. |
-| **Skins** | As quatro skins em miniaturas vivas (escolher uma troca o orbe do relógio); o **tamanho**, de 60% a 130% do mostrador, que vale para a skin em tela (cada uma guarda o seu); e a **ordem da lista**, com setas para subir e descer cada skin. A ordem vale só no relógio. |
-| **Agentes** | Dois grupos. **Sessão**: se a sessão de voz está **aberta** no computador, com o estado dela, e o botão que a abre ou fecha, como o atalho de teclado do orbe; o **modo live** e **abrir já no live**. **Agente de cada skin**: quem responde em cada orbe (veja [Sessão aberta pelo relógio](#sessão-aberta-pelo-relógio)). |
-| **Aparência** | Ver a tabela abaixo. |
+| **Agentes** | Os quatro orbes em miniaturas vivas, cada um com o nome do agente que controla no computador embaixo: **tocar num orbe troca o agente dele** (veja [Sessão aberta pelo relógio](#sessão-aberta-pelo-relógio)). O orbe em tela, que se escolhe rolando a lista na tela do orbe, fica marcado. Depois, o **tamanho**, de 60% a 130% do mostrador, que vale para o orbe em tela (cada um guarda o seu); a **ordem da lista**, com setas para subir e descer cada orbe, que vale só no relógio; e o grupo **Aparência** (a tabela abaixo). |
 | **Voz** | Ver a tabela abaixo. |
-| **Gestos** | **Uma sacudida abre o orbe** e a calibração dela; **sacudida para fora sai do orbe** e a calibração dela. |
+| **Ativação** | Dois grupos. **Sessão**: se a sessão de voz está **aberta** no computador, com o estado dela, e o botão que a abre ou fecha, como o atalho de teclado do orbe; o **modo live** e **abrir já no live**. **Gestos**: **uma sacudida abre o orbe** e a calibração dela; **sacudida para fora sai do orbe** e a calibração dela. |
 
 | Opção | O que faz |
 |---|---|
@@ -328,9 +326,9 @@ Opções do orbe de pulso:
 Com a ponte servida pelo daemon, tocar ou segurar o orbe do relógio abre a
 sessão de voz do computador, e ela passa a ser do relógio até fechar:
 
-- **O agente é o do orbe em tela**: cada skin da lista tem o seu (menu
-  "Agente de cada orbe", ou a aba Relógio do app do computador), e o padrão é
-  o Claude Code. O agente do `config.json` continua valendo para o atalho e a
+- **O agente é o do orbe em tela**: cada skin da lista tem o seu (no menu,
+  aba Agentes, um toque no orbe troca; ou a aba Relógio do app do computador),
+  e o padrão é o Claude Code. O agente do `config.json` continua valendo para o atalho e a
   palavra de ativação. Os agentes ACP (Hermes, OpenCode, Gemini CLI) rodam em
   segundo plano.
 - **O Claude abre num terminal.** Ele não roda em segundo plano: sem uma
@@ -632,11 +630,11 @@ adb shell am start -n io.hermes.orbe/.MainActivity --ef qualidade 0.5
 ```
 
 Para ver o menu sem tocar no relógio (para uma captura de tela, por exemplo),
-`--es menu gaveta` abre a gaveta e `--es menu gestos` (ou o nome de outra
+`--es menu gaveta` abre a gaveta e `--es menu ativacao` (ou o nome de outra
 aba) abre a aba:
 
 ```sh
-adb shell am start -n io.hermes.orbe/.MainActivity --es menu skins
+adb shell am start -n io.hermes.orbe/.MainActivity --es menu agentes
 adb shell screencap -p /sdcard/menu.png
 ```
 

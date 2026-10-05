@@ -6,8 +6,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -21,13 +22,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
@@ -45,7 +45,6 @@ import io.hermes.orbe.gesto.Sacudida
 import io.hermes.orbe.orbe.Estado
 import io.hermes.orbe.orbe.Retrato
 import io.hermes.orbe.orbe.Skin
-import kotlin.math.abs
 import kotlinx.coroutines.delay
 
 /** O que o teclado do relógio edita. */
@@ -57,16 +56,16 @@ enum class Campo(val rotulo: String) {
 /** As abas do menu, na ordem da gaveta; cada uma rola sozinha. */
 enum class Aba(val nome: String, val icone: Int, val descricao: String) {
     CONEXAO("Conexão", R.drawable.ic_conexao, "O daemon do Orbe no computador, pela ponte do relógio."),
-    SKINS("Skins", R.drawable.ic_skins, "A skin em tela, o tamanho de cada uma e a ordem da lista."),
-    /** a sessão de voz e o agente de cada skin, em dois grupos */
-    AGENTES("Agentes", R.drawable.ic_agentes, ""),
-    APARENCIA("Aparência", R.drawable.ic_aparencia, ""),
-    VOZ("Voz", R.drawable.ic_voz, ""),
-    GESTOS(
-        "Gestos", R.drawable.ic_gestos,
-        "Com a tela acesa, uma sacudida do pulso para fora e de volta abre o orbe; duas são do HinaWatch. " +
-            "Com o orbe aberto, uma sacudida só para fora sai dele.",
+    /** os orbes, cada um com o seu agente, e a aparência deles */
+    AGENTES(
+        "Agentes", R.drawable.ic_agentes,
+        "Cada orbe controla um agente no computador: toque num deles para trocar. Na tela do orbe, rolar a lista " +
+            "troca de orbe e, com ele, de agente; com dois dedos, à direita de cada orbe do Claude, ficam as sessões " +
+            "abertas no PC. O tamanho vale para o orbe em tela, o marcado.",
     ),
+    VOZ("Voz", R.drawable.ic_voz, ""),
+    /** o que abre, conduz e fecha a sessão: os toques no orbe e as sacudidas */
+    ATIVACAO("Ativação", R.drawable.ic_ativacao, ""),
 }
 
 /** Altura da figura no cartão de avatar (a do app: 100 dp de cartão, menos o nome e a margem). */
@@ -124,17 +123,12 @@ fun TelaAjustes(
         }
     }
 
-    // lidos na hora do gesto: o detector nasce uma vez só
-    val abaAgora by rememberUpdatedState(aba)
-    val abrirAgora by rememberUpdatedState(abrir)
-    val orbeAgora by rememberUpdatedState(aoOrbe)
-
     BoxWithConstraints(
         modifier
             .fillMaxSize()
             .puxar(
-                esquerda = { orbeAgora() },
-                direita = { if (abaAgora != null) abrirAgora(null) else orbeAgora() },
+                esquerda = aoOrbe,
+                direita = { if (aba != null) abrir(null) else aoOrbe() },
             ),
     ) {
         // no mostrador redondo o conteúdo fica na faixa do meio, onde o círculo é largo
@@ -170,7 +164,7 @@ fun TelaAjustes(
                                 Texto("ORBE", Estilo.mono.copy(letterSpacing = 3.sp), cor = Estilo.texto.alfa(0.6f))
                             }
                         }
-                        Aba.entries.chunked(3).forEach { fileira ->
+                        Aba.entries.chunked(2).forEach { fileira ->
                             item {
                                 Row(
                                     Modifier.fillMaxWidth(),
@@ -195,14 +189,15 @@ fun TelaAjustes(
                         }
                         when (a) {
                             Aba.CONEXAO -> conexao(ajustes, ligacao, editar)
-                            Aba.SKINS -> skins(vm, ajustes, aparencia.skin, cartao)
                             Aba.AGENTES -> {
-                                sessao(vm, ajustes, retrato, ligacao is Ligacao.Conectada, podeGravar)
-                                agentes(vm, ajustes, agentesPc)
+                                agentes(vm, ajustes, aparencia.skin, agentesPc, cartao)
+                                aparencia(vm, ajustes, aparencia.glitch, aparencia.linhas)
                             }
-                            Aba.APARENCIA -> aparencia(vm, ajustes, aparencia.glitch, aparencia.linhas)
                             Aba.VOZ -> voz(vm, ajustes, ligacao as? Ligacao.Conectada, pedirMicrofone)
-                            Aba.GESTOS -> gestos(vm, ajustes, pedirMicrofone, calibrar)
+                            Aba.ATIVACAO -> {
+                                sessao(vm, ajustes, retrato, ligacao is Ligacao.Conectada, podeGravar)
+                                gestos(vm, ajustes, pedirMicrofone, calibrar)
+                            }
                         }
                     }
                 }
@@ -263,13 +258,16 @@ private fun MenuEscopo.sessao(vm: OrbeViewModel, ajustes: Ajustes, retrato: Retr
     }
 }
 
-private fun MenuEscopo.skins(vm: OrbeViewModel, ajustes: Ajustes, emTela: Skin, cartao: (Skin) -> ChavePrevia) {
+private fun MenuEscopo.agentes(vm: OrbeViewModel, ajustes: Ajustes, emTela: Skin, agentesPc: List<AgenteInfo>, cartao: (Skin) -> ChavePrevia) {
     val skins = ajustes.skins()
     skins.chunked(2).forEach { par ->
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 par.forEach { skin ->
-                    Cartao(cartao(skin), marcado = emTela == skin, modifier = Modifier.weight(1f)) { vm.skin(skin) }
+                    Cartao(
+                        cartao(skin), marcado = emTela == skin, modifier = Modifier.weight(1f),
+                        nota = nomeAgente(ajustes, skin, agentesPc),
+                    ) { vm.proximoAgente(skin) }
                 }
             }
         }
@@ -288,29 +286,17 @@ private fun MenuEscopo.skins(vm: OrbeViewModel, ajustes: Ajustes, emTela: Skin, 
     }
 }
 
-private fun MenuEscopo.agentes(vm: OrbeViewModel, ajustes: Ajustes, agentesPc: List<AgenteInfo>) {
-    grupo(
-        "Agente de cada skin",
-        "Rolar a lista troca de orbe e, com ele, de agente. Toque para trocar. À direita de cada orbe do Claude, " +
-            "com dois dedos, ficam as sessões abertas no PC, cada uma numa cor, com o título no alto e a pasta embaixo.",
-    )
-    ajustes.skins().forEach { skin ->
-        linha {
-            val id = ajustes.agentes[skin.id].orEmpty()
-            val nome = when {
-                id.isEmpty() || id == "claude" -> agentesPc.firstOrNull { it.id == "claude" }?.nome ?: "Claude Code"
-                else -> agentesPc.firstOrNull { it.id == id }?.nome ?: id
-            }
-            Linha(
-                skin.nome, subtitulo = nome,
-                ativo = agentesPc.size > 1,
-                aoClicar = { vm.proximoAgente(skin) },
-            )
-        }
+/** O nome do agente da skin; o id vazio é o Claude Code, o padrão. */
+private fun nomeAgente(ajustes: Ajustes, skin: Skin, agentesPc: List<AgenteInfo>): String {
+    val id = ajustes.agentes[skin.id].orEmpty()
+    return when {
+        id.isEmpty() || id == "claude" -> agentesPc.firstOrNull { it.id == "claude" }?.nome ?: "Claude Code"
+        else -> agentesPc.firstOrNull { it.id == id }?.nome ?: id
     }
 }
 
 private fun MenuEscopo.aparencia(vm: OrbeViewModel, ajustes: Ajustes, glitch: Boolean, linhas: Boolean) {
+    grupo("Aparência")
     linha {
         LinhaSwitch("Glitch", glitch, subtitulo = "aberração cromática e faixas arrancadas") { vm.glitch(it) }
     }
@@ -359,6 +345,11 @@ private fun MenuEscopo.voz(vm: OrbeViewModel, ajustes: Ajustes, ponte: Ligacao.C
 }
 
 private fun MenuEscopo.gestos(vm: OrbeViewModel, ajustes: Ajustes, pedirMicrofone: () -> Unit, calibrar: (Calibracao) -> Unit) {
+    grupo(
+        "Gestos",
+        "Com a tela acesa, uma sacudida do pulso para fora e de volta abre o orbe; duas são do HinaWatch. " +
+            "Com o orbe aberto, uma sacudida só para fora sai dele.",
+    )
     linha {
         LinhaSwitch("Uma sacudida abre o orbe", ajustes.sacudida, subtitulo = "já ouvindo, pelo microfone do relógio") {
             vm.sacudida(it)
@@ -387,40 +378,31 @@ private fun MenuEscopo.gestos(vm: OrbeViewModel, ajustes: Ajustes, pedirMicrofon
 }
 
 /**
- * Puxão na horizontal, solto no menu: para a esquerda ou para a direita. Olha o
- * gesto depois dos filhos e não consome nada; o que a lista (rolando) ou o
- * slider já tomaram não conta. No menu o pager do OrbeApp não arrasta: os dois
+ * Puxão na horizontal, solto no menu: para a esquerda ou para a direita, pela
+ * distância ou pela velocidade (o sideExit do HinaWatch). Passado o slop na
+ * horizontal, o arrasto é daqui e a lista não rola mais; se ela ou o slider
+ * pegaram antes, não conta. No menu o pager do OrbeApp não arrasta: os dois
  * lados são daqui.
  */
-private fun Modifier.puxar(esquerda: () -> Unit, direita: () -> Unit): Modifier = this.then(
-    Modifier.pointerInput(Unit) {
-        val distancia = VOLTA_DISTANCIA.toPx()
-        val rapido = VOLTA_VELOCIDADE.toPx()
-        awaitEachGesture {
-            val baixo = awaitFirstDown(requireUnconsumed = false)
-            val rastro = VelocityTracker()
-            rastro.addPosition(baixo.uptimeMillis, baixo.position)
-            var tomado = false
-            var dx = 0f
-            var dy = 0f
-            while (true) {
-                val e = awaitPointerEvent()
-                val c = e.changes.firstOrNull { it.id == baixo.id } ?: break
-                if (e.changes.size > 1 || (c.pressed && c.isConsumed)) tomado = true
-                rastro.addPosition(c.uptimeMillis, c.position)
-                dx = c.position.x - baixo.position.x
-                dy = c.position.y - baixo.position.y
-                if (!c.pressed) break
-            }
-            if (tomado || abs(dx) <= abs(dy)) return@awaitEachGesture
-            val v = rastro.calculateVelocity().x
+@Composable
+private fun Modifier.puxar(esquerda: () -> Unit, direita: () -> Unit): Modifier {
+    val densidade = LocalDensity.current
+    var puxado by remember { mutableFloatStateOf(0f) }
+    val arrasto = rememberDraggableState { puxado += it }
+    return draggable(
+        state = arrasto,
+        orientation = Orientation.Horizontal,
+        onDragStarted = { puxado = 0f },
+        onDragStopped = { v ->
+            val distancia = with(densidade) { VOLTA_DISTANCIA.toPx() }
+            val rapido = with(densidade) { VOLTA_VELOCIDADE.toPx() }
             when {
-                dx < -distancia || v < -rapido -> esquerda()
-                dx > distancia || v > rapido -> direita()
+                puxado < -distancia || v < -rapido -> esquerda()
+                puxado > distancia || v > rapido -> direita()
             }
-        }
-    },
-)
+        },
+    )
+}
 
 private fun um(v: Float) = "%.1f".format(v).replace('.', ',')
 
