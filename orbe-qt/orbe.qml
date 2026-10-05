@@ -8,7 +8,7 @@ import "comum"
 //
 // Mesmo protocolo e mesmos sockets do orbe GTK. O daemon fala por
 // $XDG_RUNTIME_DIR/hermes-voice-orb.sock (show, state, level, mic, line,
-// hold, hide, clear, warm, quit) e o toque vai para hermes-voice-ctl.sock
+// hold, hide, clear, olhos, warm, quit) e o toque vai para hermes-voice-ctl.sock
 // (touch down / touch up). O desenho roda na GPU (Figura/Anel), a animação
 // anda no vsync da janela e para quando o orbe some.
 ShellRoot {

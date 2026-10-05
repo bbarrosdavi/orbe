@@ -86,7 +86,11 @@ float traco(float d, float w, float aa) {
 
 float cobre(float sd, float aa) { return sat(0.5 - sd / aa); }
 
-void sobre(inout float A, float a) { A = a + A * (1.0 - a); }
+// Cobertura da íris no pixel (canal b da máscara): o pos.frag pinta ali a cor
+// própria dos olhos, quando há uma. O que é desenhado por cima a cobre também.
+float IR_ = 0.0;
+
+void sobre(inout float A, float a) { A = a + A * (1.0 - a); IR_ *= 1.0 - a; }
 
 float segd(vec2 p, vec2 a, vec2 b) {
     vec2 pa_ = p - a, ba = b - a;
@@ -206,14 +210,18 @@ void olho(inout float A, vec2 p, vec2 pos, float ang, float tam_, float ab, vec2
     sobre(A, dentro * sat(alfa * 0.10));
     if (ab > 0.25) {
         vec2 ic = vec2(alvo.x * w * 0.35, alvo.y * h * 0.35);
-        sobre(A, dentro * cobre(length(q - ic) - tam_ * (fenda_ > 0.5 ? 0.50 : 0.42), aa) * sat(alfa * 0.85));
+        float ir = dentro * cobre(length(q - ic) - tam_ * (fenda_ > 0.5 ? 0.50 : 0.42), aa) * sat(alfa * 0.85);
+        sobre(A, ir);
+        IR_ += ir;
         vec2 pc = vec2(alvo.x * w * 0.40, alvo.y * h * 0.40);
         float sdP = length(q - pc) - tam_ * 0.17 * pup;
         if (fenda_ > 0.5) {
             vec2 rp = vec2(tam_ * 0.07 * pup * pup, tam_ * 0.40);
             sdP = (length((q - pc) / rp) - 1.0) * rp.x;
         }
-        A *= 1.0 - dentro * cobre(sdP, aa);
+        float furo = dentro * cobre(sdP, aa);
+        A *= 1.0 - furo;
+        IR_ *= 1.0 - furo;
     }
 }
 
@@ -593,13 +601,16 @@ vec3 bocaDentes(vec2 q, float w, float h, float lt0, float sem, float aa) {
     return vec3(vao, dente * vao, sd);
 }
 
-struct Camada { float z; float cob; float a; float e; };
+struct Camada { float z; float cob; float a; float e; float ir; };
 Camada cams[20];
 int ncam = 0;
 
+// a íris acumulada desde a camada anterior vai junto com esta
 void empilha(float z, float cob, float a, float e) {
+    float ir = min(IR_, a);
+    IR_ = 0.0;
     if (ncam >= 20 || cob <= 0.002) return;
-    cams[ncam] = Camada(z, cob, a, e);
+    cams[ncam] = Camada(z, cob, a, e, ir);
     ncam++;
 }
 
@@ -694,11 +705,14 @@ void compor(inout float A, inout float E) {
         while (j >= 0 && cams[j].z > x.z) { cams[j + 1] = cams[j]; j--; }
         cams[j + 1] = x;
     }
+    float ir = IR_;
     for (int i = 0; i < 20; i++) {
         if (i >= ncam) break;
         A = cams[i].a + A * (1.0 - cams[i].cob);
         E = cams[i].e + E * (1.0 - cams[i].cob);
+        ir = cams[i].ir + ir * (1.0 - cams[i].cob);
     }
+    IR_ = ir;
 }
 #endif
 
@@ -804,6 +818,7 @@ void shoggoth(inout float A, inout float E, vec2 p, float aa) {
             sobre(a, traco(abs(bd.z), 1.0 * lw, aa) * pa(0.8 * bz));
         }
         a *= cov;
+        IR_ *= cov;
         float cont = traco(abs(sdM), 1.3 * lw, aa) * pa(0.9 * bz);
         sobre(a, cont);
         empilha(zM, max(cov, cont), a, cov * 0.92);
@@ -871,6 +886,7 @@ void shoggoth(inout float A, inout float E, vec2 p, float aa) {
             sobre(a, traco(abs(bd.z), 1.0 * lw, aa) * pa(0.8 * bz));
         }
         a *= cov;
+        IR_ *= cov;
         float cont = traco(abs(sdB), 1.2 * lw, aa) * pa(0.9 * bz);
         sobre(a, cont);
         // olhos grandes ao longo do corpo, deitados no tubo e saltando dele,
@@ -887,6 +903,7 @@ void shoggoth(inout float A, inout float E, vec2 p, float aa) {
             vec2 ei = vec2(tm * 1.12, tm * 0.58 * max(ab, 0.15));
             float ce = cobre((length((ql - pe) / ei) - 1.0) * ei.y, aa);
             a *= 1.0 - ce;
+            IR_ *= 1.0 - ce;
             olho(a, ql, pe, 0.0, tm, ab, olharPara(eixoB, angT, 1.0, fe), pa(bz), pup, lw, aa);
             cobOlho = max(cobOlho, ce);
         }
@@ -955,6 +972,7 @@ void shoggoth(inout float A, inout float E, vec2 p, float aa) {
             float face = disco * (1.0 - furo);
             float a = face * (1.0 - rach) * pa(0.92);
             sobre(a, iris * pa(0.95));
+            IR_ = (IR_ + iris * pa(0.95)) * ma;
             empilha(mascZ + 0.25, max(face, iris) * ma, a * ma, face * rach * 0.9 * ma);
         }
     }
@@ -976,5 +994,5 @@ void main() {
 #else
     ofanim(A, p, aa, SKIN == 1);
 #endif
-    fragColor = vec4(A, E, 0.0, max(A, E)) * qt_Opacity;
+    fragColor = vec4(A, E, min(IR_, A), max(A, E)) * qt_Opacity;
 }

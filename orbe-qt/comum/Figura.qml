@@ -31,6 +31,7 @@ Item {
     property bool glitch: true
     property real peso: 1.0                // traço mais grosso e opaco (o orbe usa mais)
     property color cor: "white"
+    property color corOlhos: "transparent" // íris em cor própria; transparente = a do traço
     property real raioFixo: -1             // R explícito; -1 = o maior que cabe
     property real disco: -1                // > 0: cabe também num disco desse raio
     property real zoom: 1.0
@@ -510,5 +511,6 @@ if (skin === "serafim_gravura") {
         property vector4d banda1
         property vector4d banda2
         property vector4d banda3
+        property vector4d olhos: Qt.vector4d(raiz.corOlhos.r, raiz.corOlhos.g, raiz.corOlhos.b, raiz.corOlhos.a)
     }
 }

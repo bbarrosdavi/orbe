@@ -339,5 +339,6 @@ Item {
         property vector4d banda1: raiz._bandas[1]
         property vector4d banda2: raiz._bandas[2]
         property vector4d banda3: raiz._bandas[3]
+        property vector4d olhos                // só dos avatares
     }
 }

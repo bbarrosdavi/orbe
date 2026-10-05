@@ -6,7 +6,8 @@
 // some até zero na borda, sem degrau (o blur do niri é binário).
 //
 // Máscara dos avatares: canal r = cobertura do traço; g = massa escura (só o
-// Shoggoth), pintada no tom do fundo do tema por baixo do traço. Máscara do anel: r = alfa,
+// Shoggoth), pintada no tom do fundo do tema por baixo do traço; b = a parte
+// do traço que é íris, pintada na cor dos olhos quando ela vem (olhos.w > 0). Máscara do anel: r = alfa,
 // g = intensidade / 2 (ADD sobre área opaca passa de 1), b = só o quadro.
 
 layout(location = 0) in vec2 qt_TexCoord0;
@@ -26,6 +27,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 corSombra;  // rgb
     vec4 modo;       // 0 avatar | 1 anel; escala de tamanho do orbe
     vec4 banda0; vec4 banda1; vec4 banda2; vec4 banda3;   // anel: y0, altura, desloc., ligada
+    vec4 olhos;      // avatares: cor das íris (rgb) e quanto ela vale (0 = a do traço)
 };
 layout(binding = 1) uniform sampler2D source;
 
@@ -81,8 +83,10 @@ void main() {
             c += corA.rgb * corA.w * env * mA; a += corA.w * env * mA;
             c += corB.rgb * corB.w * env * mB; a += corB.w * env * mB;
         }
-        float m0 = masc(p).r * scan_;
-        c += cor.rgb * env * m0;
+        vec3 mi = masc3(p);
+        float m0 = mi.r * scan_;
+        float iris = olhos.w > 0.0 && mi.r > 1e-4 ? sat(mi.b / mi.r) * olhos.w : 0.0;
+        c += mix(cor.rgb, olhos.rgb, iris) * env * m0;
         a += env * m0;
 
         if (glt.y > 0.5) {

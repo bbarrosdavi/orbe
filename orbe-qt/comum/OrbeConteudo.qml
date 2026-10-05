@@ -20,6 +20,7 @@ Item {
     property color corTema: "#b8cacb"      // @accent_bg_color: cor dos avatares
     property color accent: "#f3b2e3"       // --colorAccentBg: paleta do anel
     property color corFundo: "#121414"     // @window_bg_color: sombra e contorno do texto
+    property color corOlhos: "transparent" // "olhos <cor>": íris em cor própria (a sessão do relógio)
 
     readonly property bool avatar: skin === "ofanim" || skin === "ofanim_alado" || skin === "shoggoth" || skin === "serafim_gravura" || skin === "entidade"
     // as skins de imagem saem 5/3 maiores: o 60% do slider delas é o 100% das
@@ -150,6 +151,8 @@ Item {
             travado = ["", "0", "false", "off"].indexOf(arg) < 0
         } else if (op === "hide") {
             esconder()
+        } else if (op === "olhos") {
+            corOlhos = /^#[0-9a-fA-F]{6}$/.test(arg) ? arg : "transparent"
         }
     }
 
@@ -226,6 +229,7 @@ Item {
             glitch: orbe.glitch
             peso: 1.4                       // o traço do menu some numa área de 148 px
             cor: orbe.corTema
+            corOlhos: orbe.corOlhos
             disco: orbe.vidro ? orbe.orbBox / 2 - 5 : -1
             zoom: orbe.envEsc
             alfa: orbe.envAlfa
