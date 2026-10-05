@@ -22,8 +22,11 @@ sealed interface Ligacao {
     /** falta o endereço ou o token nos ajustes */
     data object SemServidor : Ligacao
     data object Conectando : Ligacao
-    /** [microfone]: a ponte aceita a fala do relógio; [voz]: a resposta vem em áudio para tocar aqui */
-    data class Conectada(val microfone: Boolean, val voz: Boolean = false) : Ligacao
+    /**
+     * [microfone]: a ponte aceita a fala do relógio; [voz]: a resposta vem em
+     * áudio para tocar aqui; [vozPc]: o PC também pode tocar a resposta
+     */
+    data class Conectada(val microfone: Boolean, val voz: Boolean = false, val vozPc: Boolean = false) : Ligacao
     /** [definitiva]: não adianta tentar de novo sem mexer nos ajustes (token errado) */
     data class Falha(val motivo: String, val definitiva: Boolean = false) : Ligacao
 }
@@ -46,6 +49,8 @@ class Ponte(
     private val aoAudio: (ByteArray) -> Unit,
     /** o relógio toca a resposta (a chave do menu e ter por onde falar) */
     private val querVoz: () -> Boolean,
+    /** tocando aqui, o PC toca junto (a chave "Voz também no PC") */
+    private val querVozPc: () -> Boolean = { false },
 ) {
     private val cliente = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
@@ -108,12 +113,13 @@ class Ponte(
                 when {
                     // a ponte desafia; a resposta prova o token sem mandá-lo
                     text.startsWith("desafio ") -> if (!conectou) {
-                        Protocolo.apresentar(token, text.substring(8).trim(), nome, querVoz())?.let(webSocket::send)
+                        Protocolo.apresentar(token, text.substring(8).trim(), nome, querVoz(), querVozPc())
+                            ?.let(webSocket::send)
                     }
                     text.startsWith("ola ") -> Protocolo.ola(text.substring(4))?.let {
                         conectou = true
                         soquete = webSocket
-                        _estado.value = Ligacao.Conectada(it.microfone, it.voz)
+                        _estado.value = Ligacao.Conectada(it.microfone, it.voz, it.vozPc)
                         aoOla(it, text.substring(4))
                     }
                     text.startsWith("voz ") -> if (conectou) aoVoz(text.substring(4).trim())

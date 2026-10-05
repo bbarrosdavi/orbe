@@ -2,6 +2,7 @@ package io.hermes.orbe.dados
 
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -18,8 +19,10 @@ data class Ola(
     val tema: Map<String, String> = emptyMap(),
     /** a ponte aceita a fala do relógio */
     val microfone: Boolean = false,
-    /** quem serve a ponte fala pelo relógio (hermes_voice_pulso.py); no daemon do desktop a voz sai no PC */
+    /** quem serve a ponte manda a voz para tocar aqui (o orbe de pulso, e o daemon na sessão do relógio) */
     val voz: Boolean = false,
+    /** o PC também tem voz (o daemon): o relógio escolhe se ela toca lá junto */
+    @SerialName("voz_pc") val vozPc: Boolean = false,
 )
 
 object Protocolo {
@@ -52,12 +55,22 @@ object Protocolo {
             .joinToString("") { "%02x".format(it) }
     }
 
-    /** A primeira mensagem do relógio, em resposta ao desafio; [voz]: o relógio toca a resposta. */
-    fun apresentar(token: String, salHex: String, nome: String, voz: Boolean): String? =
-        prova(token, salHex)?.let { "ola " + json.encodeToString(Apresentacao.serializer(), Apresentacao(it, nome, voz)) }
+    /**
+     * A primeira mensagem do relógio, em resposta ao desafio; [voz]: o relógio
+     * toca a resposta; [vozPc]: e o PC toca junto.
+     */
+    fun apresentar(token: String, salHex: String, nome: String, voz: Boolean, vozPc: Boolean = false): String? =
+        prova(token, salHex)?.let {
+            "ola " + json.encodeToString(Apresentacao.serializer(), Apresentacao(it, nome, voz, vozPc))
+        }
 
     @Serializable
-    private data class Apresentacao(val prova: String, val nome: String, val voz: Boolean)
+    private data class Apresentacao(
+        val prova: String,
+        val nome: String,
+        val voz: Boolean,
+        @SerialName("voz_pc") val vozPc: Boolean,
+    )
 
     /**
      * O que se digita no relógio vira a URL da ponte: "192.168.0.10" ganha

@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -23,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -31,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -45,6 +49,8 @@ import io.hermes.orbe.OrbeViewModel
 import io.hermes.orbe.dados.Ligacao
 import io.hermes.orbe.gl.OrbeView
 import io.hermes.orbe.orbe.Celula
+import io.hermes.orbe.orbe.Ciclo
+import io.hermes.orbe.orbe.OrbeCena
 import io.hermes.orbe.orbe.Quebra
 import kotlin.math.floor
 import kotlin.math.max
@@ -62,7 +68,9 @@ private val ALFAS = floatArrayOf(0.10f, 0.24f, 0.42f, 0.66f, 0.92f)
  * A tela do orbe: a figura no mostrador inteiro, as linhas do raciocínio
  * abaixo dela e o ponto da sessão travada acima, como no orbe do desktop com o
  * texto "abaixo". O toque vale como lá: curto interrompe (e deixa ouvindo),
- * dois curtos travam a sessão, segurar é segurar para falar.
+ * dois curtos travam a sessão, segurar é segurar para falar. Rolar para o
+ * lado gira o orbe, como a face de um cubo, até a skin seguinte; depois da
+ * última, a primeira volta na cor seguinte (Ciclo).
  */
 @Composable
 fun TelaOrbe(
@@ -91,11 +99,54 @@ fun TelaOrbe(
         val h = maxHeight.value
         val densidade = LocalDensity.current.density
 
-        AndroidView(
-            factory = { OrbeView(it, vm.cena).apply { adaptar = true } },
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
+        // ── o carrossel: rolar para o lado gira um cubo até o orbe seguinte ──
+        val paginas = rememberPagerState(initialPage = Ciclo.pagina(aparencia.skin, aparencia.cor)) { Ciclo.PAGINAS }
+        val agora by rememberUpdatedState(aparencia)
+        // a escolha veio de fora (o menu, o PC, os ajustes lidos do disco): vai até ela sem animar
+        LaunchedEffect(aparencia.skin, aparencia.cor) {
+            val p = paginas.settledPage
+            if (!paginas.isScrollInProgress && (Ciclo.skin(p) != aparencia.skin || Ciclo.cor(p) != aparencia.cor)) {
+                paginas.scrollToPage(Ciclo.pagina(aparencia.skin, aparencia.cor, p))
+            }
+        }
+        // assentou noutra combinação pelo dedo: ela passa a ser o orbe do relógio
+        LaunchedEffect(paginas) {
+            snapshotFlow { paginas.settledPage }.collect { p ->
+                if (Ciclo.skin(p) != agora.skin || Ciclo.cor(p) != agora.cor) vm.girar(Ciclo.skin(p), Ciclo.cor(p))
+            }
+        }
+
+        HorizontalPager(
+            state = paginas,
+            modifier = Modifier.fillMaxSize(),
+            beyondViewportPageCount = 0,
+        ) { pagina ->
+            val atual = pagina == paginas.settledPage
+            // a página que entra mostra o orbe dela parado, até assentar e virar o do relógio
+            val vizinha = remember { OrbeCena(entrar = false) }
+            SideEffect {
+                vizinha.skin = Ciclo.skin(pagina)
+                vizinha.glitch = aparencia.glitch
+                vizinha.tamanho = ajustes.tamanho.toDouble()
+                vizinha.redonda = redonda
+                vizinha.corFundo = floatArrayOf(0f, 0f, 0f)
+                val cor = aparencia.copy(cor = Ciclo.cor(pagina))
+                vizinha.corTema = cor.corFigura()
+                vizinha.accent = cor.corAnel()
+            }
+            AndroidView(
+                factory = { OrbeView(it, if (atual) vm.cena else vizinha).apply { adaptar = true } },
+                update = { it.cena = if (atual) vm.cena else vizinha },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        // 0 no centro, 1 uma página à direita: cada orbe é uma face do cubo
+                        val x = ((pagina - paginas.currentPage) - paginas.currentPageOffsetFraction).coerceIn(-1f, 1f)
+                        cameraDistance = 9f * density
+                        transformOrigin = TransformOrigin(if (x < 0f) 1f else 0f, 0.5f)
+                        rotationY = 90f * x
+                    }
+                    .pointerInput(Unit) {
                     val folga = viewConfiguration.touchSlop
                     awaitEachGesture {
                         val baixo = awaitFirstDown(requireUnconsumed = false)
@@ -130,7 +181,8 @@ fun TelaOrbe(
                         }
                     }
                 },
-        )
+            )
+        }
 
         // ── o raciocínio: as últimas fileiras, a mais nova embaixo ──
         // o texto espera a figura subir antes de aparecer embaixo dela

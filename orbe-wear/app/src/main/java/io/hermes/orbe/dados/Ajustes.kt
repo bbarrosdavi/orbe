@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -18,6 +19,8 @@ data class Ajustes(
     /** avatar e glitch vêm do orbe do PC; escolher um avatar aqui desliga */
     val seguirPc: Boolean = true,
     val skin: String = "ofanim",
+    /** a cor do orbe no ciclo da rolagem (Ciclo.cores); 0 = a do tema */
+    val cor: Int = 0,
     val glitch: Boolean = true,
     /** escala do orbe na tela: 1,0 enche o mostrador */
     val tamanho: Float = 1f,
@@ -27,6 +30,8 @@ data class Ajustes(
     val microfone: Boolean = true,
     /** a resposta toca no relógio, quando quem serve a ponte manda a voz para cá */
     val voz: Boolean = true,
+    /** tocando aqui, a resposta toca também no PC (quando a ponte é o daemon) */
+    val vozPc: Boolean = false,
     val vibrar: Boolean = true,
     /** a permissão do microfone já foi pedida uma vez (depois disso, só pela chave do menu) */
     val pediuMicrofone: Boolean = false,
@@ -47,11 +52,13 @@ class Cofre(private val ctx: Context) {
         val token = stringPreferencesKey("token")
         val seguirPc = booleanPreferencesKey("seguir_pc")
         val skin = stringPreferencesKey("skin")
+        val cor = intPreferencesKey("cor")
         val glitch = booleanPreferencesKey("glitch")
         val tamanho = floatPreferencesKey("tamanho")
         val texto = booleanPreferencesKey("texto")
         val microfone = booleanPreferencesKey("microfone")
         val voz = booleanPreferencesKey("voz")
+        val vozPc = booleanPreferencesKey("voz_pc")
         val vibrar = booleanPreferencesKey("vibrar")
         val pediuMicrofone = booleanPreferencesKey("pediu_microfone")
         val pc = stringPreferencesKey("pc")
@@ -64,11 +71,13 @@ class Cofre(private val ctx: Context) {
             token = p[K.token] ?: d.token,
             seguirPc = p[K.seguirPc] ?: d.seguirPc,
             skin = p[K.skin] ?: d.skin,
+            cor = p[K.cor] ?: d.cor,
             glitch = p[K.glitch] ?: d.glitch,
             tamanho = (p[K.tamanho] ?: d.tamanho).coerceIn(Ajustes.TAMANHO_MIN, Ajustes.TAMANHO_MAX),
             texto = p[K.texto] ?: d.texto,
             microfone = p[K.microfone] ?: d.microfone,
             voz = p[K.voz] ?: d.voz,
+            vozPc = p[K.vozPc] ?: d.vozPc,
             vibrar = p[K.vibrar] ?: d.vibrar,
             pediuMicrofone = p[K.pediuMicrofone] ?: d.pediuMicrofone,
             pc = p[K.pc] ?: d.pc,
@@ -81,11 +90,13 @@ class Cofre(private val ctx: Context) {
             p[K.token] = a.token
             p[K.seguirPc] = a.seguirPc
             p[K.skin] = a.skin
+            p[K.cor] = a.cor
             p[K.glitch] = a.glitch
             p[K.tamanho] = a.tamanho
             p[K.texto] = a.texto
             p[K.microfone] = a.microfone
             p[K.voz] = a.voz
+            p[K.vozPc] = a.vozPc
             p[K.vibrar] = a.vibrar
             p[K.pediuMicrofone] = a.pediuMicrofone
             p[K.pc] = a.pc

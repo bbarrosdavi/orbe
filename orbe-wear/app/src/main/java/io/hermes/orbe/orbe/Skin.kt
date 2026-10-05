@@ -63,3 +63,32 @@ object Estado {
     val rotulos = arrayOf("parado", "ouvindo", "pensando", "respondendo", "trabalhando")
     fun de(nome: String): Int = nomes.indexOf(nome)
 }
+
+/**
+ * O carrossel do orbe: rolar para o lado passa à skin seguinte e, depois da
+ * última, volta à primeira na cor seguinte. Cada página é uma combinação
+ * (skin, cor) e o pager tem páginas de sobra para girar sem fim nos dois sentidos.
+ */
+object Ciclo {
+    /** a do tema (null) e mais quatro: ciano, verde, âmbar e violeta */
+    val cores: List<FloatArray?> = listOf(null, rgb(0x4DD0E1), rgb(0x81C784), rgb(0xFFB74D), rgb(0xB39DDB))
+
+    private val skins = Skin.entries
+    private val volta = skins.size * cores.size
+    const val PAGINAS = 30_000
+
+    fun skin(pagina: Int): Skin = skins[pagina.mod(skins.size)]
+
+    fun cor(pagina: Int): Int = (pagina / skins.size).mod(cores.size)
+
+    /** A página de (skin, cor) mais perto de [perto]; no meio do pager quando não há onde estar. */
+    fun pagina(skin: Skin, cor: Int, perto: Int = PAGINAS / 2): Int {
+        val dentro = cor.mod(cores.size) * skins.size + skin.ordinal
+        val base = perto - perto.mod(volta)
+        return listOf(base - volta, base, base + volta).map { it + dentro }
+            .filter { it in 0 until PAGINAS }
+            .minBy { kotlin.math.abs(it - perto) }
+    }
+
+    private fun rgb(c: Int) = floatArrayOf((c shr 16 and 0xFF) / 255f, (c shr 8 and 0xFF) / 255f, (c and 0xFF) / 255f)
+}

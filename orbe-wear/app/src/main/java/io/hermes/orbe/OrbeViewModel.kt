@@ -14,6 +14,7 @@ import io.hermes.orbe.dados.Microfone
 import io.hermes.orbe.dados.Ola
 import io.hermes.orbe.dados.Ponte
 import io.hermes.orbe.dados.Protocolo
+import io.hermes.orbe.orbe.Ciclo
 import io.hermes.orbe.orbe.Estado
 import io.hermes.orbe.orbe.OrbeCena
 import io.hermes.orbe.orbe.Retrato
@@ -36,7 +37,17 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** O que vale na tela: os ajustes do relógio já cruzados com a aparência do PC. */
-data class Aparencia(val skin: Skin = Skin.OFANIM, val glitch: Boolean = true, val tema: Tema = Tema.Padrao)
+data class Aparencia(
+    val skin: Skin = Skin.OFANIM,
+    val glitch: Boolean = true,
+    val tema: Tema = Tema.Padrao,
+    /** a cor do ciclo do carrossel (Ciclo.cores); 0 = a do tema */
+    val cor: Int = 0,
+) {
+    /** A cor da figura e a do anel: a do ciclo, ou as do tema. */
+    fun corFigura(): FloatArray = Ciclo.cores.getOrNull(cor) ?: tema.accent.rgb()
+    fun corAnel(): FloatArray = Ciclo.cores.getOrNull(cor) ?: tema.anel.rgb()
+}
 
 class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     val cena = OrbeCena()
@@ -62,6 +73,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope, Build.MODEL ?: "relógio", ::linhaDaPonte, ::olaDaPonte, ::configDaPonte,
         aoVoz = ::vozDaPonte, aoAudio = { if (_previa.value == null) altoFalante.tocar(it) },
         querVoz = { temSaidaDeSom && _ajustes.value.voz },
+        querVozPc = { _ajustes.value.vozPc },
     )
     val ligacao: StateFlow<Ligacao> = ponte.estado
 
@@ -100,7 +112,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         val pc = a.pc.takeIf { it.isNotEmpty() }?.let(Protocolo::ola)
         val tema = pc?.let { Tema.de(it.tema) } ?: Tema.Padrao
         return if (a.seguirPc && pc != null) Aparencia(Skin.de(pc.orbe.skin), pc.orbe.glitch, tema)
-        else Aparencia(Skin.de(a.skin), a.glitch, tema)
+        else Aparencia(Skin.de(a.skin), a.glitch, tema, a.cor.mod(Ciclo.cores.size))
     }
 
     /** Leva os ajustes para a cena (quem desenha lê dela). */
@@ -109,8 +121,8 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         cena.skin = ap.skin
         cena.glitch = ap.glitch
         cena.tamanho = a.tamanho.toDouble()
-        cena.corTema = ap.tema.accent.rgb()
-        cena.accent = ap.tema.anel.rgb()
+        cena.corTema = ap.corFigura()
+        cena.accent = ap.corAnel()
     }
 
     // a ponte também muda os ajustes (a aparência do PC chega na thread da rede)
@@ -148,6 +160,10 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
 
     fun seguirPc(v: Boolean) = mudar { it.copy(seguirPc = v) }
 
+    /** Rolou o carrossel para outra skin (e cor): como escolher no menu, solta o orbe do PC. */
+    fun girar(s: Skin, cor: Int) =
+        mudar { it.copy(seguirPc = false, skin = s.id, cor = cor, glitch = aparencia.value.glitch) }
+
     fun tamanho(v: Float) = mudar { it.copy(tamanho = v.coerceIn(Ajustes.TAMANHO_MIN, Ajustes.TAMANHO_MAX)) }
 
     fun texto(v: Boolean) = mudar { it.copy(texto = v) }
@@ -158,6 +174,12 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     fun voz(v: Boolean) {
         mudar { it.copy(voz = v) }
         if (!v) altoFalante.cortar()
+        if (naTela) conectar(forcar = true)
+    }
+
+    /** Também vai no "ola": mudou, reconecta. */
+    fun vozPc(v: Boolean) {
+        mudar { it.copy(vozPc = v) }
         if (naTela) conectar(forcar = true)
     }
 

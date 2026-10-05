@@ -88,7 +88,9 @@ class QuebraTest {
         assertEquals(esperada, Protocolo.prova("abcd2345", sal))
         // o token vale como foi mostrado, sem maiúsculas nem espaços de quem digitou
         assertEquals(esperada, Protocolo.prova(" ABCD2345 ", sal))
-        assertEquals("""ola {"prova":"$esperada","nome":"TicWatch","voz":true}""", Protocolo.apresentar("abcd2345", sal, "TicWatch", voz = true))
+        assertEquals("""ola {"prova":"$esperada","nome":"TicWatch","voz":true,"voz_pc":false}""", Protocolo.apresentar("abcd2345", sal, "TicWatch", voz = true))
+        // tocando aqui, o relógio pode pedir o PC tocando junto (a ponte do daemon)
+        assertEquals("""ola {"prova":"$esperada","nome":"TicWatch","voz":true,"voz_pc":true}""", Protocolo.apresentar("abcd2345", sal, "TicWatch", voz = true, vozPc = true))
         // sal novo, prova nova: escutar uma conexão não serve para a seguinte
         assertTrue(Protocolo.prova("abcd2345", "ff" + sal.substring(2)) != esperada)
         assertNull(Protocolo.prova("abcd2345", "não é hex"))

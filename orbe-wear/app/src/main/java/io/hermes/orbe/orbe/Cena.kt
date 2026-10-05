@@ -49,7 +49,8 @@ class Celula(val cx: Double, val cy: Double, val lado: Double) {
  * relógio o app está na tela, então sem sessão ele fica parado ("idle"), mais
  * apagado, esperando o toque.
  */
-class OrbeCena : Cena {
+/** [entrar]: o orbe desdobra ao nascer (o do app); a vizinha do carrossel já nasce aberta. */
+class OrbeCena(entrar: Boolean = true) : Cena {
     // ── aparência; quem muda é a tela, quem lê é a thread do desenho ──
     @Volatile var skin = Skin.OFANIM
     @Volatile var glitch = true
@@ -84,7 +85,7 @@ class OrbeCena : Cena {
     private var micS = 0.0
     private var toqueS = 0.0              // sobe rápido, desce devagar
     private var sono = 1.0                // 1 sem sessão, 0 com ela aberta
-    private var entrando = true           // o orbe desdobra ao abrir o app
+    private var entrando = entrar         // o orbe desdobra ao abrir o app
     private var faseT = 0.0
     private var cel: DoubleArray? = null  // célula animada: cx, cy, lado
     private var accentPosto: FloatArray? = null

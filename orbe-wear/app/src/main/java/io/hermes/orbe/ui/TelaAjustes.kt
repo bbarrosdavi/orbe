@@ -166,13 +166,22 @@ fun TelaAjustes(
                     }
                 }
                 if (vm.temSaidaDeSom) {
+                    // o orbe de pulso fala só por aqui; o daemon do desktop também tem a voz do PC
+                    val conectada = ligacao as? Ligacao.Conectada
                     item {
-                        // só o orbe de pulso manda a voz para cá; o daemon do desktop fala pelo computador
-                        val falaAqui = (ligacao as? Ligacao.Conectada)?.voz
                         LinhaSwitch(
                             "Voz no relógio", ajustes.voz,
-                            subtitulo = if (falaAqui == false) "esta ponte fala pelo computador" else "a resposta toca aqui; desligada, vem em texto",
+                            subtitulo = when {
+                                conectada?.voz == false -> "esta ponte fala pelo computador"
+                                conectada?.vozPc == true -> "a resposta toca aqui; desligada, toca no computador"
+                                else -> "a resposta toca aqui; desligada, vem em texto"
+                            },
                         ) { vm.voz(it) }
+                    }
+                    if (conectada?.vozPc == true && ajustes.voz) {
+                        item {
+                            LinhaSwitch("Voz também no PC", ajustes.vozPc, subtitulo = "a resposta toca nos dois") { vm.vozPc(it) }
+                        }
                     }
                 }
                 item {
