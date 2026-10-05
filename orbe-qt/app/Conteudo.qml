@@ -333,7 +333,7 @@ Item {
                         titulo: "Provedor"
                         itens: [{ id: "", nome: "O do perfil jarvis (" + ponte.ttsPerfil + ")" },
                                 { id: "gemini", nome: "Gemini" }, { id: "xai", nome: "xAI" },
-                                { id: "piper", nome: "Piper (local)" }]
+                                { id: "elevenlabs", nome: "ElevenLabs" }, { id: "piper", nome: "Piper (local)" }]
                     }
                     LinhaCombo {
                         id: rGvoz
@@ -346,6 +346,11 @@ Item {
                         id: rXvoz
                         titulo: "Voz xAI (vazio = a do perfil)"
                         visible: ["xai", "grok", "xai-oauth"].indexOf(raiz.ttsEfetivo) >= 0
+                    }
+                    LinhaEntrada {
+                        id: rEvoz
+                        titulo: "Voz ElevenLabs (voice_id da biblioteca da conta)"
+                        visible: raiz.ttsEfetivo === "elevenlabs"
                     }
                     LinhaCombo {
                         id: rPvoz
@@ -868,6 +873,7 @@ Item {
         rTts.valor = v.tts_provedor
         rGvoz.valor = v.gemini_voz
         rXvoz.texto = v.xai_voz
+        rEvoz.texto = v.elevenlabs_voz
         rPvoz.valor = v.piper_voz
 
         rBarge.ligado = !!cv.barge_in
@@ -921,6 +927,7 @@ Item {
         v.tts_provedor = rTts.efetivo
         v.gemini_voz = rGvoz.efetivo
         v.xai_voz = rXvoz.texto.trim()
+        v.elevenlabs_voz = rEvoz.texto.trim()
         v.piper_voz = rPvoz.efetivo
         cv.barge_in = rBarge.ligado
         cv.barge_quadros = Math.round(rBq.valor)

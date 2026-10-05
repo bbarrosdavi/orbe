@@ -69,6 +69,10 @@ DEFAULTS = {
         "gemini_voz": "",
         "xai_voz": "",
         "piper_voz": "",
+        # ElevenLabs: o voice_id (da biblioteca da conta) e o modelo; a chave
+        # é a ELEVENLABS_API_KEY do .env do Hermes
+        "elevenlabs_voz": "",
+        "elevenlabs_modelo": "eleven_flash_v2_5",
     },
     "conversa": {
         "silencio_fim_s": 0.90,

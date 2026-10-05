@@ -60,6 +60,8 @@ def _jarvis_tts() -> dict:
         "gemini_voice": "Kore",
         "xai_voice": "eve",
         "xai_language": "pt",
+        "elevenlabs_voice": "",
+        "elevenlabs_model": "eleven_flash_v2_5",
     }
     try:
         import yaml
@@ -76,6 +78,9 @@ def _jarvis_tts() -> dict:
             p = "xai"
         out["provider"] = p
         out["piper_voice"] = str((tts.get("piper") or {}).get("voice") or "")
+        el = tts.get("elevenlabs") or {}
+        out["elevenlabs_voice"] = str(el.get("voice_id") or "")
+        out["elevenlabs_model"] = str(el.get("model_id") or out["elevenlabs_model"])
     except Exception as e:
         sys.stderr.write(f"cfg: {e}\n")
     # Escolhas do app de configuração do orbe; vazio = segue o perfil.
@@ -90,6 +95,10 @@ def _jarvis_tts() -> dict:
             out["xai_voice"] = str(v["xai_voz"])
         if v.get("piper_voz"):
             out["piper_voice"] = str(v["piper_voz"])
+        if v.get("elevenlabs_voz"):
+            out["elevenlabs_voice"] = str(v["elevenlabs_voz"])
+        if v.get("elevenlabs_modelo"):
+            out["elevenlabs_model"] = str(v["elevenlabs_modelo"])
     except Exception as e:
         sys.stderr.write(f"cfg do app: {e}\n")
     return out
@@ -655,6 +664,59 @@ class Worker:
                     pass
         return n > 0
 
+    def elevenlabs(self, text: str, voice_id: str, model: str) -> bool:
+        """ElevenLabs em streaming, já em PCM s16le a 24 kHz (o mesmo do xAI)."""
+        import requests
+        key = (os.environ.get("ELEVENLABS_API_KEY") or "").strip()
+        if not key or not voice_id:
+            sys.stderr.write("elevenlabs: sem ELEVENLABS_API_KEY ou sem voz\n")
+            return False
+        t0 = time.time()
+        corpo = {"text": text, "model_id": model}
+        if "flash" in model or "turbo" in model:
+            corpo["language_code"] = "pt"          # os modelos v2.5 aceitam o idioma
+        r = requests.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream",
+            params={"output_format": f"pcm_{RATE}"},
+            headers={"xi-api-key": key, "Content-Type": "application/json"},
+            json=corpo, timeout=40, stream=True,
+        )
+        if r.status_code != 200:
+            sys.stderr.write(f"elevenlabs http {r.status_code} {r.text[:200]}\n")
+            return False
+        play = None
+        n = 0
+        sobra = b""
+        try:
+            for chunk in r.iter_content(4096):
+                if self.cancel.is_set():
+                    self._kill_play()
+                    return True
+                if not chunk:
+                    continue
+                # amostras de 2 bytes: um pedaço ímpar espera o próximo
+                chunk, sobra = sobra + chunk, b""
+                if len(chunk) % 2:
+                    chunk, sobra = chunk[:-1], chunk[-1:]
+                if play is None:
+                    play = self._open_play(RATE)
+                    sys.stderr.write(f"elevenlabs ttfa {time.time() - t0:.2f}s voice={voice_id}\n")
+                if not self._feed(play, chunk):
+                    return True
+                n += 1
+        finally:
+            if play and play.stdin:
+                try:
+                    play.stdin.close()
+                except OSError:
+                    pass
+            if play:
+                try:
+                    play.wait(timeout=8)
+                except Exception:
+                    pass
+        return n > 0
+
     def piper(self, text: str, modelo: str = PIPER_MODEL) -> bool:
         if not Path(PIPER_BIN).exists() or not Path(modelo).exists():
             return False
@@ -718,6 +780,8 @@ class Worker:
                 ok = self.gemini(text, cfg["gemini_model"], cfg["gemini_voice"])
             elif provider == "piper":
                 ok = self.piper(text, cfg.get("piper_voice") or PIPER_MODEL)
+            elif provider == "elevenlabs":
+                ok = self.elevenlabs(text, cfg["elevenlabs_voice"], cfg["elevenlabs_model"])
             else:
                 sys.stderr.write(f"provider {provider} não suportado no orb, tentando xai\n")
                 ok = self.xai(text, cfg["xai_voice"], cfg["xai_language"])
