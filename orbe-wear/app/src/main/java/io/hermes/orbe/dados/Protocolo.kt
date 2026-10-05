@@ -136,4 +136,15 @@ object Protocolo {
         val comPorta = if (temPorta || esquema == "wss://") destino else "$destino:$PORTA"
         return esquema + comPorta + caminho
     }
+
+    /** A ponte está na rede de casa (IP privado, .lan, .local): só o Wi-Fi do relógio chega bem nela. */
+    fun local(servidor: String): Boolean {
+        val host = url(servidor)?.let { runCatching { java.net.URI(it).host }.getOrNull() }
+            ?.trim('[', ']')?.lowercase() ?: return false
+        if (host == "localhost" || host.endsWith(".lan") || host.endsWith(".local") || host.endsWith(".home.arpa")) return true
+        val p = host.split('.').map { it.toIntOrNull() ?: -1 }
+        if (p.size != 4 || p.any { it !in 0..255 }) return false
+        return p[0] == 10 || p[0] == 127 || (p[0] == 192 && p[1] == 168) || (p[0] == 172 && p[1] in 16..31) ||
+            (p[0] == 169 && p[1] == 254)
+    }
 }

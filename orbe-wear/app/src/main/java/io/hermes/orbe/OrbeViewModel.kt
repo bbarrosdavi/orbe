@@ -15,6 +15,7 @@ import io.hermes.orbe.dados.Microfone
 import io.hermes.orbe.dados.Ola
 import io.hermes.orbe.dados.Ponte
 import io.hermes.orbe.dados.Protocolo
+import io.hermes.orbe.dados.RedeLocal
 import io.hermes.orbe.dados.Sincronia
 import io.hermes.orbe.orbe.Ciclo
 import io.hermes.orbe.orbe.Estado
@@ -55,6 +56,8 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     val cena = OrbeCena()
     private val cofre = Cofre(app)
     private val microfone = Microfone()
+    // antes do init: o collect da ligação roda já na construção (Main.immediate) e passa por ela
+    private val trava = Any()
     private val vibrador = app.getSystemService(Vibrator::class.java)
 
     private val _ajustes = MutableStateFlow(Ajustes())
@@ -79,6 +82,9 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         aoAjustes = ::ajustesDaPonte,
     )
     val ligacao: StateFlow<Ligacao> = ponte.estado
+    /** a ponte em casa vai pelo Wi-Fi do relógio, não pelo celular */
+    private val rede = RedeLocal(app) { wifi -> viewModelScope.launch { redeMudou(wifi) } }
+    private var esperaWifi: Job? = null
 
     /** os agentes instalados no PC (vêm no "ola"): cada orbe do carrossel tem um deles */
     private val _agentesPc = MutableStateFlow<List<AgenteInfo>>(emptyList())
@@ -251,12 +257,37 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         toqueCancelado()
         altoFalante.cortar()
         pararPrevia()
+        esperaWifi?.cancel()
         ponte.desligar()        // a sessão continua no PC; na volta, a ponte conta em que pé está
+        rede.soltar()
     }
 
     private fun conectar(forcar: Boolean = false) {
         val a = _ajustes.value
+        val local = Protocolo.local(a.servidor)
+        if (local) rede.prender() else rede.soltar()
+        esperaWifi?.cancel()
+        if (local && !rede.noWifi) {
+            // o Wi-Fi do relógio dorme e leva uns segundos para voltar: espera por ele
+            // antes de sair pelo celular, para a conexão não nascer na rede que cai
+            esperaWifi = viewModelScope.launch {
+                delay(ESPERA_WIFI)
+                ponte.ligar(a.servidor, a.token, forcar)
+            }
+            return
+        }
         ponte.ligar(a.servidor, a.token, forcar)
+    }
+
+    /**
+     * O Wi-Fi chegou ou caiu e a conexão aberta ficou na rede velha. No meio de
+     * uma sessão ela fica até cair sozinha (religar cortaria a escuta e a voz);
+     * a próxima já nasce na rede nova.
+     */
+    private fun redeMudou(wifi: Boolean) {
+        if (!naTela) return
+        val ocupado = escutando || segurando || _retrato.value.visivel
+        if (esperaWifi?.isActive == true || !wifi || !ocupado) conectar(forcar = true)
     }
 
     private fun linhaDaPonte(linha: String) {
@@ -304,7 +335,6 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     // para o menu, então o "touch down" espera ficar claro que é toque, como o
     // orbe.qml faz quando o orbe está destravado para mover.
 
-    private val trava = Any()
     private val preRolo = ArrayList<ByteArray>()     // a fala desde que o dedo encostou
     private var transmitindo = false
     private var segurando = false                    // "touch down" enviado, falta o "touch up"
@@ -527,6 +557,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         microfone.parar()
         altoFalante.cortar()
         ponte.desligar()
+        rede.soltar()
     }
 
     /** Envelope de fala sintético: sílabas de 120 a 240 ms, pausas e um tom que anda por sílaba. */
@@ -558,6 +589,9 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private companion object {
+        /** quanto a ponte em casa espera o Wi-Fi acordar antes de sair pelo celular */
+        const val ESPERA_WIFI = 4_000L
+
         // o ciclo e as linhas da prévia do hermes_voice_app.py
         val CICLO = listOf("idle" to 4.0, "listening" to 5.0, "thinking" to 5.0, "speaking" to 6.0)
         val LINHAS = listOf(
