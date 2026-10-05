@@ -21,7 +21,7 @@ import queue
 import random
 import re
 import select
-import shlex
+import shutil
 import signal
 import socket
 import subprocess
@@ -753,44 +753,41 @@ _ORB_CONN_LOCK = threading.Lock()
 _RELOGIO = None
 # Sessão aberta pelo relógio: as íris do orbe do PC ficam desta cor.
 COR_OLHOS_RELOGIO = "#ff2a2a"
-# O Claude que o relógio abre sem terminal: sessão do tmux com o canal do orbe.
-CLAUDE_TMUX = "orbe-claude"
+# O Claude que o relógio abre: uma janela do terminal no PC com o canal do orbe.
+_CLAUDE_JANELA: subprocess.Popen | None = None
 
 
-def _claude_escondido(pasta: str, espera: float = 30.0) -> bool:
-    """Garante uma sessão do Claude com o canal do orbe, subindo uma escondida.
+def _abrir_claude(pasta: str, espera: float = 30.0) -> bool:
+    """Garante uma sessão do Claude com o canal do orbe, abrindo um terminal no PC.
 
-    Sem sessão aberta, sobe o claude-orbe num tmux sem janela, com as
-    ferramentas aprovadas sozinhas (como o orbe faz por ACP). Para ver o que
-    ele faz: tmux attach -t orbe-claude. Espera o canal se anunciar.
+    Sem sessão aberta, abre o terminal do config (relogio.terminal) com o
+    claude-orbe na pasta, com as ferramentas aprovadas sozinhas (como o orbe
+    faz por ACP). Fechar a janela encerra o Claude; o próximo uso do relógio
+    abre outra. Espera o canal se anunciar.
     """
+    global _CLAUDE_JANELA
     if canal.sessoes():
         return True
-    tem = subprocess.run(["tmux", "has-session", "-t", CLAUDE_TMUX],
-                         capture_output=True).returncode == 0
-    if not tem:
-        cmd = shlex.join([str(Path(__file__).resolve().parent / "claude-orbe"),
-                          "--dangerously-skip-permissions"])
-        r = subprocess.run(["tmux", "new-session", "-d", "-s", CLAUDE_TMUX, "-x", "120", "-y", "40",
-                            "-c", pasta, cmd], capture_output=True, text=True)
-        if r.returncode != 0:
-            LOG.warning("Claude: tmux não abriu a sessão (%s)", r.stderr.strip() or r.returncode)
+    if _CLAUDE_JANELA is None or _CLAUDE_JANELA.poll() is not None:
+        claude = [str(Path(__file__).resolve().parent / "claude-orbe"), "--dangerously-skip-permissions"]
+        terminal = [VCFG["relogio"].get("terminal") or "ghostty", "-e", *claude]
+        # num escopo próprio: reiniciar o serviço do orbe não fecha a janela
+        if shutil.which("systemd-run"):
+            terminal = ["systemd-run", "--user", "--scope", "--quiet", "--collect", "--", *terminal]
+        try:
+            _CLAUDE_JANELA = subprocess.Popen(terminal, cwd=pasta, stdin=subprocess.DEVNULL,
+                                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            LOG.warning("Claude: o terminal não abriu (%s)", e)
             return False
-        LOG.info("Claude: sessão escondida aberta (tmux %s, em %s)", CLAUDE_TMUX, pasta)
+        LOG.info("Claude: terminal aberto no PC (%s, em %s)", terminal[terminal.index("-e") - 1], pasta)
     fim = time.monotonic() + espera
     while time.monotonic() < fim:
         if canal.sessoes():
             return True
         time.sleep(0.25)
-    LOG.warning("Claude: o canal não apareceu em %.0f s (tmux attach -t %s mostra o porquê)",
-                espera, CLAUDE_TMUX)
+    LOG.warning("Claude: o canal não apareceu em %.0f s (o terminal no PC mostra o porquê)", espera)
     return False
-
-
-def _fechar_claude_escondido() -> None:
-    if subprocess.run(["tmux", "has-session", "-t", CLAUDE_TMUX], capture_output=True).returncode == 0:
-        subprocess.run(["tmux", "kill-session", "-t", CLAUDE_TMUX], capture_output=True)
-        LOG.info("Claude: sessão escondida fechada")
 
 
 def orb_cmd(line: str, relogio: bool = True) -> None:
@@ -2172,11 +2169,11 @@ class Daemon:
                 self.agente = None
             t0 = time.monotonic()
             if cfg["tipo"] == "claude":
-                # Sessão do Claude aberta no terminal; a do relógio sobe uma escondida.
+                # Sessão do Claude aberta no terminal; o relógio abre uma se não houver.
                 if self._origem == "relogio":
                     pasta = os.path.expanduser(VCFG["relogio"].get("claude_pasta") or "~")
-                    if not _claude_escondido(pasta):
-                        orb_cmd(f"line O Claude não abriu: tmux attach -t {CLAUDE_TMUX}")
+                    if not _abrir_claude(pasta):
+                        orb_cmd("line O Claude não abriu o canal: veja o terminal no PC")
                 argv = ["claude"]
                 ag = canal.AgenteClaude()
             else:
@@ -2246,8 +2243,6 @@ class Daemon:
         if ag is not None:
             LOG.info("agente ACP descarregado (%.0f min sem sessão de voz)", MANTER_MIN)
             threading.Thread(target=ag.fechar, daemon=True).start()
-            # o Claude que o relógio abriu sai junto: a próxima vez sobe de novo
-            threading.Thread(target=_fechar_claude_escondido, daemon=True).start()
 
     def _ask_hermes(self, text: str) -> str:
         """Pergunta ao agente por ACP. O texto chega em pedaços e vai ao TTS

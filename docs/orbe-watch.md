@@ -315,13 +315,13 @@ sessão de voz do computador, e ela passa a ser do relógio até fechar:
 
 - **O agente é o Claude**, qualquer que seja o do `config.json` (que continua
   valendo para o atalho e a palavra de ativação). Sem uma sessão do Claude
-  aberta com o canal do orbe, o daemon sobe uma escondida, sem terminal:
-  `claude-orbe --dangerously-skip-permissions` numa sessão do tmux chamada
-  `orbe-claude`, na pasta de `relogio.claude_pasta` (vazio = a pasta do
-  usuário). As ferramentas são aprovadas sozinhas, como o orbe faz por ACP.
-  Para ver o que ele faz: `tmux attach -t orbe-claude` (e Ctrl+B D para sair
-  sem fechar). Ela fecha junto com o agente, depois de
-  `agente.manter_carregado_min` sem sessão de voz.
+  aberta com o canal do orbe, o daemon abre uma num terminal no computador:
+  `<relogio.terminal> -e claude-orbe --dangerously-skip-permissions` (o
+  padrão é o Ghostty), na pasta de `relogio.claude_pasta` (vazio = a pasta do
+  usuário). As ferramentas são aprovadas sozinhas, como o orbe faz por ACP, e
+  o detalhe do que ele faz fica na janela. A janela abre num escopo próprio do
+  systemd, então reiniciar o serviço do orbe não a fecha; fechar a janela
+  encerra o Claude, e o próximo uso do relógio abre outra.
 - **O orbe do computador abre junto**, com as íris dos olhos em vermelho
   (Ophanim, Ophanim com asas e Shoggoth; as skins de imagem e o anel não têm
   olho separado).
@@ -329,9 +329,9 @@ sessão de voz do computador, e ela passa a ser do relógio até fechar:
 - **A voz toca onde o relógio pediu**: no relógio, no computador ou nos dois
   (chaves "Voz no relógio" e "Voz também no PC").
 
-Na primeira vez, o Claude pede uma confirmação do modo sem permissões, que só
-o dono da máquina pode dar: abra `tmux attach -t orbe-claude`, aceite e saia
-com Ctrl+B D.
+Na primeira vez, o Claude pede na janela uma confirmação do modo sem
+permissões, que só o dono da máquina pode dar. Enquanto ela não vem, o
+relógio mostra "O Claude não abriu o canal: veja o terminal no PC".
 
 ## Rede
 
@@ -560,7 +560,7 @@ nas opções do desenvolvedor e reconecte (`adb connect <ip>:<porta>`). O
 
 - A ponte servida pelo **daemon** foi testada com um relógio simulado (prova
   do token, voz, `voz_pc`, origem da sessão) e com o worker de voz de verdade,
-  mas ainda não de ponta a ponta com o relógio e o Claude escondido.
+  mas ainda não de ponta a ponta com o relógio e o Claude aberto por ele.
 - A voz e o microfone com um agente de verdade foram testados no emulador. No
   TicWatch Pro 5 foram conferidos o desenho, o pareamento e o desempenho.
 - Por ACP, o agente tem as permissões aprovadas automaticamente.

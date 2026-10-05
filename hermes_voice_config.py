@@ -106,7 +106,9 @@ DEFAULTS = {
         "token": "",
         # com o dedo no orbe do relógio, a fala vem do microfone dele
         "microfone": True,
-        # onde o Claude que o relógio abre (tmux orbe-claude) trabalha; vazio = a pasta do usuário
+        # o Claude que o relógio abre: o terminal da janela no PC (roda "<terminal> -e
+        # claude-orbe") e a pasta em que ele trabalha; vazio = a pasta do usuário
+        "terminal": "ghostty",
         "claude_pasta": "",
     },
 }
