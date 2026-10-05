@@ -12,6 +12,7 @@ Uso:  hermes_voice_daemon.py [--model whisper-large-v3] [--device N]
 """
 
 import argparse
+import base64
 import collections
 import json
 import logging
@@ -20,6 +21,7 @@ import queue
 import random
 import re
 import select
+import shlex
 import signal
 import socket
 import subprocess
@@ -749,9 +751,49 @@ _ORB_CONN = None
 _ORB_CONN_LOCK = threading.Lock()
 # Ponte para o app do relógio (hermes_voice_relogio.py); None com ela desligada.
 _RELOGIO = None
+# Sessão aberta pelo relógio: as íris do orbe do PC ficam desta cor.
+COR_OLHOS_RELOGIO = "#ff2a2a"
+# O Claude que o relógio abre sem terminal: sessão do tmux com o canal do orbe.
+CLAUDE_TMUX = "orbe-claude"
 
 
-def orb_cmd(line: str) -> None:
+def _claude_escondido(pasta: str, espera: float = 30.0) -> bool:
+    """Garante uma sessão do Claude com o canal do orbe, subindo uma escondida.
+
+    Sem sessão aberta, sobe o claude-orbe num tmux sem janela, com as
+    ferramentas aprovadas sozinhas (como o orbe faz por ACP). Para ver o que
+    ele faz: tmux attach -t orbe-claude. Espera o canal se anunciar.
+    """
+    if canal.sessoes():
+        return True
+    tem = subprocess.run(["tmux", "has-session", "-t", CLAUDE_TMUX],
+                         capture_output=True).returncode == 0
+    if not tem:
+        cmd = shlex.join([str(Path(__file__).resolve().parent / "claude-orbe"),
+                          "--dangerously-skip-permissions"])
+        r = subprocess.run(["tmux", "new-session", "-d", "-s", CLAUDE_TMUX, "-x", "120", "-y", "40",
+                            "-c", pasta, cmd], capture_output=True, text=True)
+        if r.returncode != 0:
+            LOG.warning("Claude: tmux não abriu a sessão (%s)", r.stderr.strip() or r.returncode)
+            return False
+        LOG.info("Claude: sessão escondida aberta (tmux %s, em %s)", CLAUDE_TMUX, pasta)
+    fim = time.monotonic() + espera
+    while time.monotonic() < fim:
+        if canal.sessoes():
+            return True
+        time.sleep(0.25)
+    LOG.warning("Claude: o canal não apareceu em %.0f s (tmux attach -t %s mostra o porquê)",
+                espera, CLAUDE_TMUX)
+    return False
+
+
+def _fechar_claude_escondido() -> None:
+    if subprocess.run(["tmux", "has-session", "-t", CLAUDE_TMUX], capture_output=True).returncode == 0:
+        subprocess.run(["tmux", "kill-session", "-t", CLAUDE_TMUX], capture_output=True)
+        LOG.info("Claude: sessão escondida fechada")
+
+
+def orb_cmd(line: str, relogio: bool = True) -> None:
     """Fala com o orbe. Sobe o processo só na primeira chamada (zero idle).
 
     Uma conexão só, mantida aberta: o SocketServer do Quickshell guarda o
@@ -759,7 +801,7 @@ def orb_cmd(line: str) -> None:
     dezenas por segundo. Com o orbe morto, o AF_UNIX devolve EPIPE na hora,
     então a mensagem é reenviada por uma conexão nova em vez de se perder.
     """
-    if _RELOGIO is not None:
+    if relogio and _RELOGIO is not None:
         _RELOGIO.publicar(line)    # o relógio desenha o mesmo orbe
     payload = (line.strip() + "\n").encode()
 
@@ -1203,7 +1245,14 @@ class Daemon:
         self._hermes_rt = _hermes_runtime()
         # Agente ACP: um processo, carregado entre os pedidos.
         self.agente: acp.AgenteACP | None = None
+        self._agente_viva = ""      # chave do agente carregado (muda com a origem da sessão)
         self._agente_lock = threading.Lock()
+        # De onde veio a sessão de voz: "pc" (atalho, wake word, orbe do PC) ou
+        # "relogio". A do relógio fala com o Claude, ouve só o relógio e toca a
+        # resposta onde o relógio pediu.
+        self._origem = "pc"
+        self._tts_destino = ""      # último DEST mandado ao worker
+        self._voz_rel_taxa = 0      # taxa da voz aberta no relógio neste turno (0 = nenhuma)
         self._agente_uso = time.monotonic()
         self._instruido = False
         self.capture_rate, self.capture_block = self._resolve_capture()
@@ -1310,6 +1359,7 @@ class Daemon:
     def _end_session(self, reason: str = "idle"):
         if not (self.expecting_command or self.allow_interrupt):
             orb_cmd("hide")
+            self._definir_origem("pc")
             return
         LOG.info("Sessão de voz encerrada (%s)", reason)
         self.expecting_command = False
@@ -1324,9 +1374,11 @@ class Daemon:
             self.oww.cool_until = time.monotonic() + 4.0
         orb_cmd("hold 0")
         orb_cmd("hide")
+        self._definir_origem("pc")
 
-    def _trigger_session(self):
+    def _trigger_session(self, origem: str = "pc"):
         LOG.info("⚡ trigger da sessão de voz (teclado/gesto/wake)")
+        self._definir_origem(origem)
         orb_cmd("clear")
         orb_cmd("show listening")
         self.expecting_command = True
@@ -1357,7 +1409,10 @@ class Daemon:
             p.unlink(missing_ok=True)
         except OSError:
             return
-        low = txt.lower().strip()
+        self._executar_cmd(txt.lower().strip(), "pc")
+
+    def _executar_cmd(self, low: str, origem: str):
+        """Os verbos do orb_control (arquivo de comando ou relógio)."""
         if any(w in low for w in ("dismiss", "stop", "hide", "tchau", "cancel")):
             LOG.info("dismiss via cmdfile")
             self._kill_active(hide=True)
@@ -1374,10 +1429,10 @@ class Daemon:
                 self._end_session("toggle")
             else:
                 LOG.info("toggle: iniciando sessão via cmdfile")
-                self._trigger_session()
+                self._trigger_session(origem)
         elif any(w in low for w in ("trigger", "wake", "start", "show")):
             LOG.info("trigger manual via cmdfile")
-            self._trigger_session()
+            self._trigger_session(origem)
         elif "hold" in low:
             self._travar("cmdfile", falar=False)
         elif "release" in low:
@@ -1400,19 +1455,26 @@ class Daemon:
             import hermes_voice_relogio as relogio
             ponte = relogio.PonteRelogio(
                 int(rc["porta"]), relogio.token_da_config(),
-                ao_controle=self._ctl_q.put, ao_comando=self._relogio_comando,
-                ao_quadro=self._relogio_quadro if rc["microfone"] else None)
+                ao_controle=lambda linha: self._ctl_q.put(linha + " relogio"),
+                ao_comando=self._relogio_comando,
+                ao_quadro=self._relogio_quadro if rc["microfone"] else None,
+                voz=True, voz_pc=True)
             if ponte.iniciar():
                 _RELOGIO = ponte
         except Exception as e:
             LOG.warning("relógio: ponte indisponível (%s)", e)
 
     def _relogio_comando(self, op: str):
-        """Os verbos do orb_control, pelo mesmo arquivo que ele escreve."""
-        try:
-            Path(f"/run/user/{os.getuid()}/hermes-voice.cmd").write_text(op + "\n")
-        except OSError as e:
-            LOG.warning("relógio: comando %s não gravado (%s)", op, e)
+        """Os verbos do orb_control, pela fila do laço de áudio, com a origem."""
+        self._ctl_q.put(f"cmd {op} relogio")
+
+    def _definir_origem(self, origem: str):
+        """Quem abriu ou tocou na sessão por último: o relógio pinta os olhos do PC."""
+        if origem == self._origem:
+            return
+        LOG.info("sessão de voz: origem %s", origem)
+        self._origem = origem
+        orb_cmd("olhos " + COR_OLHOS_RELOGIO if origem == "relogio" else "olhos", relogio=False)
 
     def _relogio_quadro(self, quadro: bytes):
         """Fala captada pelo relógio: entra na fila como a do pw-record."""
@@ -1471,10 +1533,16 @@ class Daemon:
             except queue.Empty:
                 break
             op, _, arg = linha.partition(" ")
+            if op in ("touch", "cmd"):
+                # "touch down relogio", "cmd toggle relogio"; sem origem, é o PC
+                arg, _, de = arg.partition(" ")
+                origem = "relogio" if de == "relogio" else "pc"
             if op == "touch" and arg == "down":
-                self._toque_down()
+                self._toque_down(origem)
             elif op == "touch" and arg == "up":
                 self._toque_up()
+            elif op == "cmd":
+                self._executar_cmd(arg, origem)
             elif op == "relato":
                 try:
                     rel = json.loads(arg)
@@ -1488,8 +1556,9 @@ class Daemon:
             self._iniciar_relato(self._relatos.popleft())
         self._talvez_descarregar_agente()
 
-    def _toque_down(self):
+    def _toque_down(self, origem: str = "pc"):
         self._toque_t = time.monotonic()
+        self._definir_origem(origem)
         if self.state == "recording" and self.rec is not None and not self._tts_playing:
             # Já gravando por voz: o dedo só passa a segurar a gravação.
             self.rec.segurando = True
@@ -1684,8 +1753,15 @@ class Daemon:
             self._hold_until = 0.0
         return self._session_expired()
 
+    def _fechar_voz_relogio(self, como: str):
+        """Fim do turno ("fim": toca o que falta) ou corte ("corta": cala já)."""
+        if self._voz_rel_taxa and _RELOGIO is not None:
+            _RELOGIO.publicar("voz " + como)
+        self._voz_rel_taxa = 0
+
     def _bump_tts(self):
         self._tts_gen += 1
+        self._fechar_voz_relogio("corta")
         self._tts_playing = False
         self._tts_barge_after = 0.0
         self._tts_worker_cancel()
@@ -1747,13 +1823,23 @@ class Daemon:
             except OSError:
                 pass
 
+    def _voz_destino(self) -> tuple[bool, bool]:
+        """(PC, relógio): na sessão do relógio, onde ele pediu; senão, só o PC."""
+        rel = _RELOGIO
+        if self._origem != "relogio" or rel is None or not rel.quer_voz():
+            return True, False
+        return rel.quer_voz_pc(), True
+
     def _tts_worker_say(self, text: str, gen: int):
         self._ensure_tts_worker()
         proc = self._tts_proc
         if not proc or proc.poll() is not None or not proc.stdin:
             LOG.warning("TTS worker morto")
             return
+        pc, no_relogio = self._voz_destino()
         try:
+            # a cada frase: um CANCEL no worker esvazia a fila, e o DEST junto
+            proc.stdin.write(f"DEST pc={int(pc)} relogio={int(no_relogio)}\n")
             proc.stdin.write("SAY " + text.replace("\n", " ") + "\n")
             proc.stdin.flush()
         except OSError as e:
@@ -1766,7 +1852,18 @@ class Daemon:
                 break
             line = line.strip()
             if line.startswith("LEVEL "):
-                orb_cmd("level " + line[6:])
+                # tocando no relógio, ele mede o nível no próprio áudio
+                orb_cmd("level " + line[6:], relogio=not no_relogio)
+            elif line.startswith("PCM ") and _RELOGIO is not None:
+                try:
+                    _RELOGIO.falar(base64.b64decode(line[4:]))
+                except ValueError:
+                    pass
+            elif line.startswith("VOZ ") and _RELOGIO is not None:
+                taxa = int(line[4:] or 0)
+                if taxa != self._voz_rel_taxa:      # o relógio abre a voz uma vez por turno
+                    self._voz_rel_taxa = taxa
+                    _RELOGIO.publicar(f"voz {taxa}")
             elif line.startswith("DONE") or line.startswith("ERR"):
                 if line.startswith("ERR"):
                     LOG.warning("TTS %s", line)
@@ -1824,6 +1921,7 @@ class Daemon:
                     self._deaf_until = time.monotonic() + 0.20
                     orb_cmd("level 0")
                     self._int_frames = 0
+                    self._fechar_voz_relogio("fim")
                 self._touch_session()
 
     def _session_expired(self) -> bool:
@@ -2042,35 +2140,48 @@ class Daemon:
         LOG.info("Wake word: %s", desc)
         return ouvido
 
+    def _agente_cfg(self) -> dict:
+        """O agente da sessão: o do config, ou o Claude quando ela veio do relógio."""
+        if self._origem == "relogio":
+            return dict(AGENTE_CFG, tipo="claude", modelo="")
+        return AGENTE_CFG
+
     def _agente_chave(self) -> str:
-        a = AGENTE_CFG
+        a = self._agente_cfg()
         return "|".join((a["tipo"], a["perfil"] if a["tipo"] == "hermes" else "",
                          a["comando"] if a["tipo"] == "comando" else ""))
 
     def _agente_velho(self, ag: acp.AgenteACP) -> bool:
-        if AGENTE_CFG["tipo"] != "hermes":
+        if self._agente_cfg()["tipo"] != "hermes":
             return False
         return any(_mtime(p) > ag.iniciado_em for p in WARM_STALE_PATHS)
 
     def _agente_pronto(self) -> acp.AgenteACP:
         """Agente vivo e com sessão; sobe, ou reinicia retomando a conversa."""
         with self._agente_lock:
+            cfg, chave = self._agente_cfg(), self._agente_chave()
             ag = self.agente
-            if ag is not None and ag.vivo() and ag.sessao and not self._agente_velho(ag):
+            if (ag is not None and ag.vivo() and ag.sessao and not self._agente_velho(ag)
+                    and self._agente_viva == chave):
                 return ag
             if ag is not None:
                 LOG.info("agente ACP: reiniciando (%s)",
-                         "config mudou" if ag.vivo() else "processo saiu")
+                         "outra origem" if self._agente_viva != chave
+                         else "config mudou" if ag.vivo() else "processo saiu")
                 ag.fechar()
                 self.agente = None
             t0 = time.monotonic()
-            if AGENTE_CFG["tipo"] == "claude":
-                # Sessão do Claude já aberta no terminal: nada a subir.
+            if cfg["tipo"] == "claude":
+                # Sessão do Claude aberta no terminal; a do relógio sobe uma escondida.
+                if self._origem == "relogio":
+                    pasta = os.path.expanduser(VCFG["relogio"].get("claude_pasta") or "~")
+                    if not _claude_escondido(pasta):
+                        orb_cmd(f"line O Claude não abriu: tmux attach -t {CLAUDE_TMUX}")
                 argv = ["claude"]
                 ag = canal.AgenteClaude()
             else:
-                hermes = AGENTE_CFG["tipo"] == "hermes"
-                argv, extra = acp.comando(AGENTE_CFG, self._hermes_rt if hermes else None)
+                hermes = cfg["tipo"] == "hermes"
+                argv, extra = acp.comando(cfg, self._hermes_rt if hermes else None)
                 env = self._hermes_env()
                 env.update(extra)
                 ag = acp.AgenteACP(argv, env)
@@ -2079,19 +2190,20 @@ class Daemon:
                 estado = vcfg.ler_estado()
                 retomar = estado.get("sessao") if estado.get("chave") == self._agente_chave() else None
                 ag.abrir_sessao(retomar)
-                if AGENTE_CFG["modelo"]:
+                if cfg["modelo"]:
                     try:
-                        ag.definir_modelo(AGENTE_CFG["modelo"])
+                        ag.definir_modelo(cfg["modelo"])
                     except acp.ErroACP as e:
-                        LOG.warning("agente ACP: modelo %s recusado (%s)", AGENTE_CFG["modelo"], e)
+                        LOG.warning("agente ACP: modelo %s recusado (%s)", cfg["modelo"], e)
             except Exception:
                 ag.fechar()
                 raise
             self.agente = ag
+            self._agente_viva = chave
             # A conversa retomada já recebeu a instrução de voz no 1º pedido.
             self._instruido = bool(retomar) and ag.sessao == retomar
             info = ag.info.get("agentInfo") or {}
-            if AGENTE_CFG["tipo"] == "claude":
+            if cfg["tipo"] == "claude":
                 LOG.info("Claude: sessão %s em %s", ag.sessao, ag.cwd or "?")
             LOG.info("agente ACP pronto em %.1fs: %s %s, sessão %s (%s), modelo %s",
                      time.monotonic() - t0, info.get("name", argv[0]), info.get("version", ""),
@@ -2110,7 +2222,8 @@ class Daemon:
     def _preaquecer_agente(self):
         """Sobe o agente em segundo plano enquanto o Davi ainda fala."""
         ag = self.agente
-        if (ag is not None and ag.vivo()) or self._agente_lock.locked():
+        if ((ag is not None and ag.vivo() and self._agente_viva == self._agente_chave())
+                or self._agente_lock.locked()):
             return
 
         def _subir():
@@ -2133,6 +2246,8 @@ class Daemon:
         if ag is not None:
             LOG.info("agente ACP descarregado (%.0f min sem sessão de voz)", MANTER_MIN)
             threading.Thread(target=ag.fechar, daemon=True).start()
+            # o Claude que o relógio abriu sai junto: a próxima vez sobe de novo
+            threading.Thread(target=_fechar_claude_escondido, daemon=True).start()
 
     def _ask_hermes(self, text: str) -> str:
         """Pergunta ao agente por ACP. O texto chega em pedaços e vai ao TTS
@@ -2152,9 +2267,10 @@ class Daemon:
             LOG.warning("agente ACP indisponível: %s", e)
             return ""
         pedido = text
-        instrucao = (AGENTE_CFG.get("instrucao_voz") or "").strip()
+        cfg = self._agente_cfg()
+        instrucao = (cfg.get("instrucao_voz") or "").strip()
         # Hermes usa o SOUL do perfil; o canal do Claude manda a instrução ao conectar.
-        if AGENTE_CFG["tipo"] not in ("hermes", "claude") and instrucao and not self._instruido:
+        if cfg["tipo"] not in ("hermes", "claude") and instrucao and not self._instruido:
             pedido = f"{instrucao}\n\n{text}"
             self._instruido = True
 
@@ -2200,7 +2316,7 @@ class Daemon:
         try:
             fim = ag.perguntar(pedido, ao_texto, ao_pensamento, a_ferramenta,
                                parar=_Parar(),
-                               teto=600.0 if AGENTE_CFG["tipo"] == "claude" else 120.0)
+                               teto=600.0 if cfg["tipo"] == "claude" else 120.0)
             if fim not in ("end_turn", "cancelled"):
                 LOG.info("agente ACP: turno terminou com %s", fim or "?")
         except acp.ErroACP as e:
@@ -2309,7 +2425,7 @@ class Daemon:
                         break
                     if not raw or len(raw) < capture_bytes:
                         break
-                    if _RELOGIO is not None and _RELOGIO.mic_ativo():
+                    if _RELOGIO is not None and (_RELOGIO.mic_ativo() or self._origem == "relogio"):
                         continue    # a fala vem do relógio: o microfone do PC não entra junto
                     bloco = np.frombuffer(raw, dtype=np.int16)
                     if self.capture_rate != SAMPLE_RATE:

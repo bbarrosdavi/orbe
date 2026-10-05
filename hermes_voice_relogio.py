@@ -7,10 +7,12 @@ o toque, os comandos do orb_control e a fala captada pelo relógio.
 
 Conversa (texto = uma linha por mensagem; binário = PCM s16le mono 16 kHz):
   ponte   → desafio <sal em hex>                    ao conectar
-  relógio → ola {"prova": "...", "nome": "...", "voz": true}
+  relógio → ola {"prova": "...", "nome": "...", "voz": true, "voz_pc": false}
                                                     a prova de que tem o token;
-                                                    voz: toca a resposta no relógio
-  ponte   → ola {"v": 1, "orbe": {...}, "tema": {...}, "microfone": true, "voz": false}
+                                                    voz: toca a resposta no relógio;
+                                                    voz_pc: toca também no PC
+  ponte   → ola {"v": 1, "orbe": {...}, "tema": {...}, "microfone": true, "voz": false,
+                 "voz_pc": false}                   voz_pc: o PC pode tocar junto
   ponte   → show listening | state thinking | level 0.42 0.60 | mic 0.3
             line <texto> | hold 1 | hide | clear    as linhas que o orbe recebe
   ponte   → config {"orbe": {...}, "tema": {...}}   aparência ou tema mudaram
@@ -18,8 +20,9 @@ Conversa (texto = uma linha por mensagem; binário = PCM s16le mono 16 kHz):
   relógio → toggle | trigger | dismiss | hold | release
   relógio → (binário) a fala, enquanto o dedo segura o orbe
 
-Quando quem serve a ponte fala pelo relógio (hermes_voice_pulso.py), a
-resposta vai em PCM s16le mono, na taxa anunciada:
+Quando quem serve a ponte fala pelo relógio (hermes_voice_pulso.py, ou o
+daemon numa sessão aberta pelo relógio), a resposta vai em PCM s16le mono,
+na taxa anunciada:
   ponte   → voz 24000 | (binário) a resposta | voz fim | voz corta (cala já)
   relógio → voz acabou                              tocou até o fim
 
@@ -145,11 +148,13 @@ class PonteRelogio:
     chamados da thread da ponte e não podem bloquear.
 
     Com voz=True a resposta toca no relógio: falar(pcm) manda o áudio a quem
-    pediu voz e ao_fala_fim() avisa que o relógio tocou até o fim.
+    pediu voz e ao_fala_fim() avisa que o relógio tocou até o fim. Com
+    voz_pc=True o PC também tem voz (o daemon), e cada relógio diz se quer a
+    resposta tocando lá junto (quer_voz_pc).
     """
 
     def __init__(self, porta: int, token: str, ao_controle, ao_comando, ao_quadro=None,
-                 host: str = "0.0.0.0", ao_fala_fim=None, voz: bool = False):
+                 host: str = "0.0.0.0", ao_fala_fim=None, voz: bool = False, voz_pc: bool = False):
         self.porta = int(porta)
         self.host = host
         self._token = token.strip().lower().encode()
@@ -158,7 +163,9 @@ class PonteRelogio:
         self._ao_quadro = ao_quadro
         self._ao_fala_fim = ao_fala_fim
         self._voz = voz
+        self._voz_pc = voz_pc
         self._com_voz = set()         # conexões que tocam a resposta
+        self._pc_junto = set()        # das que tocam, as que querem o PC tocando também
         self._loop = None
         self._servidor = None
         self._fim = None
@@ -230,8 +237,8 @@ class PonteRelogio:
             return
         linha = linha.strip()
         op = linha.split(" ", 1)[0]
-        if op in ("warm", "quit", ""):
-            return
+        if op in ("warm", "quit", "olhos", ""):
+            return                    # só do orbe do PC
         if not self._clientes and op in ("level", "mic"):
             return                    # dezenas por segundo: sem relógio, nem acorda o laço
         try:
@@ -270,11 +277,16 @@ class PonteRelogio:
         LOG.info("relógio %s não acompanha; desconectando", _par(ws))
         self._clientes.pop(ws, None)
         self._com_voz.discard(ws)
+        self._pc_junto.discard(ws)
         asyncio.ensure_future(ws.close(1013, "lento"))
 
     def quer_voz(self) -> bool:
         """Há relógio conectado que toca a resposta."""
         return bool(self._com_voz)
+
+    def quer_voz_pc(self) -> bool:
+        """Algum relógio que toca a resposta pediu o PC tocando junto."""
+        return bool(self._com_voz & self._pc_junto)
 
     def falar(self, pcm: bytes) -> None:
         """Um trecho da resposta em voz, na taxa do "voz <taxa>" publicado antes."""
@@ -338,7 +350,8 @@ class PonteRelogio:
         self._falhas.pop(ip, None)
         nome = str(quem.get("nome") or "relógio")[:40]
         fila = asyncio.Queue(maxsize=1024)
-        ola = dict(aparencia(), v=VERSAO, microfone=self._ao_quadro is not None, voz=self._voz)
+        ola = dict(aparencia(), v=VERSAO, microfone=self._ao_quadro is not None, voz=self._voz,
+                   voz_pc=self._voz_pc)
         fila.put_nowait("ola " + json.dumps(ola, ensure_ascii=False))
         for l in self._reprise():
             fila.put_nowait(l)
@@ -347,6 +360,8 @@ class PonteRelogio:
         self._restos[ws] = bytearray()
         if self._voz and quem.get("voz"):
             self._com_voz.add(ws)
+            if self._voz_pc and quem.get("voz_pc"):
+                self._pc_junto.add(ws)
         LOG.info("Relógio conectado: %s (%s)", nome, ip)
         escritor = asyncio.ensure_future(self._escrever(ws, fila))
         try:
@@ -362,6 +377,7 @@ class PonteRelogio:
             self._clientes.pop(ws, None)
             self._restos.pop(ws, None)
             self._com_voz.discard(ws)
+            self._pc_junto.discard(ws)
             LOG.info("Relógio desconectado: %s (%s)", nome, ip)
 
     def _autenticar(self, primeira, sal: bytes):

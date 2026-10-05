@@ -2,6 +2,12 @@
 """TTS do orb. Segue tts.provider do perfil Jarvis a cada frase.
 xAI = mesmo OAuth da GUI (wss://api.x.ai/v1/tts → PCM 24 kHz).
 CANCEL em thread — corta pw-cat no meio da frase.
+
+Para onde a frase vai: "DEST pc=1 relogio=0" antes do SAY (o daemon manda a
+cada frase). Com relogio=1 o áudio sai também no stdout, para a ponte do
+relógio: "VOZ <taxa>" ao abrir a frase e "PCM <base64 do s16le>" por bloco.
+Sem o PC, o pw-cat não segura o ritmo, então o envio anda no tempo da fala
+(no máximo ADIANTE_S à frente), e o nível do orbe do PC acompanha o relógio.
 """
 from __future__ import annotations
 
@@ -115,6 +121,25 @@ def _is_ack(text: str) -> bool:
     return _ack_key(text) in {_ack_key(p) for p in ACK_PHRASES}
 
 
+class _SoRelogio:
+    """O lugar do pw-cat quando a voz não toca no PC: o fim espera o áudio acabar."""
+
+    stdin = None
+
+    def __init__(self, worker: "Worker"):
+        self._w = worker
+
+    def poll(self):
+        return 0
+
+    def kill(self):
+        pass
+
+    def wait(self, timeout=None):
+        self._w._ritmo_relogio(0.0)
+        return 0
+
+
 class Worker:
     # Conexao quente do WebSocket da xAI. Medido em 2026-09-01: handshake
     # 0.56s contra 0.53s de sintese, ou seja mais da METADE da latencia ate o
@@ -123,7 +148,15 @@ class Worker:
     # em vez de ~1.10s. TTL curto porque socket ocioso e fechado do outro lado.
     WARM_TTL = 45.0
 
+    # sem o PC, o envio ao relógio fica no máximo isto à frente da fala
+    ADIANTE_S = 0.25
+
     def __init__(self):
+        self.pc = True               # a frase toca no PC (pw-cat)
+        self.relogio = False         # e/ou vai ao relógio pelo stdout
+        self._rel_taxa = RATE
+        self._rel_t0 = 0.0
+        self._rel_seg = 0.0          # segundos de áudio já mandados nesta frase
         self.cancel = threading.Event()
         self._play = None
         self._play_lock = threading.Lock()
@@ -143,7 +176,32 @@ class Worker:
             except OSError:
                 pass
 
-    def _open_play(self, rate: int) -> subprocess.Popen:
+    def _open_play(self, rate: int):
+        if self.relogio:
+            print(f"VOZ {rate}", flush=True)
+            self._rel_taxa = rate
+            self._rel_t0 = time.monotonic()
+            self._rel_seg = 0.0
+        if self.pc:
+            return self._abrir_pwcat(rate)
+        self._kill_play()
+        play = _SoRelogio(self)
+        with self._play_lock:
+            self._play = play
+        return play
+
+    def _ritmo_relogio(self, adiante: float):
+        """Espera até o áudio mandado estar a no máximo `adiante` s do fim."""
+        espera = self._rel_t0 + self._rel_seg - adiante - time.monotonic()
+        if espera > 0:
+            self.cancel.wait(espera)
+
+    def _destino(self, arg: str):
+        d = dict(par.split("=", 1) for par in arg.split() if "=" in par)
+        self.pc = d.get("pc", "1") != "0"
+        self.relogio = d.get("relogio", "0") != "0"
+
+    def _abrir_pwcat(self, rate: int) -> subprocess.Popen:
         self._kill_play()
         proc = subprocess.Popen(
             ["pw-cat", "-p", "-a", "--format", "s16", "--rate", str(rate),
@@ -208,12 +266,19 @@ class Worker:
         if self.cancel.is_set():
             self._kill_play()
             return False
+        if self.relogio and not self.pc:
+            self._ritmo_relogio(self.ADIANTE_S)
+            if self.cancel.is_set():
+                return False
         if play.stdin:
             try:
                 play.stdin.write(raw)
                 play.stdin.flush()
             except BrokenPipeError:
                 return False
+        if self.relogio and raw:
+            print("PCM " + base64.b64encode(raw).decode(), flush=True)
+            self._rel_seg += len(raw) / 2 / self._rel_taxa
         self._level(raw)
         return True
 
@@ -603,13 +668,35 @@ class Worker:
                 return False
             if self.cancel.is_set():
                 return True
-            subprocess.run(["pw-play", wav], timeout=30, capture_output=True)
+            if self.relogio:
+                self._tocar_wav(wav)
+            else:
+                subprocess.run(["pw-play", wav], timeout=30, capture_output=True)
             return True
         finally:
             try:
                 os.unlink(wav)
             except OSError:
                 pass
+
+    def _tocar_wav(self, wav: str):
+        """O wav do Piper pelo mesmo caminho do PCM: relógio (e PC, se for o caso)."""
+        import wave
+        with wave.open(wav, "rb") as w:
+            play = self._open_play(w.getframerate())
+            while True:
+                bloco = w.readframes(2048)
+                if not bloco or not self._feed(play, bloco):
+                    break
+        if play.stdin:
+            try:
+                play.stdin.close()
+            except OSError:
+                pass
+        try:
+            play.wait(timeout=30)
+        except Exception:
+            pass
 
     def say(self, text: str):
         text = clean(text)
@@ -678,6 +765,10 @@ class Worker:
                 # nao pode esperar a frase anterior terminar de tocar.
                 threading.Thread(target=self.prewarm, daemon=True).start()
                 continue
+            if line.startswith("DEST "):
+                # na fila, para valer a partir da frase seguinte e não da que toca
+                self._cmds.put(("DEST", line[5:]))
+                continue
             if line.startswith("SAY "):
                 self._cmds.put(line[4:])
 
@@ -689,6 +780,9 @@ class Worker:
             item = self._cmds.get()
             if item is None:
                 return
+            if isinstance(item, tuple):
+                self._destino(item[1])
+                continue
             if self.cancel.is_set():
                 self.cancel.clear()
             self.say(item)
