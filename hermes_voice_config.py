@@ -12,6 +12,18 @@ from pathlib import Path
 CONFIG_PATH = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "hermes-voice" / "config.json"
 # Estado que o daemon publica para o app (modelos que o agente oferece etc.).
 STATE_PATH = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "hermes-voice" / "agente.json"
+# Chaves de API do próprio orbe, fora do config.json (que vai e volta pela
+# ponte do relógio): KEY=valor, só para o dono ler. Chave vazia aqui herda a
+# do Hermes.
+CHAVES_PATH = CONFIG_PATH.parent / "chaves.env"
+HERMES_ENV = Path.home() / ".hermes" / ".env"
+# as que o orbe usa: (variável, para quê)
+CHAVES = (
+    ("GROQ_API_KEY", "Groq: transcrição (Whisper)"),
+    ("ELEVENLABS_API_KEY", "ElevenLabs: voz"),
+    ("GEMINI_API_KEY", "Gemini: voz"),
+    ("XAI_API_KEY", "xAI: voz (sem o login do Hermes)"),
+)
 
 INSTRUCAO_VOZ = (
     "Você é um assistente de voz. A mensagem do usuário é a transcrição automática "
@@ -70,7 +82,7 @@ DEFAULTS = {
         "xai_voz": "",
         "piper_voz": "",
         # ElevenLabs: o voice_id (da biblioteca da conta) e o modelo; a chave
-        # é a ELEVENLABS_API_KEY do .env do Hermes
+        # é a ELEVENLABS_API_KEY (chaves.env do orbe, senão o .env do Hermes)
         "elevenlabs_voz": "",
         "elevenlabs_modelo": "eleven_flash_v2_5",
     },
@@ -98,6 +110,8 @@ DEFAULTS = {
         "glitch": True,
         # sombra radial atrás do orbe (pos.frag); a chave guarda o nome antigo
         "vidro": False,
+        # opacidade da sombra no centro (0.1 a 1.0); 0.45 era o valor fixo
+        "sombra": 0.45,
         # escala do orbe na tela (0.6 a 1.6); 1.0 = célula de 148 px
         "tamanho": 1.0,
         # onde aparece o texto do raciocínio: lado | abaixo
@@ -129,6 +143,7 @@ DEFAULTS = {
             "vibrar": True,
             "texto": True,        # as linhas do raciocínio abaixo do orbe
             "glitch": True,
+            "linhas": True,       # as linhas de TV (só no relógio; no PC elas vêm com o glitch)
             "tamanho": 1.0,
             "seguir_pc": True,    # o avatar e o glitch vêm do orbe do PC
         },
@@ -187,3 +202,57 @@ def gravar_estado(estado: dict) -> None:
     tmp = STATE_PATH.with_suffix(".tmp")
     tmp.write_text(json.dumps(estado, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, STATE_PATH)
+
+
+def ler_env(arquivo: Path) -> dict:
+    """KEY=valor de um .env (aspas em volta saem; comentário e linha vazia, não contam)."""
+    out = {}
+    try:
+        linhas = arquivo.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return out
+    for linha in linhas:
+        linha = linha.strip()
+        if linha and not linha.startswith("#") and "=" in linha:
+            k, v = linha.split("=", 1)
+            out[k.strip()] = v.strip().strip('"').strip("'")
+    return out
+
+
+def chaves_proprias() -> dict:
+    return {k: v for k, v in ler_env(CHAVES_PATH).items() if v}
+
+
+def gravar_chaves(chaves: dict) -> None:
+    """Só as não vazias; o arquivo nasce 0600 (não passa por um instante legível)."""
+    CHAVES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = CHAVES_PATH.with_suffix(".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        for k, v in chaves.items():
+            v = str(v).strip()
+            if v:
+                f.write(f"{k}={v}\n")
+    os.replace(tmp, CHAVES_PATH)
+
+
+def aplicar_chaves(env=None) -> dict:
+    """As chaves no ambiente: a própria do orbe vale; sem ela, a que já está no
+    ambiente; sem nenhuma, a do .env do Hermes. Devolve de onde veio cada uma
+    ("propria", "ambiente", "hermes" ou "")."""
+    env = os.environ if env is None else env
+    proprias, hermes = chaves_proprias(), ler_env(HERMES_ENV)
+    origem = {}
+    for k, _ in CHAVES:
+        if proprias.get(k):
+            env[k], origem[k] = proprias[k], "propria"
+        elif env.get(k):
+            origem[k] = "ambiente"
+        elif hermes.get(k):
+            env[k], origem[k] = hermes[k], "hermes"
+        else:
+            origem[k] = ""
+    # o Gemini aceita a GOOGLE_API_KEY no lugar; ela só vem do Hermes
+    if not env.get("GEMINI_API_KEY") and not env.get("GOOGLE_API_KEY") and hermes.get("GOOGLE_API_KEY"):
+        env["GOOGLE_API_KEY"] = hermes["GOOGLE_API_KEY"]
+    return origem

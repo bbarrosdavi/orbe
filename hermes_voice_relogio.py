@@ -17,9 +17,12 @@ Conversa (texto = uma linha por mensagem; binário = PCM s16le mono 16 kHz):
                                                     agentes: os que cada orbe pode ter
   ponte   → show listening | state thinking | level 0.42 0.60 | mic 0.3
             line <texto> | hold 1 | hide | clear    as linhas que o orbe recebe
-  ponte   → config {"orbe": {...}, "tema": {...}}   aparência ou tema mudaram
+  ponte   → config {"orbe": {...}, "tema": {...}, "papel": [...]}   aparência, tema ou papel de parede mudaram
   relógio → touch down | touch up                   dedo no orbe
-  relógio → toggle | trigger | dismiss | hold | release
+  relógio → toggle | trigger | dismiss | hold | release | interromper | encerrar
+                                                    interromper: corta a fala e deixa ouvindo;
+                                                    encerrar: fecha a sessão e, com o Claude no
+                                                    orbe, a sessão do Claude Code
   relógio → agente <id>                             o agente do orbe em tela (vazio = Claude)
   relógio → (binário) a fala, enquanto o dedo segura o orbe (ou na sessão
             aberta por "trigger", enquanto ela ouve)
@@ -39,7 +42,8 @@ sal novo a cada conexão, cara de adivinhar para quem só escuta a rede. O que
 vem depois (o raciocínio, a fala) vai em claro: fora de uma rede de confiança,
 ponha a ponte atrás de um proxy com TLS (o relógio aceita wss://) ou numa VPN.
 
-Só a biblioteca padrão e o websockets, que o daemon já tem. Avulso:
+Só a biblioteca padrão e o websockets, que o daemon já tem (o Pillow, se
+houver, lê o papel de parede para o fundo do relógio). Avulso:
   hermes_voice_relogio.py              mostra o endereço e o token do pareamento
   hermes_voice_relogio.py --ligar      liga a ponte no config (--desligar desfaz)
   hermes_voice_relogio.py --novo-token troca o token
@@ -74,11 +78,19 @@ QUADRO = 960                 # 30 ms a 16 kHz, s16: o quadro do daemon
 # sem "l", "1", "0" e "o": o token é digitado no relógio
 ALFABETO = "abcdefghjkmnpqrstuvwxyz23456789"
 # o que o relógio pode pedir além do toque (os verbos do orb_control)
-COMANDOS = ("toggle", "trigger", "dismiss", "hold", "release")
+# interromper: o toque curto contado no relógio (sem a trava do duplo toque);
+# encerrar: três toques, fecha a sessão e o agente do orbe (o Claude no PC)
+COMANDOS = ("toggle", "trigger", "dismiss", "hold", "release", "interromper", "encerrar")
 ESTADOS = ("idle", "listening", "thinking", "speaking", "tools")
 
 DANK_CSS = Path.home() / ".config" / "gtk-4.0" / "dank-colors.css"
 ACCENT_CSS = Path.home() / "Projetos/Docs_rice_sistema/main.css"
+DMS_SESSAO = Path.home() / ".local/state/DankMaterialShell/session.json"
+PAPEL_LADO = 12
+# a janela do app no meio da tela: 700 px de altura numa de 864 (lógicos) e
+# 500 de largura; o relógio estica esse retângulo no mostrador
+PAPEL_ALTURA = 700 / 864
+PAPEL_ASPECTO = 500 / 700
 TEMA_PADRAO = {"accent_bg_color": "#b8cacb", "accent_fg_color": "#233334", "window_bg_color": "#121414",
                "window_fg_color": "#e3e2e2", "view_bg_color": "#121414", "popover_bg_color": "#1f2020"}
 
@@ -100,11 +112,52 @@ def tema() -> dict:
     return t
 
 
+def _papel_caminho():
+    """O papel de parede do DMS; sem o DMS (ou noutro sistema), None."""
+    try:
+        p = json.loads(DMS_SESSAO.read_text()).get("wallpaperPath") or ""
+    except (OSError, ValueError, AttributeError):
+        return None
+    return Path(p) if p else None
+
+
+_papel_guardado = (None, [])
+
+
+def papel() -> list:
+    """O papel de parede atrás do app, para o fundo do relógio: no PC o fundo
+    do app é o papel borrado pelo niri, e o relógio não tem papel nenhum. Vai o
+    retângulo do meio da tela, onde a janela do app fica, em PAPEL_LADO x
+    PAPEL_LADO cores (linha a linha, de cima). Vazio sem o papel ou sem o Pillow."""
+    global _papel_guardado
+    caminho = _papel_caminho()
+    if caminho is None:
+        return []
+    chave = (str(caminho), _mtime(caminho))
+    if _papel_guardado[0] == chave:
+        return _papel_guardado[1]
+    cores = []
+    try:
+        from PIL import Image
+        with Image.open(caminho) as im:
+            im.draft("RGB", (im.width // 8, im.height // 8))   # o JPEG já decodifica reduzido
+            im = im.convert("RGB")
+            alto = int(im.height * PAPEL_ALTURA)
+            largo = min(im.width, int(alto * PAPEL_ASPECTO))
+            x0, y0 = (im.width - largo) // 2, (im.height - alto) // 2
+            im = im.crop((x0, y0, x0 + largo, y0 + alto)).resize((PAPEL_LADO, PAPEL_LADO), Image.BOX)
+            cores = ["#%02x%02x%02x" % im.getpixel((x, y)) for y in range(PAPEL_LADO) for x in range(PAPEL_LADO)]
+    except Exception as e:
+        LOG.debug("papel de parede: %s", e)
+    _papel_guardado = (chave, cores)
+    return cores
+
+
 def aparencia() -> dict:
     """O que o relógio precisa para desenhar o orbe igual ao do PC."""
     o = vcfg.carregar()["orbe"]
     return {"orbe": {"skin": o["skin"], "glitch": bool(o["glitch"]), "tamanho": o["tamanho"]},
-            "tema": tema()}
+            "tema": tema(), "papel": papel()}
 
 
 def novo_token() -> str:
@@ -129,7 +182,7 @@ def token_da_config(trocar: bool = False) -> str:
 
 # o que o app do relógio guarda e o app do PC também edita (relogio.ajustes)
 CAMPOS_AJUSTES = {"voz": bool, "voz_pc": bool, "microfone": bool, "vibrar": bool,
-                  "texto": bool, "glitch": bool, "seguir_pc": bool, "tamanho": float}
+                  "texto": bool, "glitch": bool, "linhas": bool, "seguir_pc": bool, "tamanho": float}
 
 
 def ajustes_relogio() -> dict:
@@ -180,7 +233,8 @@ def enderecos() -> list:
 
 
 def _assinatura() -> tuple:
-    return tuple(_mtime(p) for p in (vcfg.CONFIG_PATH, DANK_CSS, ACCENT_CSS))
+    caminho = _papel_caminho()
+    return tuple(_mtime(p) for p in (vcfg.CONFIG_PATH, DANK_CSS, ACCENT_CSS)) + (str(caminho), caminho and _mtime(caminho))
 
 
 class PonteRelogio:

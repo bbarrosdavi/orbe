@@ -15,6 +15,7 @@ Item {
     property string skin: "ofanim"
     property bool glitch: true
     property bool vidro: false             // sombra atrás do orbe (chave antiga do config)
+    property real sombra: 0.45             // opacidade da sombra no centro
     property real tamanho: 1.0
     property string textoPos: "lado"       // lado | abaixo: onde fica o raciocínio
     property color corTema: "#b8cacb"      // @accent_bg_color: cor dos avatares
@@ -237,6 +238,7 @@ Item {
             mix: orbe.mix
             sombraLigada: orbe.vidro
             sombraRaio: orbe.raioSombra
+            sombraAlfa: orbe.sombra
             sombraCor: orbe.corFundo
             voz: orbe.nivelS
             mic: orbe.micS
@@ -249,6 +251,7 @@ Item {
             mix: orbe.mix
             sombraLigada: orbe.vidro
             sombraRaio: orbe.raioSombra
+            sombraAlfa: orbe.sombra
             sombraCor: orbe.corFundo
             estado: orbe.estado
             nivel: orbe.nivel

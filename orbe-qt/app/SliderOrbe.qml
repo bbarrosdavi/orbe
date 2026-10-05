@@ -1,19 +1,23 @@
 import QtQuick
 import "."
 
-// Tamanho do orbe na tela. O botão do slider é a miniatura viva da skin
-// escolhida.
+// Slider em % da Aparência (tamanho do orbe, intensidade da sombra). O botão
+// é a miniatura viva da skin escolhida, ou o que vier em [botao].
 Item {
     id: s
     property real valor: 1.0
     property real de: 0.6
     property real ate: 1.6
     property real passo: 0.05
+    property string titulo: "Tamanho"
+    property string subtitulo: "escala do orbe na tela"
+    property real marca: 1.0               // o valor de antes, marcado no trilho
     property string skin: "ofanim"
     property bool glitch: true
+    property Component botao: compMini
     readonly property int lado: 58
     readonly property real fracao: (valor - de) / (ate - de)
-    function avancar(dt) { mini.avancar(dt) }
+    function avancar(dt) { if (arte.item && arte.item.avancar) arte.item.avancar(dt) }
     function definir(v) {
         v = Math.min(ate, Math.max(de, de + Math.round((v - de) / passo) * passo))
         valor = parseFloat(v.toFixed(2))
@@ -33,12 +37,12 @@ Item {
         y: 12
         spacing: 2
         Text {
-            text: "Tamanho"
+            text: s.titulo
             color: Estilo.texto
             font.pointSize: 11
         }
         Text {
-            text: "escala do orbe na tela"
+            text: s.subtitulo
             color: Estilo.texto
             opacity: 0.55
             font.pointSize: 9
@@ -79,9 +83,9 @@ Item {
             color: Estilo.alfa(Estilo.texto, 0.12)
         }
         Rectangle {
-            // marca do tamanho original (some dentro do vão)
+            // marca do valor de antes (some dentro do vão)
             visible: Math.abs(x + 1 - parent.pos) > parent.vao
-            x: (1.0 - s.de) / (s.ate - s.de) * parent.width - 1
+            x: (s.marca - s.de) / (s.ate - s.de) * parent.width - 1
             y: -4
             width: 2
             height: parent.height + 8
@@ -97,10 +101,16 @@ Item {
         y: trilho.y + trilho.height / 2 - s.lado / 2
         scale: arrasto.pressed ? 1.12 : (hv.hovered ? 1.05 : 1.0)
         Behavior on scale { NumberAnimation { duration: 120 } }
+        Loader {
+            id: arte
+            anchors.fill: parent
+            sourceComponent: s.botao
+        }
+    }
+    Component {
+        id: compMini
         // o botão é só o orbe, sem aro nem disco
         Miniatura {
-            id: mini
-            anchors.fill: parent
             skin: s.skin
             glitch: s.glitch
             peso: 0.9

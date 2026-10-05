@@ -353,6 +353,21 @@ class Ponte(QObject):
         return _tts_do_perfil()
 
     @Property("QVariant", constant=True)
+    def chaves(self):
+        """As chaves do orbe e o que vale quando a própria está vazia."""
+        proprias, hermes = vcfg.chaves_proprias(), vcfg.ler_env(vcfg.HERMES_ENV)
+        out = []
+        for k, nome in vcfg.CHAVES:
+            if hermes.get(k):
+                herda = "vazia: a do Hermes (…" + hermes[k][-4:] + ")"
+            elif os.environ.get(k):
+                herda = "vazia: a do ambiente"
+            else:
+                herda = "sem chave"
+            out.append({"id": k, "nome": nome, "propria": proprias.get(k, ""), "herda": herda})
+        return out
+
+    @Property("QVariant", constant=True)
     def nomesSkin(self):
         return NOMES_SKIN
 
@@ -639,6 +654,11 @@ class Ponte(QObject):
     def aplicar(self, novo, atalho):
         novo = _do_js(novo)
         erro = ""
+        # as chaves vão para o chaves.env; o daemon as lê ao subir
+        chaves = {k: v for k, v in (novo.pop("chaves", None) or {}).items() if v}
+        chaves_mudaram = chaves != vcfg.chaves_proprias()
+        if chaves_mudaram:
+            vcfg.gravar_chaves(chaves)
         if atalho != _atalho_atual():
             erro = _gravar_atalho(atalho)
             if erro:
@@ -673,11 +693,12 @@ class Ponte(QObject):
             c = sem(c, *chaves)
             c["relogio"].pop("ajustes", None)
             return c
-        mudou = sem(novo) != sem(self._cfg)
+        mudou = sem(novo) != sem(self._cfg) or chaves_mudaram
         # O orbe em Quickshell segue o config.json ao vivo, e a ponte leva os
         # ajustes do relógio: mudar só isso dispensa reiniciar o daemon (e
         # recarregar o agente).
-        so_orbe = mudou and sem_relogio(novo, "orbe") == sem_relogio(self._cfg, "orbe")
+        so_orbe = (mudou and not chaves_mudaram
+                   and sem_relogio(novo, "orbe") == sem_relogio(self._cfg, "orbe"))
         vcfg.salvar(novo)
         self._cfg = novo
         if erro:

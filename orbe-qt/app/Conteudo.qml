@@ -30,6 +30,7 @@ Item {
         if (pagina === "aparencia") {
             for (var i = 0; i < cartoes.count; i++) cartoes.itemAt(i).avancar(dt)
             tamanho.avancar(dt)
+            if (rSombra.visible) rSombra.avancar(dt)
         }
     }
 
@@ -359,6 +360,20 @@ Item {
                         visible: raiz.ttsEfetivo === "piper"
                     }
                 }
+                Grupo {
+                    titulo: "Chaves de API"
+                    descricao: "Vazia, vale a do Hermes. Preencha para usar o orbe com outro agente ou numa máquina sem o Hermes. Ficam em ~/.config/hermes-voice/chaves.env, legível só por você."
+                    Repeater {
+                        id: rChaves
+                        model: ponte.chaves
+                        LinhaChave {
+                            required property var modelData
+                            titulo: modelData.nome
+                            herda: modelData.herda
+                            texto: modelData.propria
+                        }
+                    }
+                }
             }
 
             // ═══ Conversa ═══
@@ -479,6 +494,31 @@ Item {
                         id: rVidro
                         titulo: "Sombra atrás do orbe"
                         subtitulo: "degradê escuro que some até a borda, para a figura destacar do fundo"
+                    }
+                    SliderOrbe {
+                        id: rSombra
+                        visible: rVidro.ligado
+                        titulo: "Intensidade da sombra"
+                        subtitulo: "opacidade no centro"
+                        de: 0.1; ate: 1.0; passo: 0.05
+                        marca: 0.45
+                        // o botão é o orbe sobre a própria sombra, no degradê do pos.frag
+                        botao: Component {
+                            Item {
+                                function avancar(dt) { mini.avancar(dt) }
+                                DiscoSombra {
+                                    anchors.fill: parent
+                                    alfa: rSombra.valor
+                                }
+                                Miniatura {
+                                    id: mini
+                                    anchors.fill: parent
+                                    skin: raiz.skin
+                                    glitch: rGlitch.ligado
+                                    peso: 0.9
+                                }
+                            }
+                        }
                     }
                     LinhaCombo {
                         id: rTexto
@@ -601,6 +641,12 @@ Item {
                         id: rwGlitch
                         titulo: "Glitch"
                         subtitulo: "aberração cromática e faixas arrancadas"
+                        visible: !rwSeguir.ligado
+                    }
+                    LinhaSwitch {
+                        id: rwLinhas
+                        titulo: "Linhas de TV"
+                        subtitulo: "linhas de varredura, como num tubo"
                         visible: !rwSeguir.ligado
                     }
                     LinhaSpin {
@@ -763,7 +809,8 @@ Item {
     property string tokenRelogio: ponte.cfg.relogio.token
     // aparência ainda não aplicada; a prévia do orbe acompanha cada mudança
     readonly property var aparencia: ({ skin: raiz.skin, glitch: rGlitch.ligado,
-                                        vidro: rVidro.ligado, tamanho: tamanho.valor,
+                                        vidro: rVidro.ligado, sombra: rSombra.valor,
+                                        tamanho: tamanho.valor,
                                         texto: rTexto.efetivo })
     onAparenciaChanged: if (ponte.previa) ponte.atualizarPrevia(aparencia)
     readonly property string ttsEfetivo: rTts.efetivo || ponte.ttsPerfil
@@ -820,6 +867,7 @@ Item {
         rwTexto.ligado = !!aj.texto
         rwSeguir.ligado = !!aj.seguir_pc
         rwGlitch.ligado = !!aj.glitch
+        rwLinhas.ligado = aj.linhas === undefined ? true : !!aj.linhas
         rwTamanho.valor = aj.tamanho === undefined ? 1.0 : aj.tamanho
         for (var i = 0; i < agentesOrbe.count; i++) {
             var l = agentesOrbe.itemAt(i)
@@ -836,6 +884,7 @@ Item {
         aj.texto = rwTexto.ligado
         aj.seguir_pc = rwSeguir.ligado
         aj.glitch = rwGlitch.ligado
+        aj.linhas = rwLinhas.ligado
         aj.tamanho = Math.round(rwTamanho.valor * 100) / 100
         aj.agentes = aj.agentes || {}
         for (var i = 0; i < agentesOrbe.count; i++) {
@@ -894,6 +943,7 @@ Item {
         skin = ["ofanim", "ofanim_alado", "shoggoth", "serafim_gravura", "entidade", "anel"].indexOf(sk) >= 0 ? sk : "ofanim"
         rGlitch.ligado = !!o.glitch
         rVidro.ligado = !!o.vidro
+        rSombra.definir(o.sombra === undefined ? 0.45 : o.sombra)
         rTexto.valor = o.texto || "lado"
         rMover.ligado = !!o.mover
         tamanho.definir(o.tamanho === undefined ? 1.0 : o.tamanho)
@@ -943,9 +993,14 @@ Item {
         cfg.orbe.skin = raiz.skin
         cfg.orbe.glitch = rGlitch.ligado
         cfg.orbe.vidro = rVidro.ligado
+        cfg.orbe.sombra = rSombra.valor
         cfg.orbe.tamanho = tamanho.valor
         cfg.orbe.texto = rTexto.efetivo
         cfg.orbe.mover = rMover.ligado
+        // vão à parte, para o chaves.env (o config.json não guarda chave)
+        cfg.chaves = {}
+        for (var i = 0; i < rChaves.count; i++)
+            cfg.chaves[ponte.chaves[i].id] = rChaves.itemAt(i).texto.trim()
         return cfg
     }
     function aplicar() {

@@ -39,6 +39,8 @@ ShellRoot {
         conteudo.skin = o.skin === "serafim" ? "serafim_gravura" : String(o.skin || "ofanim")
         conteudo.glitch = o.glitch === undefined ? true : !!o.glitch
         conteudo.vidro = !!o.vidro
+        var som = parseFloat(o.sombra)
+        conteudo.sombra = isNaN(som) ? 0.45 : Math.min(1.0, Math.max(0.1, som))
         var tam = parseFloat(o.tamanho)
         conteudo.tamanho = isNaN(tam) ? 1.0 : Math.min(1.6, Math.max(0.6, tam))
         conteudo.textoPos = o.texto === "abaixo" ? "abaixo" : "lado"

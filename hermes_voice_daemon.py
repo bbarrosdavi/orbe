@@ -162,20 +162,9 @@ ELEVENLABS_API_URL = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_V
 PIPER_BIN = "/opt/hermes-agent/venv/bin/piper"
 PIPER_MODEL = str(Path.home() / ".hermes/piper_models/pt_BR-dii-high.onnx")
 
-# ── Carrega variáveis de ambiente do .env do Hermes ──
-_HERMES_ENV = Path.home() / ".hermes" / ".env"
-if _HERMES_ENV.exists():
-    with open(_HERMES_ENV) as f:
-        for line in f:
-            line = line.strip()
-            if line.startswith("GROQ_API_KEY="):
-                os.environ.setdefault("GROQ_API_KEY", line.split("=", 1)[1].strip("\"'"))
-            elif line.startswith("ELEVENLABS_API_KEY=") and not os.environ.get("ELEVENLABS_API_KEY"):
-                os.environ["ELEVENLABS_API_KEY"] = line.split("=", 1)[1].strip("\"'")
-            elif line.startswith("GEMINI_API_KEY=") and not os.environ.get("GEMINI_API_KEY"):
-                os.environ["GEMINI_API_KEY"] = line.split("=", 1)[1].strip("\"'")
-            elif line.startswith("GOOGLE_API_KEY=") and not os.environ.get("GOOGLE_API_KEY"):
-                os.environ["GOOGLE_API_KEY"] = line.split("=", 1)[1].strip("\"'")
+# ── Chaves de API: as do orbe (chaves.env, editáveis no app); sem elas, as
+#    do .env do Hermes. O worker de TTS e o agente herdam este ambiente. ──
+vcfg.aplicar_chaves()
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_API_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
@@ -1417,7 +1406,25 @@ class Daemon:
 
     def _executar_cmd(self, low: str, origem: str):
         """Os verbos do orb_control (arquivo de comando ou relógio)."""
-        if any(w in low for w in ("dismiss", "stop", "hide", "tchau", "cancel")):
+        if "encerrar" in low:
+            # três toques no relógio: a sessão de voz fecha e, com o Claude no
+            # orbe, a sessão do Claude Code também (a janela do terminal fecha junto)
+            tipo = ((_RELOGIO.agente() if _RELOGIO is not None else "") or "claude") \
+                if origem == "relogio" else AGENTE_CFG["tipo"]
+            self._kill_active(hide=True)
+            self._end_session("encerrar")
+            if tipo == "claude":
+                pid = canal.encerrar()
+                LOG.info("encerrar: Claude %s", f"fechado (pid {pid})" if pid else "já não tinha sessão")
+        elif "interromper" in low:
+            # O toque curto do relógio, já contado lá (dois e três toques têm
+            # outro sentido): corta a fala ou o raciocínio e deixa ouvindo, sem
+            # a trava do duplo toque do touch.
+            self._toque_down(origem)
+            self._toque_curto_t = 0.0
+            self._toque_up()
+            self._toque_curto_t = 0.0
+        elif any(w in low for w in ("dismiss", "stop", "hide", "tchau", "cancel")):
             LOG.info("dismiss via cmdfile")
             self._kill_active(hide=True)
             self._end_session("dismiss")
@@ -1893,7 +1900,12 @@ class Daemon:
         self._tts_playing = True
         self._last_spoken.append(s)
         if _normalize_utterance(s) not in _ACK_NORMS:
-            self._tts_barge = BARGE_IN
+            # Sem AEC o Mic1 cru ouve o alto-falante a RMS ~20000 com Silero
+            # 0.96-1.0: a própria voz passa no critério de barge-in, a
+            # gravação semeada pelo anel transcreve o TTS e vira comando novo,
+            # em laço (05/10, voz da ElevenLabs). Sem AEC, só toque e atalho
+            # interrompem a fala.
+            self._tts_barge = BARGE_IN and self._aec_ok
             if self._tts_barge_after == 0.0:
                 self._tts_barge_after = time.monotonic() + 0.55
                 self._echo_rms = 0.0
@@ -2349,7 +2361,10 @@ class Daemon:
         LOG.info("Agente: %s | wake word: %s | barge-in: %s",
                  acp.NOMES.get(AGENTE_CFG["tipo"], AGENTE_CFG["tipo"])
                  + (f" ({AGENTE_CFG['perfil']})" if AGENTE_CFG["tipo"] == "hermes" else ""),
-                 WAKE_PROVEDOR, "ligado" if BARGE_IN else "desligado")
+                 WAKE_PROVEDOR,
+                 "desligado" if not BARGE_IN
+                 else "ligado" if self._aec_ok
+                 else "só calado (sem AEC, a fala do orbe não é interrompida por voz)")
         self._ensure_tts_worker()
         threading.Thread(target=self._tts_consumer, daemon=True).start()
         threading.Thread(target=_orb_boot, daemon=True).start()
@@ -2559,9 +2574,6 @@ class Daemon:
                     if not self._voz_do_dono(np.frombuffer(anel, dtype=np.int16), "barge-in"):
                         self._int_frames = 0
                         continue
-                    LOG.info("⚡ barge-in (rms=%.0f, piso=%d, %dms sustentados)",
-                             rms, INTERRUPT_MIN_RMS,
-                             INTERRUPT_SPEECH_FRAMES * FRAME_MS)
                     self._do_barge(rms)
                 else:
                     continue
@@ -2643,7 +2655,11 @@ class Daemon:
                     self._int_frames += 1
                 else:
                     self._int_frames = max(0, self._int_frames - 3)
-                if (BARGE_IN and self._int_frames >= INTERRUPT_SPEECH_FRAMES
+                # Sem AEC, quadro de TTS com RMS >= 3000 escapa do filtro acima
+                # e chega aqui: com o alto-falante tocando, nada vira
+                # continuação. Calado (pensando), segue valendo.
+                if (BARGE_IN and (self._aec_ok or not self._tts_playing)
+                        and self._int_frames >= INTERRUPT_SPEECH_FRAMES
                         and self._processing_thread
                         and self._processing_thread.is_alive()):
                     pre = b"".join(f for f, _ in self.preroll_buffer)

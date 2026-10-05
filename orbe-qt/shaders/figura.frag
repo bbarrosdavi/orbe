@@ -10,8 +10,12 @@
 // Figura.qml por uniform; o que é só função do tempo (brasas, fumaça, piscadas,
 // olhos dos aros) nasce aqui.
 
+#ifdef VERTICE
+out vec2 qt_TexCoord0;
+#else
 layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
+#endif
 
 layout(std140, binding = 0) uniform buf {
     mat4 qt_Matrix;
@@ -86,11 +90,30 @@ float traco(float d, float w, float aa) {
 
 float cobre(float sd, float aa) { return sat(0.5 - sd / aa); }
 
+// até onde, a partir do eixo, traco(d, w, aa) ainda pinta; mais um pixel de folga
+float alcance(float w, float aa) { return 0.5 * max(w, aa) + 1.5 * aa; }
+
+// longe da caixa dos pontos de controle de uma bézier quadrática além de r
+// (a curva fica dentro do fecho convexo deles)
+bool longeQ(vec2 p, vec2 a, vec2 b, vec2 c, float r) {
+    vec2 d = max(max(min(min(a, b), c) - p, p - max(max(a, b), c)), 0.0);
+    return dot(d, d) > r * r;
+}
+
 // Cobertura da íris no pixel (canal b da máscara): o pos.frag pinta ali a cor
 // própria dos olhos, quando há uma. O que é desenhado por cima a cobre também.
 float IR_ = 0.0;
 
-void sobre(inout float A, float a) { A = a + A * (1.0 - a); IR_ *= 1.0 - a; }
+// Nas primitivas do relógio (fim do arquivo) cada elemento sai num desenho
+// próprio, misturado na máscara: M_ é o quanto o que já estava embaixo sobrevive.
+#ifdef PRIMITIVAS
+float M_ = 1.0;
+#define SOBREVIVE(f) M_ *= (f)
+#else
+#define SOBREVIVE(f)
+#endif
+
+void sobre(inout float A, float a) { A = a + A * (1.0 - a); IR_ *= 1.0 - a; SOBREVIVE(1.0 - a); }
 
 float segd(vec2 p, vec2 a, vec2 b) {
     vec2 pa_ = p - a, ba = b - a;
@@ -222,31 +245,38 @@ void olho(inout float A, vec2 p, vec2 pos, float ang, float tam_, float ab, vec2
         float furo = dentro * cobre(sdP, aa);
         A *= 1.0 - furo;
         IR_ *= 1.0 - furo;
+        SOBREVIVE(1.0 - furo);
     }
 }
 
 // ── raios e ondas ──
 
-void desenhaRaios(inout float A, vec2 p, vec2 c, float R, float lim, float lw, float aa) {
+// o raio k (de 0 a n - 1) da coroa
+void umRaio(inout float A, vec2 p, vec2 c, float R, float lim, float lw, float aa, float k) {
     float n = raios.x, giro = raios.y, comp = raios.z, alfa = raios.w;
-    if (alfa <= 0.001 || n < 1.0) return;
-    vec2 d = p - c;
-    float rr = length(d);
     float r0 = R * 0.30;
-    if (rr < r0 - 2.0 || rr > lim + 2.0) return;
-    float passo = TAU / n;
-    float k0 = floor((atan(d.y, d.x) - giro) / passo + 0.5);
-    for (int j = -1; j <= 1; j++) {
-        float k = mod(k0 + float(j), n);
-        float a = k * passo + giro;
-        float L = min(lim, R * comp * (1.0 + 0.22 * abs(ruido(geo.z * 2.0, k))));
-        if (L <= r0) continue;
-        float meio = r0 + (L - r0) * 0.55;
-        float al = alfa * (0.6 + 0.4 * (0.5 + 0.5 * ruido(geo.z * 3.1, k * 2.0)));
-        vec2 dir = vec2(cos(a), sin(a));
-        sobre(A, traco(segd(p, c + dir * r0, c + dir * meio), 0.8 * lw, aa) * pa(al));
-        sobre(A, traco(segd(p, c + dir * meio, c + dir * L), 0.8 * lw, aa) * pa(al * 0.4));
-    }
+    float a = k * (TAU / n) + giro;
+    float L = min(lim, R * comp * (1.0 + 0.22 * abs(ruido(geo.z * 2.0, k))));
+    if (L <= r0) return;
+    float meio = r0 + (L - r0) * 0.55;
+    float al = alfa * (0.6 + 0.4 * (0.5 + 0.5 * ruido(geo.z * 3.1, k * 2.0)));
+    vec2 dir = vec2(cos(a), sin(a));
+    sobre(A, traco(segd(p, c + dir * r0, c + dir * meio), 0.8 * lw, aa) * pa(al));
+    sobre(A, traco(segd(p, c + dir * meio, c + dir * L), 0.8 * lw, aa) * pa(al * 0.4));
+}
+
+bool foraDosRaios(vec2 p, vec2 c, float R, float lim) {
+    float rr = length(p - c);
+    return rr < R * 0.30 - 2.0 || rr > lim + 2.0;
+}
+
+void desenhaRaios(inout float A, vec2 p, vec2 c, float R, float lim, float lw, float aa) {
+    float n = raios.x, giro = raios.y, alfa = raios.w;
+    if (alfa <= 0.001 || n < 1.0) return;
+    if (foraDosRaios(p, c, R, lim)) return;
+    vec2 d = p - c;
+    float k0 = floor((atan(d.y, d.x) - giro) / (TAU / n) + 0.5);
+    for (int j = -1; j <= 1; j++) umRaio(A, p, c, R, lim, lw, aa, mod(k0 + float(j), n));
 }
 
 void onda(inout float A, vec2 p, vec2 c, vec2 ra, float lw, float aa) {
@@ -304,13 +334,120 @@ float anelTheta(Anel a, vec2 c, vec2 p) {
 // olhos candidatos num pixel: guardo até três para pintar de trás para frente
 struct OlhoC { vec2 pos; float ang; float tam; float ab; vec2 alvo; float alfa; float z; };
 
+// olho idx dos aros (com 7, 8, 6 e 9 olhos): o aro, a vez dele no aro e quantos o aro tem
+ivec3 olhoDoAro(int idx) {
+    int iN = idx < 7 ? 0 : idx < 15 ? 1 : idx < 21 ? 2 : 3;
+    int ini = iN == 0 ? 0 : iN == 1 ? 7 : iN == 2 ? 15 : 21;
+    int n = iN == 0 ? 7 : iN == 1 ? 8 : iN == 2 ? 6 : 9;
+    return ivec3(iN, idx - ini, n);
+}
+
+float olhoTh(ivec3 e) { return float(e.y) * TAU / float(e.z) + ofa2.x * 0.05 * float(e.x + 1); }
+
+// centro (xy), profundidade (z) e tamanho (w) do olho; cs = cosseno e seno de olhoTh
+vec4 olhoPos(Anel a, vec2 c, float R, vec2 cs) {
+    float zA = cs.x * a.u.z + cs.y * a.v.z;
+    return vec4(c + (cs.x * a.u.xy + cs.y * a.v.xy) * (a.r * (1.0 + zA / 5.0)), zA,
+                R * 0.125 * (0.6 + 0.5 * (zA + 1.0) / 2.0));
+}
+
+// abertura: a piscada e a cascata ao despertar (d)
+float olhoAb(ivec3 e, int idx, float d) {
+    return pisca(float(e.x * 16 + e.y)) * sat((d - 0.45 - 0.4 * float(idx) / 30.0) / 0.12);
+}
+
+OlhoC olhoC(Anel a, vec2 c, ivec3 e, float th, vec4 P, float ab, float foco) {
+    vec3 P2 = anelP(a, c, th + 0.05, 1.0);
+    OlhoC o;
+    o.pos = P.xy; o.ang = atan(P2.y - P.y, P2.x - P.x); o.tam = P.w; o.ab = ab; o.z = P.z;
+    o.alvo = olharPara(P.xy, o.ang, foco, float(e.x * 13 + e.y * 7));
+    o.alfa = pa(0.35 + 0.65 * (P.z + 1.0) / 2.0);
+    return o;
+}
+
 #if SKIN < 2
+// um aro: traço principal e o fio de dentro, tom e largura pela profundidade
+void umAro(inout float A, vec2 p, vec2 c, float lw, float aa, int i) {
+    Anel a = anel(i);
+    float th = anelTheta(a, c, p);
+    vec3 P = anelP(a, c, th, 1.0);
+    float prof = (P.z + 1.0) * 0.5;
+    float al = pa(0.25 + 0.6 * prof);
+    sobre(A, traco(length(P.xy - p), 1.5 * (0.6 + 0.6 * prof) * lw, aa) * al);
+    vec3 Pi = anelP(a, c, th, 0.94);
+    sobre(A, traco(length(Pi.xy - p), 0.5 * (0.6 + 0.6 * prof) * lw, aa) * al);
+}
+
+// fogo entre as rodas: sobe e desce (Ez 1:13); 24 vagas que renascem a
+// cada 1,5 s, acesas na proporção do pensar e das ferramentas
+float taxaBrasas() { return (16.0 * est.y + 5.0 * est.z) / 16.0; }
+
+// a brasa da vaga j agora: centro, raio e alfa (alfa < 0: apagada)
+vec4 brasa(vec2 c, float R, float lim, float t, float lw, float taxa, int j) {
+    float fj = float(j);
+    float T = 1.5;
+    float s0 = t + hash(fj * 1.7 + 0.3) * T;
+    float ciclo = floor(s0 / T);
+    float idade = s0 - ciclo * T;
+    float vida = 0.7 + 0.7 * hash2(vec2(fj, ciclo) + 0.17);
+    if (idade > vida) return vec4(-1.0);
+    if (hash2(vec2(fj * 3.1, ciclo + 5.0)) > taxa) return vec4(-1.0);
+    float ang = TAU * hash2(vec2(fj, ciclo * 1.3 + 2.0));
+    float r0 = 0.15 + 0.75 * hash2(vec2(fj * 0.7, ciclo + 9.0));
+    vec2 b0 = vec2(cos(ang), sin(ang)) * r0;
+    float vx = (hash2(vec2(fj, ciclo + 13.0)) - 0.5) * 0.3;
+    float vy = -(0.5 + 0.6 * hash2(vec2(fj, ciclo + 17.0)));
+    vec2 bp = b0 + vec2(vx * idade, vy * idade + 0.55 * idade * idade);
+    vec2 px = c + bp * R;
+    if (length(px - c) >= lim) return vec4(-1.0);
+    float f = idade / vida;
+    float rad = max(0.6, 1.1 * lw * (1.0 - 0.5 * f));
+    float al = (1.0 - f) * (0.55 + 0.45 * abs(ruido(t * 9.0, b0.x * 50.0)));
+    return vec4(px, rad, al);
+}
+
+void umaBrasa(inout float A, vec2 p, vec4 b, float aa) {
+    if (b.w < 0.0 || length(p - b.xy) > b.z + 2.0 * aa) return;
+    sobre(A, cobre(length(p - b.xy) - b.z, aa) * pa(b.w));
+}
+
+// relâmpago r entre os olhos dos aros (Ez 1:14)
+void umRelampago(inout float A, vec2 p, float lw, float aa, int r) {
+    vec4 sg = r == 0 ? rel0 : rel1;
+    float al = r == 0 ? relInfo.x : relInfo.z;
+    float sem = r == 0 ? relInfo.y : relInfo.w;
+    if (al <= 0.0) return;
+    vec2 p0 = sg.xy, p1 = sg.zw;
+    vec2 dd = p1 - p0;
+    float dl = max(length(dd), 1e-3);
+    vec2 nrm = vec2(-dd.y, dd.x) / dl;
+    vec2 ant = p0;
+    float dmin = 1e9;
+    for (int j = 1; j <= 6; j++) {
+        vec2 q = p1;
+        if (j < 6) {
+            float s = float(j) / 6.0;
+            float o = (hash(sem * 17.0 + float(j)) * 2.0 - 1.0) * 0.14 * dl;
+            q = p0 + dd * s + nrm * o;
+        }
+        dmin = min(dmin, segd(p, ant, q));
+        ant = q;
+    }
+    sobre(A, traco(dmin, 3.0 * lw, aa) * pa(0.18 * al));
+    sobre(A, traco(dmin, 1.2 * lw, aa) * pa(0.95 * al));
+}
+
+// núcleo: o olho grande
+void nucleo(inout float A, vec2 p, vec2 c, float R, float lw, float aa) {
+    float t = geo.z, pensar = est.y, falar = est.w, clarao = ofa.z;
+    float brilho = 0.08 + 0.10 * falar + 0.08 * pensar * (0.5 + 0.5 * sin(t * 6.0)) + 0.20 * clarao;
+    sobre(A, cobre(length(p - c) - R * 0.34, aa) * pa(brilho));
+    olho(A, p, c, 0.0, R * 0.32, ofa.w, nucleoDir, 1.0, ofa.y, lw, aa);
+}
+
 void ofanim(inout float A, vec2 p, float aa, bool alado) {
     float R = geo.x, lim = geo.y, t = geo.z, lw = geo.w;
-    float ouvir = est.x, pensar = est.y, ferr = est.z, falar = est.w;
-    float mic = est2.y, d = est2.z;
-    float foco = ofa.x, pupila = ofa.y, clarao = ofa.z;
-    float fase = ofa2.x;
+    float d = est2.z, foco = ofa.x, pupila = ofa.y;
     vec2 c = centro;
 
     desenhaRaios(A, p, c, R, lim, lw, aa);
@@ -326,119 +463,53 @@ void ofanim(inout float A, vec2 p, float aa, bool alado) {
     float rmax = R * 1.25;
     bool perto = length(p - c) < rmax + 4.0;
     if (perto) {
-        for (int i = 0; i < 4; i++) {
-            Anel a = anel(i);
-            float th = anelTheta(a, c, p);
-            vec3 P = anelP(a, c, th, 1.0);
-            float prof = (P.z + 1.0) * 0.5;
-            float al = pa(0.25 + 0.6 * prof);
-            sobre(A, traco(length(P.xy - p), 1.5 * (0.6 + 0.6 * prof) * lw, aa) * al);
-            vec3 Pi = anelP(a, c, th, 0.94);
-            sobre(A, traco(length(Pi.xy - p), 0.5 * (0.6 + 0.6 * prof) * lw, aa) * al);
-        }
+        for (int i = 0; i < 4; i++) umAro(A, p, c, lw, aa, i);
     }
 
-    // fogo entre as rodas: sobe e desce (Ez 1:13); 24 vagas que renascem a
-    // cada 1,5 s, acesas na proporção do pensar e das ferramentas
-    float taxa = (16.0 * pensar + 5.0 * ferr) / 16.0;
+    // fogo entre as rodas e relâmpagos entre os olhos dos aros
+    float taxa = taxaBrasas();
     if (taxa > 0.002) {
         int nb = nBrasas_();
-        for (int j = 0; j < nb; j++) {
-            float fj = float(j);
-            float T = 1.5;
-            float s0 = t + hash(fj * 1.7 + 0.3) * T;
-            float ciclo = floor(s0 / T);
-            float idade = s0 - ciclo * T;
-            float vida = 0.7 + 0.7 * hash2(vec2(fj, ciclo) + 0.17);
-            if (idade > vida) continue;
-            if (hash2(vec2(fj * 3.1, ciclo + 5.0)) > taxa) continue;
-            float ang = TAU * hash2(vec2(fj, ciclo * 1.3 + 2.0));
-            float r0 = 0.15 + 0.75 * hash2(vec2(fj * 0.7, ciclo + 9.0));
-            vec2 b0 = vec2(cos(ang), sin(ang)) * r0;
-            float vx = (hash2(vec2(fj, ciclo + 13.0)) - 0.5) * 0.3;
-            float vy = -(0.5 + 0.6 * hash2(vec2(fj, ciclo + 17.0)));
-            vec2 bp = b0 + vec2(vx * idade, vy * idade + 0.55 * idade * idade);
-            vec2 px = c + bp * R;
-            if (length(px - c) >= lim) continue;
-            float f = idade / vida;
-            float rad = max(0.6, 1.1 * lw * (1.0 - 0.5 * f));
-            if (length(p - px) > rad + 2.0 * aa) continue;
-            float al = (1.0 - f) * (0.55 + 0.45 * abs(ruido(t * 9.0, b0.x * 50.0)));
-            sobre(A, cobre(length(p - px) - rad, aa) * pa(al));
-        }
+        for (int j = 0; j < nb; j++) umaBrasa(A, p, brasa(c, R, lim, t, lw, taxa, j), aa);
     }
-
-    // relâmpagos entre os olhos dos aros (Ez 1:14)
-    for (int r = 0; r < 2; r++) {
-        vec4 sg = r == 0 ? rel0 : rel1;
-        float al = r == 0 ? relInfo.x : relInfo.z;
-        float sem = r == 0 ? relInfo.y : relInfo.w;
-        if (al <= 0.0) continue;
-        vec2 p0 = sg.xy, p1 = sg.zw;
-        vec2 dd = p1 - p0;
-        float dl = max(length(dd), 1e-3);
-        vec2 nrm = vec2(-dd.y, dd.x) / dl;
-        vec2 ant = p0;
-        float dmin = 1e9;
-        for (int j = 1; j <= 6; j++) {
-            vec2 q = p1;
-            if (j < 6) {
-                float s = float(j) / 6.0;
-                float o = (hash(sem * 17.0 + float(j)) * 2.0 - 1.0) * 0.14 * dl;
-                q = p0 + dd * s + nrm * o;
-            }
-            dmin = min(dmin, segd(p, ant, q));
-            ant = q;
-        }
-        sobre(A, traco(dmin, 3.0 * lw, aa) * pa(0.18 * al));
-        sobre(A, traco(dmin, 1.2 * lw, aa) * pa(0.95 * al));
-    }
+    for (int r = 0; r < 2; r++) umRelampago(A, p, lw, aa, r);
 
     // olhos dos aros: os de trás primeiro; abrem em cascata ao despertar
     if (perto) {
-        OlhoC hit[3];
+        // Até três candidatos em variáveis soltas: num vetor indexado pelo
+        // contador, o driver tira os candidatos dos registradores (custava mais
+        // que o resto da figura).
+        OlhoC h0, h1, h2;
         int nh = 0;
         int no = nOlhos_();
         for (int idx = 0; idx < no; idx++) {
-            // anéis com 7, 8, 6 e 9 olhos: índices 0-6, 7-14, 15-20, 21-29
-            int i = idx < 7 ? 0 : idx < 15 ? 1 : idx < 21 ? 2 : 3;
-            int ini = i == 0 ? 0 : i == 1 ? 7 : i == 2 ? 15 : 21;
-            int n = i == 0 ? 7 : i == 1 ? 8 : i == 2 ? 6 : 9;
-            int kk = idx - ini;
-            Anel a = anel(i);
-            float th = float(kk) * TAU / float(n) + fase * 0.05 * float(i + 1);
-            vec3 P = anelP(a, c, th, 1.0);
-            float tm = R * 0.125 * (0.6 + 0.5 * (P.z + 1.0) / 2.0);
+            ivec3 e = olhoDoAro(idx);
+            Anel a = anel(e.x);
+            float th = olhoTh(e);
+            vec4 P = olhoPos(a, c, R, vec2(cos(th), sin(th)));
             vec2 dp = p - P.xy;
-            float rm = tm * 1.3 + 2.0 * lw + 2.0 * aa;
+            float rm = P.w * 1.3 + 2.0 * lw + 2.0 * aa;
             if (dot(dp, dp) > rm * rm) continue;
-            float ab = pisca(float(i * 16 + kk)) * sat((d - 0.45 - 0.4 * float(idx) / 30.0) / 0.12);
+            float ab = olhoAb(e, idx, d);
             if (ab <= 0.02) continue;
-            vec3 P2 = anelP(a, c, th + 0.05, 1.0);
-            float ang = atan(P2.y - P.y, P2.x - P.x);
             if (nh < 3) {
-                OlhoC o;
-                o.pos = P.xy; o.ang = ang; o.tam = tm; o.ab = ab; o.z = P.z;
-                o.alvo = olharPara(P.xy, ang, foco, float(i * 13 + kk * 7));
-                o.alfa = pa(0.35 + 0.65 * (P.z + 1.0) / 2.0);
-                hit[nh] = o;
+                OlhoC o = olhoC(a, c, e, th, P, ab, foco);
+                if (nh == 0) h0 = o; else if (nh == 1) h1 = o; else h2 = o;
                 nh++;
             }
         }
         // ordena por profundidade (no máximo três)
-        if (nh > 1 && hit[0].z > hit[1].z) { OlhoC x = hit[0]; hit[0] = hit[1]; hit[1] = x; }
-        if (nh > 2 && hit[1].z > hit[2].z) { OlhoC x = hit[1]; hit[1] = hit[2]; hit[2] = x; }
-        if (nh > 1 && hit[0].z > hit[1].z) { OlhoC x = hit[0]; hit[0] = hit[1]; hit[1] = x; }
+        if (nh > 1 && h0.z > h1.z) { OlhoC x = h0; h0 = h1; h1 = x; }
+        if (nh > 2 && h1.z > h2.z) { OlhoC x = h1; h1 = h2; h2 = x; }
+        if (nh > 1 && h0.z > h1.z) { OlhoC x = h0; h0 = h1; h1 = x; }
         for (int k = 0; k < 3; k++) {
             if (k >= nh) break;
-            olho(A, p, hit[k].pos, hit[k].ang, hit[k].tam, hit[k].ab, hit[k].alvo, hit[k].alfa, pupila, lw, aa);
+            OlhoC o = k == 0 ? h0 : k == 1 ? h1 : h2;
+            olho(A, p, o.pos, o.ang, o.tam, o.ab, o.alvo, o.alfa, pupila, lw, aa);
         }
     }
 
-    // núcleo: o olho grande
-    float brilho = 0.08 + 0.10 * falar + 0.08 * pensar * (0.5 + 0.5 * sin(t * 6.0)) + 0.20 * clarao;
-    sobre(A, cobre(length(p - c) - R * 0.34, aa) * pa(brilho));
-    olho(A, p, c, 0.0, R * 0.32, ofa.w, nucleoDir, 1.0, pupila, lw, aa);
+    nucleo(A, p, c, R, lw, aa);
 }
 #endif
 
@@ -446,6 +517,66 @@ void ofanim(inout float A, vec2 p, float aa, bool alado) {
 
 vec2 ossoP(float s, float L) {
     return cubica(vec2(0.0), vec2(0.25, -0.24) * L, vec2(0.65, -0.22) * L, vec2(1.0, -0.06) * L, s);
+}
+
+// pena k (0 a 8) no referencial da asa: base no osso, controle, ponta e ângulo
+void pena(int k, float L, float abert, out vec2 b, out vec2 cc, out vec2 tp, out float phi) {
+    float f = float(k) / 8.0;
+    b = ossoP(0.18 + 0.82 * f, L);
+    phi = (1.50 - 1.15 * pow(f, 0.8)) * (0.30 + 0.70 * abert);
+    float ell = L * (0.34 + 0.36 * f) * (0.75 + 0.25 * abert);
+    tp = b + ell * vec2(cos(phi), sin(phi));
+    cc = (b + tp) * 0.5 + 0.10 * ell * vec2(-sin(phi), cos(phi));
+}
+
+// olho j das penas (Ez 10:12; Ap 4:8): centro e ângulo em xy e z, tamanho em
+// w, abertura em ab. Sem o olho j, tamanho 0.
+vec4 olhoDaAsa(vec4 wa, vec4 wb, float slot, int j, out float ab) {
+    ab = 0.0;
+    int nOlhos = int(wb.z + 0.5);
+    int k = 1 + j * max(1, 7 / max(nOlhos, 1));
+    if (j >= nOlhos || k >= 9 || wa.w < 0.5) return vec4(0.0);
+    float L = wa.w, ang = wa.z, lado = wb.x, abert = wb.y;
+    vec2 e1 = vec2(lado * cos(ang), -sin(ang));
+    vec2 e2 = vec2(lado * sin(ang), cos(ang));
+    vec2 b, cc, tp; float phi;
+    pena(k, L, abert, b, cc, tp, phi);
+    float s = 0.7;
+    vec2 uv = (1.0 - s) * (1.0 - s) * b + 2.0 * (1.0 - s) * s * cc + s * s * tp;
+    vec2 pos = wa.xy + uv.x * e1 + uv.y * e2;
+    vec2 dir = e1 * cos(phi) + e2 * sin(phi);
+    ab = pisca(100.0 + slot * 10.0 + float(j)) * sat(abert * 1.4);
+    return vec4(pos, atan(dir.y, dir.x), L * 0.07);
+}
+
+// distância ao osso: a bézier cúbica em 8 segmentos, no referencial da asa
+float ossoD(vec2 q, float L) {
+    float dmin = 1e9;
+    vec2 ant = vec2(0.0);
+    for (int k = 1; k <= 8; k++) {
+        vec2 o = ossoP(float(k) / 8.0, L);
+        dmin = min(dmin, segd(q, ant, o));
+        ant = o;
+    }
+    return dmin;
+}
+
+// a asa da frente esconde o que está atrás dela (o rosto, as chamas)
+void asaOculta(inout float A, vec2 q, vec2 T[9], float L, float aa) {
+    vec2 poly[14];
+    poly[0] = vec2(0.0);
+    poly[1] = ossoP(0.25, L); poly[2] = ossoP(0.5, L); poly[3] = ossoP(0.75, L); poly[4] = ossoP(1.0, L);
+    for (int k = 0; k < 9; k++) poly[5 + k] = T[8 - k];
+    float oculta = 1.0 - 0.92 * cobre(sdPoly14(q, poly, 14), aa);
+    A *= oculta;
+    SOBREVIVE(oculta);
+}
+
+// coberteira k (0 a 4): pena curta junto ao osso, do osso em b para b + dc
+void coberteira(int k, float L, float abert, out vec2 b, out vec2 dc) {
+    float phic = 1.25 * (0.4 + 0.6 * abert);
+    dc = vec2(cos(phic), sin(phic)) * (L * 0.20);
+    b = ossoP(0.12 + 0.16 * float(k), L);
 }
 
 // Asa de penas em traço; wa = (raiz.x, raiz.y, elevação, L),
@@ -985,6 +1116,7 @@ void shoggoth(inout float A, inout float E, vec2 p, float aa) {
 #define SKIN 0
 #endif
 
+#ifndef PRIMITIVAS
 void main() {
     vec2 p = qt_TexCoord0 * tam;
     float aa = max(fwidth(p.x), 1e-3);
@@ -996,3 +1128,357 @@ void main() {
 #endif
     fragColor = vec4(A, E, min(IR_, A), max(A, E)) * qt_Opacity;
 }
+#endif
+
+#ifdef PRIMITIVAS
+// ── primitivas (relógio, só Ophanim) ──
+// Na GPU do relógio a figura inteira por pixel não cabe: cada pixel rodava o
+// código de todos os elementos, e quase nenhum passa por ele. Aqui cada
+// elemento é um desenho próprio, só na área dele (o vértice abaixo calcula a
+// área com as mesmas funções do laço), e a mistura src + (1 - a) dst na
+// máscara refaz o "sobre" na mesma ordem. O Motor do relógio faz os desenhos:
+//   tipo 0 raio k, 1 onda k, 3 aro (retângulos ao longo da curva, com
+//   estêncil para não pintar duas vezes), 4 brasa k, 5 relâmpago k, 6 olho k
+//   dos aros (de trás para a frente), 7 núcleo. A asa prim.y sai em partes,
+//   na ordem de asa(): 2 a sombra que esconde o que está atrás (só com
+//   ocultar), 9 o osso, 10 a pena j, 11 o trecho j da borda, 12 a coberteira
+//   j e 8 o olho j das penas (j é a instância). Onde duas partes do mesmo
+//   traço se encostam, o pixel pinta uma vez, como o mínimo das distâncias
+//   em asa(): a pena só pinta onde está mais perto que as vizinhas (até duas
+//   de distância), e os
+//   trechos da borda dividem cada junta pela bissetriz.
+uniform vec4 prim;   // tipo, índice, px lógicos por px da máscara, segmentos dos aros e das ondas
+#ifdef VERTICE
+flat out int idPrim;
+flat out vec4 elemA;  // olho: centro, ângulo, tamanho; brasa: centro, raio, alfa; asa: raiz, e1
+flat out vec4 elemB;  // olho: abertura, alvo, alfa; asa: e2, L, abertura
+flat out vec4 elemC;  // borda da asa: normal da junta do fim, tem junta no começo, no fim
+flat out vec4 elemD;  // pena j: a j-1 em elemC e elemD.xy, a j+1 em elemD.zw e elemE,
+flat out vec4 elemE;  // a j-2 em elemF e elemG.xy, a j+2 em elemG.zw e elemH (base, controle, ponta)
+flat out vec4 elemF;
+flat out vec4 elemG;
+flat out vec4 elemH;
+#else
+flat in int idPrim;
+flat in vec4 elemA;
+flat in vec4 elemB;
+flat in vec4 elemC;
+flat in vec4 elemD;
+flat in vec4 elemE;
+flat in vec4 elemF;
+flat in vec4 elemG;
+flat in vec4 elemH;
+#endif
+
+// a pena a, c, b não está mais perto de p que d: longe além do alcance r, ou
+// mais longe. A folga cobre o arredondamento: a mesma distância, medida aqui e
+// no desenho da vizinha, pode diferir no último bit, e sem folga o pixel do
+// empate ficaria sem nenhuma das duas
+bool naoMaisPerto(vec2 p, float d, vec2 a, vec2 c, vec2 b, float r) {
+    return longeQ(p, a, c, b, r) || d <= bezq(p, a, c, b) + 1e-3;
+}
+
+vec2 ondaK(int k) {
+    vec4 o = k < 2 ? ondas0 : k < 4 ? ondas1 : k < 6 ? ondas2 : ondas3;
+    return (k & 1) == 0 ? o.xy : o.zw;
+}
+
+#ifdef VERTICE
+void emite(vec2 q) {
+    qt_TexCoord0 = q / tam;
+    gl_Position = vec4(qt_TexCoord0 * 2.0 - 1.0, 0.0, 1.0);
+}
+
+// nada a desenhar: os cantos todos num ponto fora da máscara
+void nada() {
+    qt_TexCoord0 = vec2(0.0);
+    gl_Position = vec4(-2.0, -2.0, 0.0, 1.0);
+}
+
+// retângulo de centro o, eixo x unitário ex e meias medidas m (cantos na ordem da faixa)
+void retangulo(vec2 o, vec2 ex, vec2 m) {
+    vec2 s = vec2(float(gl_VertexID & 1), float((gl_VertexID >> 1) & 1)) * 2.0 - 1.0;
+    emite(o + ex * (s.x * m.x) + vec2(-ex.y, ex.x) * (s.y * m.y));
+}
+
+// retângulo que cobre a bézier quadrática a, c, b (em px) mais r: no eixo da
+// corda, o fecho dos três pontos; de lado, a curva só chega à metade de c
+void caixaQ(vec2 a, vec2 c, vec2 b, float r) {
+    vec2 ab = b - a;
+    float lc = length(ab);
+    vec2 u = lc > 1e-4 ? ab / lc : vec2(1.0, 0.0);
+    vec2 n = vec2(-u.y, u.x);
+    float xc = dot(c - a, u), yc = 0.5 * dot(c - a, n);
+    vec2 lo = vec2(min(0.0, xc), min(0.0, yc)) - r;
+    vec2 hi = vec2(max(lc, xc), max(0.0, yc)) + r;
+    retangulo(a + u * (0.5 * (lo.x + hi.x)) + n * (0.5 * (lo.y + hi.y)), u, 0.5 * (hi - lo));
+}
+
+// a asa i: os eixos de asa() e, em elemA/elemB, o que o fragmento precisa para
+// refazer o q dela; falso sem asa
+bool asaRef(int i, out vec4 wa, out vec4 wb, out vec2 e1, out vec2 e2) {
+    wa = asaA(i);
+    wb = asaB(i);
+    if (wa.w < 0.5) return false;
+    float ang = wa.z, lado = wb.x;
+    e1 = vec2(lado * cos(ang), -sin(ang));
+    e2 = vec2(lado * sin(ang), cos(ang));
+    elemA = vec4(wa.xy, e1);
+    elemB = vec4(e2, wa.w, wb.y);
+    return true;
+}
+
+// a pena j na tela: base, controle da quadrática e ponta (os de asa())
+void penaTela(int j, float L, float abert, vec2 raiz, mat2 M, out vec2 a, out vec2 c, out vec2 b) {
+    vec2 bb, cc, tp; float phi;
+    pena(j, L, abert, bb, cc, tp, phi);
+    vec2 m = (bb + tp) * 0.5;
+    a = raiz + M * bb;
+    c = raiz + M * (m + 1.5 * (cc - m));
+    b = raiz + M * tp;
+}
+
+// o trecho j da borda de fuga, no referencial da asa (o mesmo laço de asa())
+void trechoBorda(int j, float L, float abert, out vec2 a, out vec2 c, out vec2 b) {
+    vec2 cc; float phi;
+    pena(j, L, abert, cc, cc, a, phi);
+    pena(j + 1, L, abert, cc, cc, b, phi);
+    c = (a + b) * 0.5 + vec2(0.0, 0.06 * L);
+}
+
+// a amêndoa de olho(): ponta a ponta 2 tam; a distância da pálpebra é
+// aproximada e chega a 2,4 vezes a real perto das pontas
+vec2 meiaAmendoa(float tam_, float ab, float lw, float aa) {
+    float m = alcance(max(0.8, tam_ * 0.13) * lw, aa);
+    return vec2(tam_ + 2.0 * m, 0.9375 * 0.48 * tam_ * ab + 2.4 * m);
+}
+
+void main() {
+    float R = geo.x, lim = geo.y, lw = geo.w;
+    vec2 c = centro;
+    float aa = prim.z;
+    int nSeg = int(prim.w + 0.5);
+    int tipo = int(prim.x + 0.5);
+    int k = int(prim.y + 0.5) + gl_InstanceID;
+    idPrim = k;
+    elemA = vec4(0.0);
+    elemB = vec4(0.0);
+    elemC = vec4(0.0);
+    elemD = vec4(0.0);
+    elemE = vec4(0.0);
+    elemF = vec4(0.0);
+    elemG = vec4(0.0);
+    elemH = vec4(0.0);
+    if (tipo == 0) {
+        // do anel interno (0,3 R) até o maior comprimento que o ruído dá ao raio
+        float n = raios.x;
+        if (float(k) >= n) { nada(); return; }
+        float a = float(k) * (TAU / n) + raios.y;
+        vec2 dir = vec2(cos(a), sin(a));
+        float r0 = R * 0.30, L = min(lim, R * raios.z * 1.22);
+        float m = alcance(0.8 * lw, aa);
+        retangulo(c + dir * ((r0 + L) * 0.5), dir, vec2(abs(L - r0) * 0.5 + m, m));
+    } else if (tipo == 1) {
+        // faixa em volta do círculo; o polígono de fora circunscreve o círculo
+        vec2 ra = ondaK(k);
+        if (ra.y <= 0.001) { nada(); return; }
+        float m = alcance(lw, aa);
+        float th = float(gl_VertexID / 2) * TAU / float(nSeg);
+        float r = (gl_VertexID & 1) == 0 ? max(0.0, ra.x - m) : (ra.x + m) / cos(PI / float(nSeg));
+        emite(c + r * vec2(cos(th), sin(th)));
+    } else if (tipo == 2) {
+        // a sombra da asa da frente: o retângulo do teste do começo de asa()
+        vec4 wa, wb; vec2 e1, e2;
+        if (!asaRef(k, wa, wb, e1, e2) || wb.w <= 0.5) { nada(); return; }
+        float L = wa.w;
+        float mg = 3.0 * lw + 4.0 * aa;
+        vec2 s = vec2(float(gl_VertexID & 1), float((gl_VertexID >> 1) & 1));
+        vec2 q = mix(vec2(-0.25 * L, -0.5 * L) - mg, vec2(1.8 * L, 0.7 * L) + mg, s);
+        emite(wa.xy + q.x * e1 + q.y * e2);
+    } else if (tipo == 3) {
+        // aro prim.y, um retângulo por segmento da curva de fora e da de dentro
+        int i = int(prim.y + 0.5);
+        idPrim = i;
+        int seg = gl_InstanceID % nSeg;
+        float esc = gl_InstanceID < nSeg ? 1.0 : 0.94;
+        Anel a = anel(i);
+        vec2 P0 = anelP(a, c, float(seg) * TAU / float(nSeg), esc).xy;
+        vec2 P1 = anelP(a, c, float(seg + 1) * TAU / float(nSeg), esc).xy;
+        vec2 dd = P1 - P0;
+        float dl = length(dd);
+        // folga do traço mais o quanto a curva se afasta da corda (|P''| <= 1,8 r)
+        float dth = TAU / float(nSeg);
+        float m = alcance((esc > 0.97 ? 1.8 : 0.6) * lw, aa) + 1.8 * a.r * dth * dth / 8.0;
+        retangulo((P0 + P1) * 0.5, dl > 1e-4 ? dd / dl : vec2(1.0, 0.0), vec2(dl * 0.5 + m, m));
+    } else if (tipo == 4) {
+        vec4 b = brasa(c, R, lim, geo.z, lw, taxaBrasas(), k);
+        if (b.w < 0.0) { nada(); return; }
+        elemA = b;
+        retangulo(b.xy, vec2(1.0, 0.0), vec2(b.z + 3.0 * aa));
+    } else if (tipo == 5) {
+        // a caixa da reta p0-p1 com o desvio máximo dos trechos (0,14 do comprimento)
+        vec4 sg = k == 0 ? rel0 : rel1;
+        if ((k == 0 ? relInfo.x : relInfo.z) <= 0.0) { nada(); return; }
+        vec2 dd = sg.zw - sg.xy;
+        float dl = max(length(dd), 1e-3);
+        float m = alcance(3.0 * lw, aa);
+        retangulo((sg.xy + sg.zw) * 0.5, dd / dl, vec2(dl * 0.5 + m, 0.14 * dl + m));
+    } else if (tipo == 6) {
+        // o que não depende do pixel sai aqui, uma vez por canto
+        ivec3 e = olhoDoAro(k);
+        float th = olhoTh(e);
+        Anel a = anel(e.x);
+        vec4 P = olhoPos(a, c, R, vec2(cos(th), sin(th)));
+        float ab = olhoAb(e, k, est2.z);
+        if (ab <= 0.02) { nada(); return; }
+        OlhoC o = olhoC(a, c, e, th, P, ab, ofa.x);
+        elemA = vec4(o.pos, o.ang, o.tam);
+        elemB = vec4(o.ab, o.alvo, o.alfa);
+        retangulo(o.pos, vec2(cos(o.ang), sin(o.ang)), meiaAmendoa(o.tam, o.ab, lw, aa));
+    } else if (tipo >= 9) {
+        // as partes da asa prim.y; a parte é a instância
+        int i = int(prim.y + 0.5), j = gl_InstanceID;
+        vec4 wa, wb; vec2 e1, e2;
+        if (!asaRef(i, wa, wb, e1, e2)) { nada(); return; }
+        float L = wa.w, abert = wb.y;
+        mat2 M = mat2(e1, e2);            // referencial da asa → tela (falta somar a raiz)
+        if (tipo == 9) {
+            // o osso: o fecho da cúbica vai de 0 a L e de -0,24 L a 0
+            float r = alcance(1.5 * lw, aa);
+            retangulo(wa.xy + M * vec2(0.5 * L, -0.12 * L), e1, vec2(0.5 * L + r, 0.12 * L + r));
+        } else if (tipo == 10) {
+            vec2 A0, C0, B0, a, c, b;
+            penaTela(j, L, abert, wa.xy, M, A0, C0, B0);
+            if (j > 0) {
+                penaTela(j - 1, L, abert, wa.xy, M, a, c, b);
+                elemC = vec4(a, c);
+                elemD.xy = b;
+            }
+            if (j < 8) {
+                penaTela(j + 1, L, abert, wa.xy, M, a, c, b);
+                elemD.zw = a;
+                elemE = vec4(c, b);
+            }
+            if (j > 1) {
+                penaTela(j - 2, L, abert, wa.xy, M, a, c, b);
+                elemF = vec4(a, c);
+                elemG.xy = b;
+            }
+            if (j < 7) {
+                penaTela(j + 2, L, abert, wa.xy, M, a, c, b);
+                elemG.zw = a;
+                elemH = vec4(c, b);
+            }
+            idPrim = j;
+            elemA = vec4(A0, C0);
+            elemB = vec4(B0, 0.0, 0.0);
+            caixaQ(A0, C0, B0, alcance(1.0 * lw, aa));
+        } else if (tipo == 11) {
+            vec2 a, c, b;
+            trechoBorda(j, L, abert, a, c, b);
+            // a junta divide o plano pela bissetriz das tangentes que chegam a ela
+            vec2 nI = vec2(0.0), nF = vec2(0.0);
+            if (j > 0) {
+                vec2 a0, c0, b0;
+                trechoBorda(j - 1, L, abert, a0, c0, b0);
+                nI = M * normalize(normalize(b0 - c0) + normalize(c - a));
+            }
+            if (j < 7) {
+                vec2 a1, c1, b1;
+                trechoBorda(j + 1, L, abert, a1, c1, b1);
+                nF = M * normalize(normalize(b - c) + normalize(c1 - a1));
+            }
+            vec2 A0 = wa.xy + M * a, C0 = wa.xy + M * c, B0 = wa.xy + M * b;
+            elemA = vec4(A0, C0);
+            elemB = vec4(B0, nI);
+            elemC = vec4(nF, j > 0 ? 1.0 : 0.0, j < 7 ? 1.0 : 0.0);
+            caixaQ(A0, C0, B0, alcance(0.8 * lw, aa));
+        } else {
+            if (j >= 5) { nada(); return; }
+            vec2 b, dc;
+            coberteira(j, L, abert, b, dc);
+            vec2 A0 = wa.xy + M * b, B0 = wa.xy + M * (b + dc);
+            elemA = vec4(A0, B0);
+            caixaQ(A0, (A0 + B0) * 0.5, B0, alcance(0.8 * lw, aa));
+        }
+    } else if (tipo == 8) {
+        int i = int(prim.y + 0.5);
+        float ab;
+        vec4 o = olhoDaAsa(asaA(i), asaB(i), float(i), gl_InstanceID, ab);
+        if (o.w <= 0.0) { nada(); return; }
+        elemA = o;
+        elemB = vec4(ab, olharPara(o.xy, o.z, 1.0, 0.0), pa(0.85));
+        retangulo(o.xy, vec2(cos(o.z), sin(o.z)), meiaAmendoa(o.w, ab, lw, aa));
+    } else {
+        // o disco do brilho e o olho grande
+        vec2 m = max(vec2(R * 0.34 + 2.0 * aa), meiaAmendoa(R * 0.32, ofa.w, lw, aa));
+        retangulo(c, vec2(1.0, 0.0), m);
+    }
+}
+#else
+void main() {
+    vec2 p = qt_TexCoord0 * tam;
+    // o mesmo fwidth(p.x) da tela inteira, exato: a derivada oscila nos retângulos girados
+    float aa = max(prim.z, 1e-3);
+    float A = 0.0;
+    float R = geo.x, lim = geo.y, lw = geo.w;
+    vec2 c = centro;
+    int tipo = int(prim.x + 0.5), k = idPrim;
+    // o laço da tela inteira só desenha aros e olhos perto do centro
+    bool perto = length(p - c) < R * 1.25 + 4.0;
+    if (tipo == 0) {
+        if (!foraDosRaios(p, c, R, lim)) umRaio(A, p, c, R, lim, lw, aa, float(k));
+    } else if (tipo == 1) {
+        onda(A, p, c, ondaK(k), lw, aa);
+    } else if (tipo == 2 || tipo == 9) {
+        // o q de asa(): a raiz e os eixos vêm do vértice
+        vec2 dd = p - elemA.xy;
+        vec2 q = vec2(dot(dd, elemA.zw), dot(dd, elemB.xy));
+        float L = elemB.z;
+        if (tipo == 9) {
+            sobre(A, traco(ossoD(q, L), 1.5 * lw, aa) * pa(0.9));
+        } else {
+            vec2 T[9];
+            for (int j = 0; j < 9; j++) {
+                vec2 b, cc; float phi;
+                pena(j, L, elemB.w, b, cc, T[j], phi);
+            }
+            asaOculta(A, q, T, L, aa);
+        }
+    } else if (tipo == 10) {
+        // pinta só onde é a pena mais perto; a vizinha além do alcance do traço
+        // não muda nada e nem é medida
+        float r = alcance(1.0 * lw, aa);
+        float d = bezq(p, elemA.xy, elemA.zw, elemB.xy);
+        bool minha = d < r;
+        if (minha && k >= 1) minha = naoMaisPerto(p, d, elemC.xy, elemC.zw, elemD.xy, r);
+        if (minha && k <= 7) minha = naoMaisPerto(p, d, elemD.zw, elemE.xy, elemE.zw, r);
+        if (minha && k >= 2) minha = naoMaisPerto(p, d, elemF.xy, elemF.zw, elemG.xy, r);
+        if (minha && k <= 6) minha = naoMaisPerto(p, d, elemG.zw, elemH.xy, elemH.zw, r);
+        if (minha) sobre(A, traco(d, 1.0 * lw, aa) * pa(0.55));
+    } else if (tipo == 11) {
+        // cada pixel da junta é de um trecho só
+        bool doAnterior = elemC.z > 0.5 && dot(p - elemA.xy, elemB.zw) < 0.0;
+        bool doSeguinte = elemC.w > 0.5 && dot(p - elemB.xy, elemC.xy) >= 0.0;
+        if (!doAnterior && !doSeguinte)
+            sobre(A, traco(bezq(p, elemA.xy, elemA.zw, elemB.xy), 0.8 * lw, aa) * pa(0.28));
+    } else if (tipo == 12) {
+        sobre(A, traco(segd(p, elemA.xy, elemA.zw), 0.8 * lw, aa) * pa(0.35));
+    } else if (tipo == 3) {
+        if (perto) umAro(A, p, c, lw, aa, k);
+    } else if (tipo == 4) {
+        umaBrasa(A, p, elemA, aa);
+    } else if (tipo == 5) {
+        umRelampago(A, p, lw, aa, k);
+    } else if (tipo == 6) {
+        if (perto) olho(A, p, elemA.xy, elemA.z, elemA.w, elemB.x, elemB.yz, elemB.w, ofa.y, lw, aa);
+    } else if (tipo == 8) {
+        olho(A, p, elemA.xy, elemA.z, elemA.w, elemB.x, elemB.yz, elemB.w, 1.0, lw, aa);
+    } else {
+        nucleo(A, p, c, R, lw, aa);
+    }
+    // o canal b fica com a íris acumulada (sem o min do fim): ele se mistura como o r
+    fragColor = vec4(A, 0.0, IR_, 1.0 - M_) * qt_Opacity;
+}
+#endif
+#endif

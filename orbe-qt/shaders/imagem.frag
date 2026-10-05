@@ -70,6 +70,18 @@ float kRed = 0.0;   // quanto a figura está reduzida (0 a 1:1, 1 no tamanho do 
 // amostras caem no centro do texel e o realce zera: a cópia segue exata
 const float REALCE = 0.4;
 vec4 ler(vec2 uv, float realce) {
+#ifdef RELOGIO
+    // No relógio, uma leitura trilinear um pouco mais fina que a pegada (viés
+    // -0,5), com o mesmo realce: as 4 com textureGrad custavam mais que o
+    // Ophanim na GPU dele, e a máscara descia de resolução, o que borra mais
+    // que o filtro.
+    vec4 v = texture(arte, uv, -0.5);
+    if (realce > 0.0) {
+        float vb = texture(arte, uv, 1.5).r;
+        v.r = sat01(v.r + REALCE * realce * kRed * (v.r - vb));
+    }
+    return v;
+#else
     vec2 dx = dFdx(uv) * 0.25, dy = dFdy(uv) * 0.25;
     vec2 ox = dx * kRed, oy = dy * kRed;
     vec4 v = 0.5 * (0.5 * (textureGrad(arte, uv - ox - oy, 2.0 * dx, 2.0 * dy) + textureGrad(arte, uv + ox - oy, 2.0 * dx, 2.0 * dy))
@@ -77,6 +89,7 @@ vec4 ler(vec2 uv, float realce) {
     float vb = texture(arte, uv, 1.5).r;
     v.r = sat01(v.r + REALCE * realce * kRed * (v.r - vb));
     return v;
+#endif
 }
 
 vec2 girar(vec2 v, float a) {

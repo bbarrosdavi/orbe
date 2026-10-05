@@ -104,6 +104,20 @@ def sessoes() -> list[dict]:
     return sorted(achadas, key=lambda i: i["desde"], reverse=True)
 
 
+def encerrar() -> int:
+    """Fecha a sessão com o canal que o orbe usa (a mais recente), como fechar a
+    janela: SIGTERM no processo do Claude. Devolve o pid, ou 0 sem sessão."""
+    s = sessoes()
+    if not s:
+        return 0
+    pid = int(s[0]["pid"])
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return 0
+    return pid
+
+
 # ── servidor: roda dentro da sessão do Claude ──────────────────────────────
 
 class Canal:

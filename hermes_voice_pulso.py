@@ -12,8 +12,9 @@ responde é o agente da config, por ACP ou pelo canal do Claude Code.
 
 O orbe continua sendo só a ponte: não decide nada e não guarda conversa. O
 agente, a transcrição e a voz saem do mesmo config.json do daemon (agente, voz,
-toque, relogio); as chaves, do ambiente ou de ~/.hermes/.env (GROQ_API_KEY,
-GEMINI_API_KEY).
+toque, relogio); as chaves, as do próprio orbe (~/.config/hermes-voice/chaves.env,
+editadas no app), senão as do ambiente ou de ~/.hermes/.env (GROQ_API_KEY,
+ELEVENLABS_API_KEY, GEMINI_API_KEY).
 
   hermes_voice_pulso.py                   sobe com o agente da config
   hermes_voice_pulso.py --agente claude   a sessão aberta com o claude-orbe
@@ -314,6 +315,13 @@ class Pulso:
         self._trava = threading.Lock()
         self._fala = bytearray()          # o que o relógio captou com o dedo no orbe
         self._gravando = False
+        # sessão aberta sem dedo (um toque, o live, a sacudida): o relógio manda o
+        # microfone enquanto o orbe ouve, e a fala abre pelo volume e fecha no silêncio
+        self._escuta = bytearray()
+        self._escuta_fala = False
+        self._escuta_voz = 0              # quadros seguidos com voz
+        self._escuta_calado = 0           # quadros seguidos sem voz, já falando
+        self._escuta_antes: list[bytes] = []
         self._quadros = 0
         self._toque_curto_t = 0.0
         self._visivel = False
@@ -387,6 +395,7 @@ class Pulso:
     def _toque(self, linha: str):
         if linha == "touch down":
             self._interromper()
+            self._escuta_parar()          # o dedo assume a fala
             self._fala = bytearray()
             self._quadros = 0
             self._gravando = True
@@ -415,6 +424,8 @@ class Pulso:
 
     def _quadro(self, pcm: bytes):
         if not self._gravando:
+            if self._visivel and not self._ocupado:
+                self._ouvir(pcm)
             return
         if len(self._fala) < float(self.cfg["toque"]["gravacao_max_s"]) * relogio.TAXA * 2:
             self._fala += pcm
@@ -422,16 +433,61 @@ class Pulso:
         if self._quadros % 2 == 0:        # ~17 por segundo: o orbe mexe com a voz de quem fala
             self.ponte.publicar(f"mic {min(1.0, rms(pcm) / 32768.0 * 12.0):.3f}")
 
+    def _ouvir(self, pcm: bytes):
+        """A fala da sessão aberta sem dedo, com o critério do daemon (config
+        conversa): fala_quadros seguidos acima de fala_rms abrem, silencio_fim_s
+        abaixo fecham, gravacao_max_s corta."""
+        c = self.cfg["conversa"]
+        voz = rms(pcm) >= float(c["fala_rms"])
+        if not self._escuta_fala:
+            # os quadros que confirmam a voz e 300 ms antes deles: o começo da fala não se perde
+            self._escuta_antes = (self._escuta_antes + [pcm])[-(int(c["fala_quadros"]) + 10):]
+            self._escuta_voz = self._escuta_voz + 1 if voz else 0
+            if self._escuta_voz >= int(c["fala_quadros"]):
+                self._escuta_fala = True
+                self._escuta = bytearray(b"".join(self._escuta_antes))
+                self._escuta_calado = 0
+                if self._ocioso is not None:
+                    self._ocioso.cancel()
+            return
+        self._escuta += pcm
+        self._escuta_calado = 0 if voz else self._escuta_calado + 1
+        dur = len(self._escuta) / 2 / relogio.TAXA
+        if (self._escuta_calado * len(pcm) / 2 / relogio.TAXA < float(c["silencio_fim_s"])
+                and dur < float(c["gravacao_max_s"])):
+            return
+        fala = bytes(self._escuta)
+        self._escuta_parar()
+        self._ocupado = True
+        threading.Thread(target=self._turno, args=(fala, None, self._ger), daemon=True).start()
+
+    def _escuta_parar(self):
+        self._escuta = bytearray()
+        self._escuta_fala = False
+        self._escuta_voz = self._escuta_calado = 0
+        self._escuta_antes = []
+
     def _comando(self, op: str):
         if op == "toggle":
             op = "dismiss" if self._visivel else "trigger"
         if op == "trigger":
+            self._escuta_parar()
             self.ponte.publicar("clear")
             self._mostrar("listening")
-        elif op == "dismiss":
+        elif op == "interromper":
+            # o toque curto contado no relógio: cala e volta a ouvir
             self._interromper()
+            self._escuta_parar()
+            self._mostrar("listening")
+        elif op in ("dismiss", "encerrar"):
+            self._interromper()
+            self._escuta_parar()
             self._ocupado = False
             self._sumir()
+            if op == "encerrar" and self.cfg["agente"]["tipo"] == "claude":
+                # três toques: com o Claude, a sessão dele fecha também
+                pid = canal.encerrar()
+                LOG.info("encerrar: Claude %s", f"fechado (pid {pid})" if pid else "já não tinha sessão")
         elif op in ("hold", "release"):
             self._travado = op == "hold"
             self.ponte.publicar("hold 1" if self._travado else "hold 0")
@@ -681,6 +737,7 @@ def main():
     filhos_morrem_junto()
     for arq in args.env:
         carregar_env(Path(arq).expanduser())
+    vcfg.aplicar_chaves()                 # as do orbe (app) valem; as que faltam vêm do Hermes
     tts._load_env()                       # ~/.hermes/.env, o mesmo do daemon e do worker de voz
 
     cfg = vcfg.carregar()
