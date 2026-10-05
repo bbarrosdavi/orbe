@@ -21,6 +21,7 @@ import java.nio.ByteOrder
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.floor
 import kotlin.math.sqrt
 
 /**
@@ -80,6 +81,10 @@ internal object Motor {
     // então cada uma tem a sua qualidade, guardada entre uma abertura e outra.
     private const val JANELA_NS = 2_000_000_000L
     private const val QUALIDADE_MIN = 0.375f
+    // a máscara do orbe grande em pouco mais da metade do quadro ativo (30 ms): o
+    // resto é dos outros passes e da composição. Medido no TicWatch Pro 3 (Adreno
+    // 504): a 100%, 85 ms; a faixa de 10 a 60% de quadros atrasados não descia mais
+    private const val ORCAMENTO_MS = 16f
     private var qualidade = 1f            // fração da resolução do primeiro passe
     private var teto = 1f                 // subir além disto já deu atraso nesta execução
     private var skinGrande: Skin? = null  // a skin do orbe grande neste quadro
@@ -267,8 +272,8 @@ internal object Motor {
         if (agoraNs - janelaDesde < JANELA_NS) return
         val fracao = atrasados.toFloat() / naJanela
         if (Log.isLoggable(TAG, Log.VERBOSE)) {
-            Log.v(TAG, "%.1f quadros/s, %d%% atrasados; máscara a %d%%, %.1f ms; %.1f orbes, laço de %.1f ms".format(
-                naJanela * 1e9f / (agoraNs - janelaDesde), (fracao * 100).roundToInt(), (qualidade * 100).roundToInt(),
+            Log.v(TAG, "%s: %.1f quadros/s, %d%% atrasados; máscara a %d%%, %.1f ms; %.1f orbes, laço de %.1f ms".format(
+                skin?.id, naJanela * 1e9f / (agoraNs - janelaDesde), (fracao * 100).roundToInt(), (qualidade * 100).roundToInt(),
                 somaMascaraMs / naJanela, desenhados.toFloat() / naJanela, somaLacoMs / naJanela))
         }
         if (qualidadeFixa > 0f) {
@@ -280,7 +285,21 @@ internal object Motor {
                 else -> { ruins = 0; boas = 0 }
             }
             val antes = qualidade
-            if (ruins >= 2 && qualidade > QUALIDADE_MIN) {
+            // com quadros atrasados a GPU já está no máximo e o custo medido vale:
+            // a máscara desce de uma vez até caber no orçamento, sem esperar outra janela
+            val mascaraMs = somaMascaraMs / naJanela
+            val cabeNoOrcamento = if (fracao > 0.1f && mascaraMs > 0f) {
+                floor(qualidade * sqrt(ORCAMENTO_MS / mascaraMs) * 8) / 8f
+            } else {
+                qualidade
+            }
+            if (cabeNoOrcamento < qualidade && qualidade > QUALIDADE_MIN) {
+                if (agoraNs - subiuEm < 20_000_000_000L) teto = qualidade - 0.125f
+                qualidade = cabeNoOrcamento.coerceIn(QUALIDADE_MIN, qualidade - 0.125f)
+                ruins = 0
+                boas = 0
+                Log.i(TAG, "máscara a ${(qualidade * 100).roundToInt()}%: custava ${mascaraMs.roundToInt()} ms")
+            } else if (ruins >= 2 && qualidade > QUALIDADE_MIN) {
                 if (agoraNs - subiuEm < 20_000_000_000L) teto = qualidade - 0.125f
                 // o custo acompanha a área: desce de uma vez até onde os quadros cabem
                 val qps = naJanela * 1e9f / (agoraNs - janelaDesde)
