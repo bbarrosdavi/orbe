@@ -17,6 +17,9 @@ import io.hermes.orbe.dados.Ponte
 import io.hermes.orbe.dados.Protocolo
 import io.hermes.orbe.dados.RedeLocal
 import io.hermes.orbe.dados.Sincronia
+import io.hermes.orbe.gesto.Picos
+import io.hermes.orbe.gesto.Sacudida
+import io.hermes.orbe.gesto.ServicoSacudida
 import io.hermes.orbe.orbe.Ciclo
 import io.hermes.orbe.orbe.Estado
 import io.hermes.orbe.orbe.OrbeCena
@@ -111,6 +114,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
             aplicar(_ajustes.value)
             if (pendentes.isNotEmpty()) cofre.gravar(_ajustes.value)
             pendentes.clear()
+            if (_ajustes.value.sacudida) ServicoSacudida.ligar(getApplication())
             if (naTela) conectar()
         }
         viewModelScope.launch {
@@ -243,6 +247,16 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun pediuMicrofone() = mudar { it.copy(pediuMicrofone = true) }
+
+    /** A chave da sacudida liga e desliga o serviço que escuta o pulso. */
+    fun sacudida(v: Boolean) {
+        mudar { it.copy(sacudida = v) }
+        if (v) ServicoSacudida.ligar(getApplication()) else ServicoSacudida.desligar(getApplication())
+    }
+
+    fun calibrarSacudida(p: Picos) = mudar { it.copy(sacudidaFora = p.fora, sacudidaDentro = p.dentro) }
+
+    fun sacudidaPadrao() = calibrarSacudida(Picos(Sacudida.FORA_MIN, Sacudida.DENTRO_MIN))
 
     // ── ponte ──
 
@@ -439,6 +453,8 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     /** Pedido pela sacudida: abre a sessão assim que a ponte estiver conectada. */
     fun ouvir(podeGravar: Boolean) {
         if (!podeGravar || !_ajustes.value.microfone) return
+        // já ouvindo, ou com a sessão aberta: outro "trigger" fecharia a sessão no PC
+        if (querOuvir || escutando || _retrato.value.visivel) return
         querOuvir = true
         if (ligacao.value is Ligacao.Conectada) iniciarEscuta()
     }

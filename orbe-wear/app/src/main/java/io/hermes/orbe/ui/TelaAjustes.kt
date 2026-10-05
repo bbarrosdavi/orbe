@@ -50,6 +50,7 @@ fun TelaAjustes(
     editar: (Campo) -> Unit,
     pedirMicrofone: () -> Unit,
     aoPrevia: () -> Unit,
+    calibrar: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val ajustes by vm.ajustes.collectAsStateWithLifecycle()
@@ -205,6 +206,24 @@ fun TelaAjustes(
                 }
                 item {
                     LinhaSwitch("Vibrar", ajustes.vibrar, subtitulo = "ao segurar e ao soltar o orbe") { vm.vibrar(it) }
+                }
+            }
+            Vao(18.dp)
+
+            Grupo(titulo = "Sacudida", descricao = "Com a tela acesa, uma sacudida do pulso para fora e de volta. Duas são do HinaWatch.") {
+                item {
+                    LinhaSwitch("Uma sacudida abre o orbe", ajustes.sacudida, subtitulo = "já ouvindo, pelo microfone do relógio") {
+                        vm.sacudida(it)
+                        if (it) pedirMicrofone()
+                    }
+                }
+                item {
+                    Linha(
+                        "Calibrar",
+                        subtitulo = "fora %.1f · dentro %.1f rad/s".format(ajustes.sacudidaFora, ajustes.sacudidaDentro).replace('.', ','),
+                        ativo = ajustes.sacudida,
+                        aoClicar = calibrar,
+                    )
                 }
             }
             Vao(16.dp)

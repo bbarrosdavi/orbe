@@ -20,8 +20,8 @@ import io.hermes.orbe.ui.OrbeApp
  *
  * O endereço e o token também entram pelo adb, para não digitar no pulso:
  *   adb shell am start -n io.hermes.orbe/.MainActivity --es servidor 192.168.0.10 --es token abcd2345
- * Com --ez ouvir true (o que a sacudida do HinaWatch manda), abre já numa
- * sessão de voz pelo microfone do relógio.
+ * Com --ez ouvir true (o que a sacudida manda), abre já numa sessão de voz
+ * pelo microfone do relógio.
  */
 class MainActivity : ComponentActivity() {
     private val vm: OrbeViewModel by viewModels()
@@ -71,7 +71,7 @@ class MainActivity : ComponentActivity() {
         i?.getStringExtra("servidor")?.let(vm::servidor)
         i?.getStringExtra("token")?.let(vm::token)
         // a sacudida do HinaWatch abre o orbe já ouvindo
-        if (i?.getBooleanExtra("ouvir", false) == true) {
+        if (i?.getBooleanExtra(EXTRA_OUVIR, false) == true) {
             vm.ouvir(checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
         }
         // para medir num relógio de verdade: --ef qualidade 0.75 trava a resolução da máscara
@@ -87,7 +87,9 @@ class MainActivity : ComponentActivity() {
         teclado.launch(pedido)
     }
 
-    private companion object {
-        const val CHAVE = "texto"
+    companion object {
+        private const val CHAVE = "texto"
+        /** abre já numa sessão de voz: a sacudida (do orbe ou do HinaWatch) */
+        const val EXTRA_OUVIR = "ouvir"
     }
 }

@@ -11,6 +11,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -22,6 +24,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.hermes.orbe.OrbeViewModel
 import io.hermes.orbe.dados.Ligacao
+import io.hermes.orbe.gesto.Picos
 import kotlin.math.abs
 import kotlin.math.sign
 import kotlinx.coroutines.channels.BufferOverflow
@@ -53,6 +56,8 @@ fun OrbeApp(
     // a coroa no orbe: um passo do carrossel a cada tanto de giro
     val coroa = remember { MutableSharedFlow<Int>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST) }
     val giro = remember { floatArrayOf(0f) }
+    // a calibração da sacudida cobre o menu até salvar ou voltar
+    var calibrando by remember { mutableStateOf(false) }
 
     // com a sessão aberta a tela não apaga no meio da conversa
     val view = LocalView.current
@@ -99,11 +104,26 @@ fun OrbeApp(
                 TelaAjustes(
                     vm, rolagem, redonda, editar, pedirMicrofone,
                     aoPrevia = { escopo.launch { paginas.animateScrollToPage(0) } },
+                    calibrar = { calibrando = true },
                 )
             }
         }
+        if (calibrando) {
+            TelaCalibracao(
+                Picos(ajustes.sacudidaFora, ajustes.sacudidaDentro), redonda,
+                salvar = {
+                    vm.calibrarSacudida(it)
+                    calibrando = false
+                },
+                padrao = {
+                    vm.sacudidaPadrao()
+                    calibrando = false
+                },
+            )
+        }
     }
-    BackHandler(paginas.currentPage == 1) { escopo.launch { paginas.animateScrollToPage(0) } }
+    BackHandler(calibrando) { calibrando = false }
+    BackHandler(!calibrando && paginas.currentPage == 1) { escopo.launch { paginas.animateScrollToPage(0) } }
     LaunchedEffect(Unit) { foco.requestFocus() }
     // de volta ao orbe, o menu recomeça do alto na próxima visita
     LaunchedEffect(paginas.settledPage) { if (paginas.settledPage == 0) rolagem.scrollTo(0) }
