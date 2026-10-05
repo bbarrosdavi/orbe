@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 """Canal do orbe para uma sessão aberta do Claude Code.
 
 Dois papéis no mesmo arquivo, só com a stdlib:
@@ -23,24 +23,16 @@ import secrets
 import signal
 import socket
 import sys
-import tempfile
 import threading
 import time
 import uuid
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import hermes_voice_config as vcfg  # noqa: E402  (só stdlib)
 
-def _pasta() -> Path:
-    """Onde as sessões se anunciam: o runtime do usuário (no Windows, o perfil local)."""
-    rt = os.environ.get("XDG_RUNTIME_DIR")
-    if not rt and hasattr(os, "getuid"):
-        rt = f"/run/user/{os.getuid()}"
-        if not os.path.isdir(rt):                 # sem systemd (macOS, BSD)
-            rt = os.path.join(tempfile.gettempdir(), f"hermes-voice-{os.getuid()}")
-    return Path(rt or os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()) / "hermes-voice" / "claude"
-
-
-PASTA = _pasta()
+# Onde as sessões se anunciam: o runtime do usuário (no Windows, o perfil local).
+PASTA = vcfg.RUNTIME / "hermes-voice" / "claude"
 # Sem AF_UNIX (o Python do Windows), o canal escuta no laço local e o .sock da
 # sessão é um arquivo com a porta e a chave de quem pode falar com ela.
 UNIX = hasattr(socket, "AF_UNIX")
@@ -147,8 +139,6 @@ class Canal:
 
     def _instrucoes(self) -> str:
         try:
-            sys.path.insert(0, str(Path(__file__).resolve().parent))
-            import hermes_voice_config as vcfg
             voz = (vcfg.carregar()["agente"].get("instrucao_voz") or "").strip()
         except Exception:
             voz = ""

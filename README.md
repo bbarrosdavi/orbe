@@ -1,6 +1,6 @@
 # Orbe
 
-Assistente de voz para agentes de IA no Wayland. Você fala, o agente responde
+Assistente de voz para agentes de IA no Wayland e no macOS. Você fala, o agente responde
 em voz, e um orbe animado no canto da tela mostra o estado da conversa
 (ouvindo, pensando, respondendo) e as linhas do raciocínio do agente.
 
@@ -237,6 +237,48 @@ cada conexão), mas o resto da conversa vai em claro: fora de uma rede de
 confiança, ponha a ponte atrás de um proxy com TLS (o relógio aceita `wss://`)
 ou numa VPN.
 
+## macOS
+
+No Mac o orbe é uma janela PySide6 (`orbe-qt/orbe_mac.py`) com os mesmos
+avatares, shaders (compilados também para Metal) e protocolo; o resto do
+daemon é o mesmo. Requisitos: macOS 12 ou mais novo, [uv](https://docs.astral.sh/uv/)
+(`brew install uv`) e, para os agentes, os mesmos binários do Linux
+(`hermes`, `opencode`, `gemini`, `claude`).
+
+```sh
+git clone https://github.com/bbarrosdavi/orbe.git ~/.local/share/orbe
+cd ~/.local/share/orbe
+./install-mac.sh
+```
+
+O `install-mac.sh` cria um venv Python 3.11 em `.venv` com as dependências
+(PySide6 incluso), baixa o detector de voz Silero, instala o LaunchAgent
+`io.hermes.orbe` (sobe no login e volta se cair; log em
+`~/Library/Logs/orbe.log`), o app **Orbe** em `~/Applications`, o
+`claude-orbe` em `~/.local/bin` e as skills do Hermes. Na primeira sessão o macOS pede acesso ao microfone para o Python
+do venv: aceite (ou ative em Ajustes do Sistema › Privacidade e Segurança ›
+Microfone). `./install-mac.sh --remover` desfaz tudo menos o config.
+
+O que muda em relação ao Linux:
+
+- **Atalho**: `Ctrl+Option+O` por padrão, global, sem pedir permissão de
+  Acessibilidade. Troque na aba Ativação do app; `Mod` é a tecla Command.
+- **Transcrição**: sem `GROQ_API_KEY`, o daemon transcreve pelo Gemini com a
+  mesma `GEMINI_API_KEY` da voz (`voz.stt_provedor` no config força um ou
+  outro).
+- **Áudio**: CoreAudio pelo `sounddevice`, na entrada e na saída padrão do
+  sistema (segue AirPods e afins). O microfone só abre com o orbe ativo. Não
+  há cancelamento de eco, então a voz não interrompe a fala do orbe (o toque
+  e o atalho, sim); calado, pensando, falar por cima continua valendo.
+- **Olhar**: os olhos seguem o cursor em qualquer lugar da tela.
+- **Perfil do Hermes**: se o perfil do config não existir (o padrão
+  `jarvis`), usa o `default`.
+
+```sh
+launchctl kickstart -k gui/$(id -u)/io.hermes.orbe   # reinicia o daemon
+tail -f ~/Library/Logs/orbe.log
+```
+
 ## Modelos locais
 
 Todos opcionais; o daemon procura em `~/.hermes/`:
@@ -269,6 +311,8 @@ ativação própria a partir de gravações e de vozes do Piper.
 | `hermes_voice_canal.py`, `claude-orbe`, `claude-orbe.cmd` | canal MCP para o Claude Code |
 | `hermes_voice_tts.py` | worker de síntese e reprodução |
 | `orbe-qt/orbe.qml` | orbe em Quickshell (layer-shell), desenho em shaders |
+| `orbe-qt/orbe_mac.py`, `orbe_mac.qml` | o mesmo orbe no macOS (PySide6, Metal, atalho global) |
+| `hermes_voice_play.py` | reprodução do TTS no macOS (o `pw-cat` do Mac) |
 | `orbe-qt/app/`, `hermes_voice_app.py` | app de configuração (PySide6 e QML) |
 | `orb_control.py` | controle do orbe por socket |
 | `hermes_voice_relogio.py` | ponte WebSocket para o relógio |
@@ -277,6 +321,7 @@ ativação própria a partir de gravações e de vozes do Piper.
 | `hermes_voice_config.py` | config única em `~/.config/hermes-voice/config.json` |
 | `skills/` | skills do Hermes para segurar e dispensar a sessão |
 | `*.service.unit`, `orbe.desktop.in` | modelos preenchidos pelo `install.sh` |
+| `install-mac.sh` | instalação no macOS: venv, LaunchAgent e `Orbe.app` |
 
 Para testar os shaders sem abrir nada na tela, `orbe-qt/teste/render.py`
 desenha qualquer cena de `orbe-qt/teste/` num PNG:

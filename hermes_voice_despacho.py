@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 """Despacho do orbe: roda um perfil do Hermes em segundo plano e devolve o
 resultado ao daemon de voz, que faz o Jarvis relatar em voz.
 
@@ -20,7 +20,10 @@ from pathlib import Path
 HERMES = str(Path.home() / ".local/bin/hermes")
 PROFILES = Path.home() / ".hermes/profiles"
 SAIDAS = PROFILES / "jarvis" / "despachos"
-CTL_SOCK = f"/run/user/{os.getuid()}/hermes-voice-ctl.sock"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import hermes_voice_config as vcfg  # noqa: E402
+
+CTL_SOCK = str(vcfg.RUNTIME / "hermes-voice-ctl.sock")
 TETO_SEC = 2 * 3600
 # O relato vira mensagem no chat do Jarvis; o resto fica no arquivo.
 RELATO_MAX = 6000

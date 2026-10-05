@@ -31,6 +31,17 @@ LOG = logging.getLogger("hermes-voice.acp")
 HERMES_LAUNCHER = os.path.expanduser("~/.local/bin/hermes")
 PROFILES_DIR = os.path.expanduser("~/.hermes/profiles")
 
+# Aberto pelo Finder, Spotlight ou launchd, o processo recebe um PATH mínimo
+# (/usr/bin:/bin:...) sem as pastas onde os agentes se instalam, e o app os
+# dava como "não instalado". Completa o PATH com elas, se existirem; os
+# agentes filhos herdam (o gemini precisa achar o node).
+_PASTAS_AGENTES = [os.path.expanduser(p) for p in (
+    "~/.local/bin", "~/.opencode/bin", "~/.bun/bin", "~/.npm-global/bin",
+    "/opt/homebrew/bin", "/usr/local/bin")]
+os.environ["PATH"] = os.pathsep.join(dict.fromkeys(
+    [p for p in os.environ.get("PATH", "/usr/bin:/bin").split(os.pathsep) if p]
+    + [p for p in _PASTAS_AGENTES if os.path.isdir(p)]))
+
 NOMES = {
     "hermes": "Hermes",
     "opencode": "OpenCode",
@@ -78,6 +89,10 @@ def comando(agente: dict, hermes_rt: list[str] | None = None) -> tuple[list[str]
     tipo = agente.get("tipo") or "hermes"
     if tipo == "hermes":
         perfil = (agente.get("perfil") or "jarvis").strip()
+        if perfil not in perfis_hermes():
+            # perfil do config que não existe nesta máquina (o padrão "jarvis"
+            # numa instalação nova): o hermes recusaria e o orbe ficaria mudo
+            perfil = "default"
         base = list(hermes_rt) if hermes_rt else [HERMES_LAUNCHER]
         return base + ([] if perfil == "default" else ["-p", perfil]) + ["acp", "--accept-hooks"], {}
     if tipo == "opencode":

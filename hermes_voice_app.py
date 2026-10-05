@@ -10,6 +10,8 @@ do tamanho são os mesmos componentes do orbe (orbe-qt/comum), em shaders.
 Este arquivo é a ponte: lê e grava ~/.config/hermes-voice/config.json
 (hermes_voice_config.py), troca o atalho em ~/.config/niri/dms/binds.kdl,
 consulta agentes e sessões do Claude e reinicia o hermes-voice ao aplicar.
+No macOS o atalho fica só no config (o orbe registra a tecla), o serviço é
+um LaunchAgent e a pré-visualização é o orbe_mac.py.
 
   hermes_voice_app.py              abre o app
   hermes_voice_app.py --previa     abre o app com a pré-visualização do orbe ligada
@@ -32,7 +34,8 @@ from pathlib import Path
 
 from PySide6.QtCore import (QEvent, QObject, QProcess, QProcessEnvironment, Property, QTimer,
                             QUrl, Qt, Signal, Slot)
-from PySide6.QtGui import QColor, QFont, QGuiApplication, QIcon, QPainter, QPixmap
+from PySide6.QtGui import (QColor, QFont, QGuiApplication, QIcon, QPainter,
+                           QPainterPath, QPalette, QPen, QPixmap)
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtQml import QJSValue, QQmlApplicationEngine
 from PySide6.QtQuick import QQuickImageProvider, QQuickWindow
@@ -44,12 +47,14 @@ import hermes_voice_config as vcfg  # noqa: E402
 import hermes_voice_relogio as relogio  # noqa: E402
 
 APP_ID = "io.hermes.Orbe"
-SERVICO = "hermes-voice"
+SERVICO = vcfg.SERVICO
+MAC = vcfg.MAC
 QML_DIR = Path(__file__).resolve().parent / "orbe-qt" / "app"
 ORBE_QML = Path(__file__).resolve().parent / "orbe-qt" / "orbe.qml"
+ORBE_MAC = Path(__file__).resolve().parent / "orbe-qt" / "orbe_mac.py"
 # Pré-visualização: uma instância do orbe ao lado da do daemon, com socket e
 # config próprios. O toque vai para um socket sem ouvinte, longe do daemon.
-RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}")
+RUNTIME = vcfg.RUNTIME
 PREVIA_SOCK = RUNTIME / "hermes-voice-previa.sock"
 PREVIA_CFG = RUNTIME / "hermes-voice-previa.json"
 PREVIA_CTL = RUNTIME / "hermes-voice-previa-ctl.sock"
@@ -101,6 +106,8 @@ def _tts_do_perfil() -> str:
 
 
 def _atalho_atual() -> str:
+    if MAC:
+        return vcfg.carregar()["ativacao"]["atalho"]
     try:
         m = BIND_RE.search(BINDS.read_text())
         return m.group(2) if m else ""
@@ -117,6 +124,8 @@ def _gravar_atalho(novo: str) -> str:
     """
     import shutil
     import tempfile
+    if MAC:
+        return ""   # o aplicar grava no config e o orbe re-registra a tecla
     try:
         texto = BINDS.read_text()
     except OSError as e:
@@ -151,6 +160,46 @@ except OSError:
     _XKB = None
 
 
+# Qt → nome do keysym do xkb, para o macOS (sem libxkbcommon). Letras e
+# dígitos saem do próprio código da tecla.
+_TECLAS_MAC = {
+    Qt.Key.Key_Space: "space", Qt.Key.Key_Return: "Return", Qt.Key.Key_Enter: "Return",
+    Qt.Key.Key_Tab: "Tab", Qt.Key.Key_Backspace: "BackSpace", Qt.Key.Key_Comma: "comma",
+    Qt.Key.Key_Period: "period", Qt.Key.Key_Slash: "slash", Qt.Key.Key_Semicolon: "semicolon",
+    Qt.Key.Key_Minus: "minus", Qt.Key.Key_Equal: "equal", Qt.Key.Key_QuoteLeft: "grave",
+    Qt.Key.Key_Apostrophe: "apostrophe", Qt.Key.Key_BracketLeft: "bracketleft",
+    Qt.Key.Key_BracketRight: "bracketright", Qt.Key.Key_Backslash: "backslash",
+    Qt.Key.Key_Left: "Left", Qt.Key.Key_Right: "Right", Qt.Key.Key_Up: "Up", Qt.Key.Key_Down: "Down",
+}
+
+
+def _nome_tecla_mac(ev) -> str | None:
+    k = ev.key()
+    if Qt.Key.Key_A <= k <= Qt.Key.Key_Z or Qt.Key.Key_0 <= k <= Qt.Key.Key_9:
+        nome = chr(k)
+    elif Qt.Key.Key_F1 <= k <= Qt.Key.Key_F12:
+        nome = f"F{k - Qt.Key.Key_F1 + 1}"
+    else:
+        nome = _TECLAS_MAC.get(Qt.Key(k))
+    if not nome:
+        return None
+    # No Mac o Qt troca os nomes: ControlModifier é o Command e MetaModifier
+    # é o Control. "Mod" segue sendo a tecla do sistema (Super / Command).
+    mods = ev.modifiers()
+    partes = []
+    if mods & Qt.KeyboardModifier.ControlModifier:
+        partes.append("Mod")
+    if mods & Qt.KeyboardModifier.MetaModifier:
+        partes.append("Ctrl")
+    if mods & Qt.KeyboardModifier.AltModifier:
+        partes.append("Alt")
+    if mods & Qt.KeyboardModifier.ShiftModifier:
+        partes.append("Shift")
+    if not partes:
+        return None    # tecla sozinha como atalho global roubaria a digitação
+    return "+".join(partes + [nome])
+
+
 def _nome_tecla(sym: int, mods) -> str | None:
     if _XKB is None or not sym:
         return None
@@ -175,6 +224,17 @@ def _nome_tecla(sym: int, mods) -> str | None:
 def _agente_carregado() -> tuple[str, int] | None:
     """(nome, MB) do processo de agente ACP filho do daemon, se houver."""
     marcas = (("acp --accept-hooks", "Hermes"), ("opencode acp", "OpenCode"), ("--acp", "Gemini CLI"))
+    if MAC or not os.path.isdir("/proc"):
+        try:
+            out = subprocess.check_output(["ps", "-axo", "rss=,command="], text=True, timeout=2)
+        except Exception:
+            return None
+        for linha in out.splitlines():
+            rss, _, cmd = linha.strip().partition(" ")
+            for marca, nome in marcas:
+                if marca in cmd and "hermes_voice_app" not in cmd:
+                    return nome, int(rss or 0) // 1024
+        return None
     for pid in os.listdir("/proc"):
         if not pid.isdigit():
             continue
@@ -209,7 +269,68 @@ def _tema() -> dict:
         tema["anel"] = m.group(1) if m else "#0087fc"
     except OSError:
         tema["anel"] = "#0087fc"
+    # o fundo do app é translúcido porque o niri desfoca o que está atrás; no
+    # Mac nada desfoca, então ele fica quase opaco para o texto ler bem
+    tema["opacidade"] = 0.58
+    if MAC:
+        tema["opacidade"] = 0.95
+        acc = QGuiApplication.palette().color(QPalette.ColorRole.Accent)
+        if acc.isValid() and not ACCENT_CSS.exists():
+            tema["anel"] = acc.name()
     return tema
+
+
+def _icone_desenhado(nome: str, lado: int) -> QPixmap:
+    """Os ícones simbólicos do app em traço, para quando não há tema de
+    ícones (o macOS não tem Adwaita nem Qogir). A cor vem depois, por cima."""
+    pm = QPixmap(lado, lado)
+    pm.fill(Qt.GlobalColor.transparent)
+    base = nome.removesuffix("-symbolic")
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.scale(lado / 16.0, lado / 16.0)
+    caneta = QPen(QColor("white"), 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap,
+                  Qt.PenJoinStyle.RoundJoin)
+    p.setPen(caneta)
+    cam = QPainterPath()
+    if base == "window-close":
+        cam.moveTo(4, 4); cam.lineTo(12, 12); cam.moveTo(12, 4); cam.lineTo(4, 12)
+    elif base == "list-add":
+        cam.moveTo(8, 3); cam.lineTo(8, 13); cam.moveTo(3, 8); cam.lineTo(13, 8)
+    elif base == "list-remove":
+        cam.moveTo(3, 8); cam.lineTo(13, 8)
+    elif base == "pan-down":
+        cam.moveTo(4, 6); cam.lineTo(8, 10); cam.lineTo(12, 6)
+    elif base == "object-select":
+        cam.moveTo(3, 8.5); cam.lineTo(6.5, 12); cam.lineTo(13, 4.5)
+    elif base == "system-search":
+        cam.addEllipse(2.5, 2.5, 8, 8); cam.moveTo(9.5, 9.5); cam.lineTo(13.5, 13.5)
+    elif base == "view-refresh":
+        cam.arcMoveTo(2.5, 2.5, 11, 11, 60); cam.arcTo(2.5, 2.5, 11, 11, 60, 300)
+        cam.moveTo(13.5, 2.5); cam.lineTo(10.8, 3.4); cam.lineTo(13.2, 5.6)
+    elif base == "network-server":
+        cam.addRoundedRect(3, 2.5, 10, 4.5, 1, 1); cam.addRoundedRect(3, 9, 10, 4.5, 1, 1)
+        cam.moveTo(5.5, 4.75); cam.lineTo(6, 4.75); cam.moveTo(5.5, 11.25); cam.lineTo(6, 11.25)
+    elif base == "audio-input-microphone":
+        cam.addRoundedRect(5.5, 1.5, 5, 8.5, 2.5, 2.5)
+        cam.moveTo(3.5, 7.5); cam.arcTo(3.5, 3.5, 9, 9, 180, 180)
+        cam.moveTo(8, 12.5); cam.lineTo(8, 14.5)
+    elif base == "audio-speakers":
+        cam.moveTo(2.5, 6); cam.lineTo(5, 6); cam.lineTo(8.5, 3); cam.lineTo(8.5, 13)
+        cam.lineTo(5, 10); cam.lineTo(2.5, 10); cam.closeSubpath()
+        cam.arcMoveTo(6, 4.5, 7, 7, -50); cam.arcTo(6, 4.5, 7, 7, -50, 100)
+    elif base == "user-available":
+        cam.moveTo(1.5, 3); cam.lineTo(14.5, 3); cam.lineTo(14.5, 11); cam.lineTo(7, 11)
+        cam.lineTo(4, 14); cam.lineTo(4, 11); cam.lineTo(1.5, 11); cam.closeSubpath()
+    elif base == "applications-graphics":
+        cam.addEllipse(2, 2, 12, 12)
+        cam.addEllipse(5, 4.5, 2, 2); cam.addEllipse(9, 4.5, 2, 2); cam.addEllipse(4.5, 8.5, 2, 2)
+    else:
+        p.end()
+        return QPixmap()
+    p.drawPath(cam)
+    p.end()
+    return pm
 
 
 class Icones(QQuickImageProvider):
@@ -222,6 +343,8 @@ class Icones(QQuickImageProvider):
         nome, _, cor = ident.partition("?")
         lado = max(pedido.width(), pedido.height(), 16)
         pm = QIcon.fromTheme(nome).pixmap(lado, lado)
+        if pm.isNull():
+            pm = _icone_desenhado(nome, lado)
         if pm.isNull():
             pm = QPixmap(lado, lado)
             pm.fill(Qt.GlobalColor.transparent)
@@ -384,8 +507,7 @@ class Ponte(QObject):
         """Token novo: o relógio pareado com o velho para de entrar."""
         tok = relogio.token_da_config(trocar=True)
         self._cfg["relogio"]["token"] = tok
-        subprocess.Popen(["systemctl", "--user", "restart", SERVICO],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        vcfg.servico_iniciar(reiniciar=True)
         return tok
 
     @Slot(result=str)
@@ -432,13 +554,9 @@ class Ponte(QObject):
         return self._estado
 
     def _atualizar_estado(self):
-        try:
-            ativo = subprocess.run(["systemctl", "--user", "is-active", SERVICO],
-                                   capture_output=True, text=True, timeout=2).stdout.strip()
-        except Exception:
-            ativo = "?"
+        ativo = vcfg.servico_estado()
         ag = _agente_carregado()
-        txt = "serviço " + ("ativo" if ativo == "active" else ativo)
+        txt = "serviço " + {"active": "ativo", "inactive": "parado"}.get(ativo, ativo)
         txt += f"  ·  {ag[0]} carregado, {ag[1]} MB" if ag else "  ·  agente descarregado"
         if txt != self._estado:
             self._estado = txt
@@ -506,7 +624,8 @@ class Ponte(QObject):
                 self.cancelarCaptura()
                 self.atalhoCancelado.emit()
                 return True
-            nome = _nome_tecla(ev.nativeVirtualKey(), ev.modifiers())
+            nome = (_nome_tecla_mac(ev) if MAC
+                    else _nome_tecla(ev.nativeVirtualKey(), ev.modifiers()))
             if nome:
                 self.cancelarCaptura()
                 self.atalhoCapturado.emit(nome)
@@ -534,9 +653,15 @@ class Ponte(QObject):
         env.insert("HERMES_ORB_CONFIG", str(PREVIA_CFG))
         p = QProcess(self)
         p.setProcessEnvironment(env)
-        # pdeathsig: o orbe da prévia morre junto com o app, mesmo num kill
-        p.setProgram("/usr/bin/setpriv")
-        p.setArguments(["--pdeathsig", "TERM", "--", "/usr/bin/qs", "-p", str(ORBE_QML)])
+        if MAC:
+            # --pai faz o papel do pdeathsig: o orbe da prévia sai com o app
+            p.setProgram(sys.executable)
+            p.setArguments([str(ORBE_MAC), "--sock", str(PREVIA_SOCK), "--ctl", str(PREVIA_CTL),
+                            "--config", str(PREVIA_CFG), "--pai", str(os.getpid())])
+        else:
+            # pdeathsig: o orbe da prévia morre junto com o app, mesmo num kill
+            p.setProgram("/usr/bin/setpriv")
+            p.setArguments(["--pdeathsig", "TERM", "--", "/usr/bin/qs", "-p", str(ORBE_QML)])
         p.setStandardOutputFile(QProcess.nullDevice())
         p.setStandardErrorFile(QProcess.nullDevice())
         p.finished.connect(self._previa_saiu)
@@ -704,8 +829,7 @@ class Ponte(QObject):
         if erro:
             return {"mensagem": erro, "atalho": atalho, "tempo": 6, "token": token}
         if mudou and not so_orbe:
-            subprocess.Popen(["systemctl", "--user", "restart", SERVICO],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            vcfg.servico_iniciar(reiniciar=True)
             return {"mensagem": "Aplicado. Orbe reiniciado.", "atalho": atalho, "tempo": 3, "token": token}
         return {"mensagem": "Aplicado.", "atalho": atalho, "tempo": 2, "token": token}
 
@@ -717,6 +841,14 @@ def _preparar_app(argv):
     QQuickStyle.setStyle("Basic")
     app = QGuiApplication(argv)
     app.setApplicationName("Orbe")
+    if MAC:
+        # a fonte do sistema; 13 pt no Mac tem o corpo dos 11 pt do GNOME
+        f = app.font()
+        f.setPointSize(13)
+        app.setFont(f)
+        QFont.insertSubstitution("Sans", f.family())
+        app.setWindowIcon(QIcon(str(Path(__file__).resolve().parent / "orbe.svg")))
+        return app
     app.setFont(QFont("Adwaita Sans", 11))
     QIcon.setThemeName("Qogir")
     QIcon.setFallbackThemeName("Adwaita")
@@ -790,7 +922,8 @@ def main():
 
 def _capturar(destino, paginas):
     """PNG de cada página, renderizado offscreen pela GPU (QQuickRenderControl)."""
-    os.environ.setdefault("QT_QPA_PLATFORM", "wayland")
+    if not MAC:
+        os.environ.setdefault("QT_QPA_PLATFORM", "wayland")
     from PySide6.QtCore import QSize
     from PySide6.QtGui import QOffscreenSurface, QOpenGLContext, QSurfaceFormat
     from PySide6.QtOpenGL import QOpenGLFramebufferObject, QOpenGLFramebufferObjectFormat

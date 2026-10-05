@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 """Controle do overlay de voz.
 
 Uso: orb_control.py toggle|trigger|hide|quit|dismiss|hold|release
@@ -9,13 +9,15 @@ dispensa explícita; `release` devolve o timeout sem encerrar a sessão.
 """
 import os
 import socket
-import subprocess
 import sys
 import time
 from pathlib import Path
 
-SOCK = Path(f"/run/user/{os.getuid()}/hermes-voice-orb.sock")
-CMD = Path(f"/run/user/{os.getuid()}/hermes-voice.cmd")
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import hermes_voice_config as vcfg  # noqa: E402
+
+SOCK = vcfg.RUNTIME / "hermes-voice-orb.sock"
+CMD = vcfg.RUNTIME / "hermes-voice.cmd"
 
 
 def sock(msg: str):
@@ -33,17 +35,11 @@ def sock(msg: str):
 
 
 def ensure_daemon():
+    """Sobe o serviço (systemd ou launchd) se ele não estiver rodando."""
     try:
-        r = subprocess.run(
-            ["systemctl", "--user", "is-active", "--quiet", "hermes-voice.service"],
-            timeout=1,
-        )
-        if r.returncode != 0:
-            subprocess.run(
-                ["systemctl", "--user", "start", "hermes-voice.service"],
-                timeout=3,
-            )
-            time.sleep(0.3)
+        if vcfg.servico_estado() != "active":
+            vcfg.servico_iniciar()
+            time.sleep(0.5)
     except Exception:
         pass
 
