@@ -41,6 +41,8 @@ enum class Skin(
 
     /** Figura (avatar desenhado ou de imagem); o anel de energia tem física própria. */
     val avatar: Boolean get() = this != ANEL
+    /** No relógio, desenhada por elemento (as primitivas do figura.frag), não por pixel. */
+    val primitivas: Boolean get() = this == OFANIM || this == OFANIM_ALADO
     val imagem: Boolean get() = this == SERAFIM_GRAVURA || this == ENTIDADE
 
     companion object {

@@ -68,8 +68,10 @@ private val ALFAS = floatArrayOf(0.10f, 0.24f, 0.42f, 0.66f, 0.92f)
 /**
  * A tela do orbe: a figura no mostrador inteiro, as linhas do raciocínio
  * abaixo dela e o ponto da sessão travada acima, como no orbe do desktop com o
- * texto "abaixo". O toque vale como lá: curto interrompe (e deixa ouvindo),
- * dois curtos travam a sessão, segurar é segurar para falar. Arrastar para
+ * texto "abaixo". Um toque abre a sessão (ou já no live, com a opção), outro
+ * com ela aberta entra no live (os turnos seguem sem tocar); no live, um toque
+ * interrompe a fala, ou fecha se o orbe só ouve. Três toques encerram a sessão
+ * e o Claude Code no PC. Segurar é segurar para falar. Arrastar para
  * cima ou para baixo (ou girar a coroa, nos relógios que têm) gira o orbe,
  * como a face de um cubo, até a skin seguinte; depois da última, a primeira
  * volta na cor seguinte (Ciclo).
@@ -125,6 +127,7 @@ fun TelaOrbe(
             }
         }
 
+        val rolando = LocalRolando.current
         VerticalPager(
             state = paginas,
             modifier = Modifier.fillMaxSize(),
@@ -136,6 +139,7 @@ fun TelaOrbe(
             SideEffect {
                 vizinha.skin = Ciclo.skin(pagina)
                 vizinha.glitch = aparencia.glitch
+                vizinha.varredura = aparencia.linhas
                 vizinha.tamanho = ajustes.tamanho.toDouble()
                 vizinha.redonda = redonda
                 vizinha.corFundo = floatArrayOf(0f, 0f, 0f)
@@ -144,8 +148,14 @@ fun TelaOrbe(
                 vizinha.accent = cor.corAnel()
             }
             AndroidView(
-                factory = { OrbeView(it, if (atual) vm.cena else vizinha).apply { adaptar = true } },
-                update = { it.cena = if (atual) vm.cena else vizinha },
+                factory = { OrbeView(it, if (atual) vm.cena else vizinha).apply { adaptar = true; parado = !atual || rolando } },
+                update = {
+                    it.cena = if (atual) vm.cena else vizinha
+                    // a que entra é desenhada uma vez e congela: eram dois orbes
+                    // grandes por quadro no meio do giro. Arrastando para o menu,
+                    // o orbe também congela: a GPU fica para a tela que anda
+                    it.parado = !atual || rolando
+                },
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
@@ -176,7 +186,7 @@ fun TelaOrbe(
                             r
                         }
                         when (fim) {
-                            1 -> vm.toqueCurto()
+                            1 -> vm.toqueCurto(pode())
                             2 -> vm.toqueCancelado()
                             else -> {
                                 vm.toqueSegurou()

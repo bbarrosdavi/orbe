@@ -5,7 +5,6 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -22,6 +21,7 @@ import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.wear.compose.foundation.lazy.rememberTransformingLazyColumnState
 import io.hermes.orbe.OrbeViewModel
 import io.hermes.orbe.dados.Ligacao
 import io.hermes.orbe.gesto.Picos
@@ -50,7 +50,7 @@ fun OrbeApp(
     val previa by vm.previa.collectAsStateWithLifecycle()
     val redonda = LocalConfiguration.current.isScreenRound
     val paginas = rememberPagerState { 2 }
-    val rolagem = rememberScrollState()
+    val lista = rememberTransformingLazyColumnState()
     val escopo = rememberCoroutineScope()
     val foco = remember { FocusRequester() }
     // a coroa no orbe: um passo do carrossel a cada tanto de giro
@@ -74,7 +74,7 @@ fun OrbeApp(
 
     CompositionLocalProvider(
         LocalTema provides aparencia.tema,
-        LocalRolando provides (paginas.isScrollInProgress || rolagem.isScrollInProgress),
+        LocalRolando provides (paginas.isScrollInProgress || lista.isScrollInProgress),
     ) {
         HorizontalPager(
             state = paginas,
@@ -89,20 +89,23 @@ fun OrbeApp(
                             giro[0] = 0f
                         }
                     } else {
-                        rolagem.dispatchRawDelta(d)
+                        lista.dispatchRawDelta(d)
                     }
                     true
                 }
                 .focusRequester(foco)
                 .focusable(),
-            // as duas páginas ficam montadas: as miniaturas do menu não nascem no meio do arrasto
+            // as duas páginas ficam montadas: o menu pede as prévias das miniaturas
+            // já na abertura, e não nasce no meio do arrasto
             beyondViewportPageCount = 1,
         ) { pagina ->
             if (pagina == 0) {
                 TelaOrbe(vm, redonda, podeGravar, abrirAjustes = { escopo.launch { paginas.animateScrollToPage(1) } }, coroa = coroa)
             } else {
                 TelaAjustes(
-                    vm, rolagem, redonda, editar, pedirMicrofone,
+                    vm, lista, redonda,
+                    visivel = paginas.currentPage == 1 || paginas.targetPage == 1,
+                    editar, pedirMicrofone, podeGravar,
                     aoPrevia = { escopo.launch { paginas.animateScrollToPage(0) } },
                     calibrar = { calibrando = true },
                 )
@@ -126,7 +129,7 @@ fun OrbeApp(
     BackHandler(!calibrando && paginas.currentPage == 1) { escopo.launch { paginas.animateScrollToPage(0) } }
     LaunchedEffect(Unit) { foco.requestFocus() }
     // de volta ao orbe, o menu recomeça do alto na próxima visita
-    LaunchedEffect(paginas.settledPage) { if (paginas.settledPage == 0) rolagem.scrollTo(0) }
+    LaunchedEffect(paginas.settledPage) { if (paginas.settledPage == 0) lista.scrollToItem(0) }
 }
 
 /** Pixels de giro da coroa por orbe do carrossel. */

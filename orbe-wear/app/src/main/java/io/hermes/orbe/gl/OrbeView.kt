@@ -21,7 +21,7 @@ class OrbeView(ctx: Context, cenaInicial: Cena = MiniCena(Skin.OFANIM)) :
     @Volatile var cena: Cena = cenaInicial
     /** O orbe grande: a resolução da máscara dele baixa quando a GPU do relógio não dá conta. */
     @Volatile var adaptar = false
-    /** Com a tela rolando, a miniatura fica no último quadro: a GPU do relógio é da rolagem. */
+    /** Fica no último quadro (a miniatura com a tela rolando, a página que entra no carrossel). */
     @Volatile var parado = false
     /** Fora da tela (rolado para fora, outra página) o Motor pula este orbe. */
     @Volatile var aVista = true

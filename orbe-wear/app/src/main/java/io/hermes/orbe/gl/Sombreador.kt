@@ -7,7 +7,7 @@ package io.hermes.orbe.gl
  * arquivos: aqui só muda o cabeçalho. O bloco std140 vira uniforms soltos
  * (o ES 3.00 não tem binding, e uniform solto dispensa montar o buffer), os
  * layouts de entrada e de textura saem e as variantes que o build.sh passa
- * por -D (SKIN, IMG) viram #define.
+ * por -D (SKIN, IMG) viram #define, com RELOGIO a mais.
  */
 object Sombreador {
     private val bloco = Regex("""layout\s*\(\s*std140[^)]*\)\s*uniform\s+\w+\s*\{(.*?)\}\s*;""", RegexOption.DOT_MATCHES_ALL)
@@ -31,7 +31,8 @@ object Sombreador {
     fun paraEs(fonte: String, definicoes: Map<String, Int> = emptyMap()): String {
         var s = fonte.replace("\r\n", "\n")
         require(versao.containsMatchIn(s)) { "shader sem #version" }
-        val defs = definicoes.entries.joinToString("") { "#define ${it.key} ${it.value}\n" }
+        // RELOGIO: os shaders podem ter um caminho próprio para a GPU do relógio
+        val defs = (definicoes + ("RELOGIO" to 1)).entries.joinToString("") { "#define ${it.key} ${it.value}\n" }
         s = versao.replaceFirst(s, Regex.escapeReplacement(CABECALHO + defs))
         val achado = requireNotNull(bloco.find(s)) { "shader sem o bloco de uniforms do Qt" }
         s = s.replaceRange(achado.range, soltos(achado.groupValues[1]))

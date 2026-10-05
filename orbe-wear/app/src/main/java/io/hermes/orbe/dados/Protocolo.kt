@@ -17,6 +17,8 @@ data class Ola(
     val orbe: OrbePc = OrbePc(),
     /** cores do matugen: accent_bg_color, window_bg_color, ..., anel */
     val tema: Map<String, String> = emptyMap(),
+    /** o papel de parede do PC atrás do app, em n x n cores (linha a linha, de cima); vazio sem ele */
+    val papel: List<String> = emptyList(),
     /** a ponte aceita a fala do relógio */
     val microfone: Boolean = false,
     /** quem serve a ponte manda a voz para tocar aqui (o orbe de pulso, e o daemon na sessão do relógio) */
@@ -45,6 +47,7 @@ data class Sincronia(
     val vibrar: Boolean = true,
     val texto: Boolean = true,
     val glitch: Boolean = true,
+    val linhas: Boolean = true,
     val tamanho: Float = 1f,
     @SerialName("seguir_pc") val seguirPc: Boolean = true,
 )

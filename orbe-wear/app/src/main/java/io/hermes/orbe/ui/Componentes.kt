@@ -4,6 +4,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import android.graphics.Bitmap
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -38,8 +41,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -47,12 +56,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import io.hermes.orbe.gl.OrbeView
-import io.hermes.orbe.orbe.MiniCena
-import io.hermes.orbe.orbe.Skin
+import androidx.wear.compose.foundation.lazy.TransformingLazyColumn
+import androidx.wear.compose.foundation.lazy.TransformingLazyColumnItemScope
+import androidx.wear.compose.foundation.lazy.TransformingLazyColumnScope
+import androidx.wear.compose.foundation.lazy.TransformingLazyColumnState
+import androidx.wear.compose.material3.ScreenScaffold
+import androidx.wear.compose.material3.lazy.TransformationSpec
+import androidx.wear.compose.material3.lazy.rememberTransformationSpec
+import androidx.wear.compose.material3.lazy.transformedHeight
 import kotlin.math.abs
+import kotlin.math.floor
 import kotlin.math.roundToInt
 
 // Os componentes do app do Orbe (orbe-qt/app/*.qml) na medida do relógio:
@@ -78,42 +93,6 @@ fun Texto(
 
 /** Verdadeiro enquanto a tela rola: as miniaturas esperam paradas (a GPU do relógio é pouca para as duas coisas). */
 val LocalRolando = compositionLocalOf { false }
-
-/**
- * A figura de uma skin em miniatura viva (Miniatura.qml): Figura para os
- * avatares, Anel no estado de escuta para o anel de energia.
- */
-@Composable
-fun Miniatura(
-    skin: Skin,
-    modifier: Modifier = Modifier,
-    glitch: Boolean = true,
-    peso: Double = 1.2,
-    /** raio da figura em fração da altura e da largura (o do topo do app); null = o maior que cabe */
-    raio: Pair<Float, Float>? = null,
-) {
-    val tema = LocalTema.current
-    val rolando = LocalRolando.current
-    BoxWithConstraints(modifier) {
-        val r = raio?.let { minOf(maxHeight.value * it.first, maxWidth.value * it.second).toDouble() } ?: -1.0
-        AndroidView(
-            factory = { OrbeView(it, MiniCena(skin)) },
-            modifier = Modifier.fillMaxSize(),
-            update = { v ->
-                v.parado = rolando
-                (v.cena as MiniCena).let { c ->
-                    c.skin = skin
-                    c.glitch = glitch
-                    c.peso = peso
-                    c.raio = r
-                    c.cor = tema.accent.rgb()
-                    c.accent = tema.anel.rgb()
-                    c.corFundo = tema.fundo.rgb()
-                }
-            },
-        )
-    }
-}
 
 /** Botão de texto: chapado, ou em pílula na cor de destaque. `ligado` tinge o chapado, para os que alternam. */
 @Composable
@@ -160,39 +139,141 @@ fun Etiqueta(texto: String, modifier: Modifier = Modifier) {
     }
 }
 
-class GrupoEscopo internal constructor() {
-    internal val itens = ArrayList<@Composable () -> Unit>()
+/** A caixa de vidro de um grupo do app (Grupo.qml): cada linha do menu tem a sua. */
+@Composable
+fun Modifier.caixa(): Modifier {
+    val forma = RoundedCornerShape(12.dp)
+    return fillMaxWidth().clip(forma).background(Estilo.vista.alfa(0.30f)).border(1.dp, Estilo.accent.alfa(0.16f), forma)
+}
 
-    /** Uma linha da caixa; a divisória entre as linhas é do grupo. */
+/**
+ * Os itens do menu, cada um na roda do Wear: perto do alto e do pé da tela
+ * redonda o item encolhe e some, como nas listas do sistema (e no HinaWatch).
+ */
+class MenuEscopo internal constructor(
+    private val lista: TransformingLazyColumnScope,
+    private val spec: TransformationSpec,
+) {
+    /** Um item solto: o topo, uma fileira de cartões, o rodapé. */
     fun item(conteudo: @Composable () -> Unit) {
-        itens.add(conteudo)
+        lista.item { Roda(this, spec, conteudo) }
+    }
+
+    /** Título e descrição de um grupo, fora das caixas; o vão de cima separa do grupo anterior. */
+    fun grupo(titulo: String, descricao: String = "") = item {
+        Column(Modifier.fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (titulo.isNotEmpty()) Texto(titulo, Estilo.grupo, Modifier.padding(start = 4.dp))
+            if (descricao.isNotEmpty()) Texto(descricao, Estilo.subtitulo, Modifier.padding(horizontal = 4.dp), cor = Estilo.texto.alfa(0.55f))
+        }
+    }
+
+    /** Uma linha de preferência, na caixa de vidro dela. */
+    fun linha(conteudo: @Composable () -> Unit) = item {
+        Box(Modifier.caixa()) { conteudo() }
     }
 }
 
-/** Grupo de preferências: título, descrição e as linhas numa caixa arredondada. */
 @Composable
-fun Grupo(
-    modifier: Modifier = Modifier,
-    titulo: String = "",
-    descricao: String = "",
-    caixa: Boolean = true,
-    conteudo: GrupoEscopo.() -> Unit,
-) {
-    val escopo = GrupoEscopo().apply(conteudo)
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (titulo.isNotEmpty()) Texto(titulo, Estilo.grupo, Modifier.padding(start = 4.dp))
-        if (descricao.isNotEmpty()) Texto(descricao, Estilo.subtitulo, Modifier.padding(horizontal = 4.dp), cor = Estilo.texto.alfa(0.55f))
-        val forma = RoundedCornerShape(12.dp)
-        Column(
-            if (caixa) Modifier.fillMaxWidth().clip(forma).background(Estilo.vista.alfa(0.30f)).border(1.dp, Estilo.accent.alfa(0.16f), forma)
-            else Modifier.fillMaxWidth(),
-        ) {
-            escopo.itens.forEachIndexed { i, item ->
-                if (i > 0 && caixa) Box(Modifier.fillMaxWidth().height(1.dp).background(Estilo.texto.alfa(0.08f)))
-                item()
-            }
+private fun Roda(escopo: TransformingLazyColumnItemScope, spec: TransformationSpec, conteudo: @Composable () -> Unit) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .transformedHeight(escopo, spec)
+            .graphicsLayer { with(escopo) { with(spec) { applyContainerTransformation(scrollProgress) } } },
+    ) { conteudo() }
+}
+
+/**
+ * O menu: uma lista que rola em roda, com o indicador de rolagem do sistema.
+ * A coroa é do OrbeApp (no orbe ela gira o carrossel), por isso a lista não
+ * pega a coroa sozinha.
+ */
+@Composable
+fun Menu(lista: TransformingLazyColumnState, margem: Dp, conteudo: MenuEscopo.() -> Unit) {
+    val spec = rememberTransformationSpec()
+    ScreenScaffold(scrollState = lista) { vaos ->
+        TransformingLazyColumn(
+            state = lista,
+            contentPadding = PaddingValues(
+                start = margem, end = margem,
+                top = vaos.calculateTopPadding(), bottom = vaos.calculateBottomPadding(),
+            ),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            rotaryScrollableBehavior = null,
+            modifier = Modifier.fillMaxSize(),
+        ) { MenuEscopo(this, spec).conteudo() }
+    }
+}
+
+/**
+ * O fundo do menu. No PC o app é vidro sobre o papel de parede borrado pelo
+ * niri; a ponte manda o papel em poucas cores, e aqui elas viram o borrão,
+ * com o fundo do tema a 58% por cima, como no Conteudo.qml. Sem papel (outro
+ * sistema, ponte antiga), o clarão do tema no alto.
+ */
+@Composable
+fun FundoVidro(modifier: Modifier = Modifier) {
+    val tema = LocalTema.current
+    val borrao = remember(tema.papel) { tema.papel.takeIf { it.isNotEmpty() }?.let(::borrar) }
+    Canvas(modifier.fillMaxSize()) {
+        if (borrao != null) {
+            drawImage(borrao, dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()), filterQuality = FilterQuality.Low)
+            drawRect(tema.fundo.alfa(0.58f))
+        } else {
+            drawRect(tema.fundo)
+            drawRect(
+                Brush.radialGradient(
+                    listOf(tema.accent.alfa(0.13f), Color.Transparent),
+                    center = Offset(size.width / 2, size.width * 0.30f), radius = size.width * 0.62f,
+                ),
+            )
         }
     }
+}
+
+/**
+ * As n x n cores do papel numa imagem de 64 px, por uma B-spline cúbica: o
+ * esticado até a tela fica liso, sem as quinas do bilinear direto das cores.
+ */
+private fun borrar(cores: List<Color>): ImageBitmap {
+    val n = Tema.lado(cores.size)
+    val lado = 64
+    val px = IntArray(lado * lado)
+    val wx = FloatArray(4)
+    val wy = FloatArray(4)
+    fun pesos(t: Float, w: FloatArray) {
+        val u = 1 - t
+        w[0] = u * u * u / 6
+        w[1] = (3 * t * t * t - 6 * t * t + 4) / 6
+        w[2] = (-3 * t * t * t + 3 * t * t + 3 * t + 1) / 6
+        w[3] = t * t * t / 6
+    }
+    for (y in 0 until lado) {
+        val gy = (y + 0.5f) / lado * n - 0.5f
+        val iy = floor(gy).toInt()
+        pesos(gy - iy, wy)
+        for (x in 0 until lado) {
+            val gx = (x + 0.5f) / lado * n - 0.5f
+            val ix = floor(gx).toInt()
+            pesos(gx - ix, wx)
+            var r = 0f
+            var g = 0f
+            var b = 0f
+            for (j in 0 until 4) {
+                val cy = (iy - 1 + j).coerceIn(0, n - 1)
+                for (i in 0 until 4) {
+                    val c = cores[cy * n + (ix - 1 + i).coerceIn(0, n - 1)]
+                    val w = wx[i] * wy[j]
+                    r += c.red * w
+                    g += c.green * w
+                    b += c.blue * w
+                }
+            }
+            px[y * lado + x] = Color(r.coerceIn(0f, 1f), g.coerceIn(0f, 1f), b.coerceIn(0f, 1f)).toArgb()
+        }
+    }
+    return Bitmap.createBitmap(px, lado, lado, Bitmap.Config.ARGB_8888).asImageBitmap()
 }
 
 /** Linha de uma caixa de preferências: título, subtítulo e o que vier à direita. */
@@ -251,9 +332,8 @@ fun LinhaSwitch(
 /** Miniatura animada de uma skin no seletor de avatar. */
 @Composable
 fun Cartao(
-    skin: Skin,
+    previa: ChavePrevia,
     marcado: Boolean,
-    glitch: Boolean,
     modifier: Modifier = Modifier,
     aoEscolher: () -> Unit,
 ) {
@@ -262,7 +342,6 @@ fun Cartao(
     val forma = RoundedCornerShape(12.dp)
     Column(
         modifier
-            .height(100.dp)
             .clip(forma)
             .background(if (marcado) Estilo.accent.alfa(0.14f) else Estilo.texto.alfa(if (apertado) 0.07f else 0.04f))
             .border(1.dp, if (marcado) Estilo.accent.alfa(0.55f) else Estilo.texto.alfa(0.08f), forma)
@@ -270,22 +349,21 @@ fun Cartao(
             .padding(4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Miniatura(skin, Modifier.fillMaxWidth().weight(1f), glitch = glitch)
+        Miniatura(previa, Modifier.size(previa.largura, previa.altura))
         // os nomes compridos ("Ophanim com asas") quebram em duas linhas; a caixa reserva as duas
         Box(Modifier.fillMaxWidth().height(21.dp), contentAlignment = Alignment.Center) {
-            Texto(skin.nome, Estilo.cartao, cor = if (marcado) Estilo.accent else Estilo.texto, alinhar = TextAlign.Center, linhas = 2)
+            Texto(previa.skin.nome, Estilo.cartao, cor = if (marcado) Estilo.accent else Estilo.texto, alinhar = TextAlign.Center, linhas = 2)
         }
     }
 }
 
-/** Tamanho do orbe na tela. O botão do slider é a miniatura viva da skin escolhida. */
+/** Tamanho do orbe na tela. O botão do slider é a miniatura da skin escolhida (a do cartão dela). */
 @Composable
 fun SliderOrbe(
     valor: Float,
     de: Float,
     ate: Float,
-    skin: Skin,
-    glitch: Boolean,
+    botao: ChavePrevia,
     modifier: Modifier = Modifier,
     passo: Float = 0.05f,
     aoMudar: (Float) -> Unit,
@@ -336,7 +414,7 @@ fun SliderOrbe(
                     Box(y.offset(x = lado / 2 + marca - 1.dp).width(2.dp).height(12.dp).clip(CircleShape).background(Estilo.texto.alfa(0.35f)))
                 }
                 // o botão é só o orbe, sem aro nem disco
-                Miniatura(skin, y.offset(x = pos).size(lado), glitch = glitch, peso = 0.9)
+                Miniatura(botao, y.offset(x = pos).size(lado))
             }
         }
     }

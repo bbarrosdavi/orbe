@@ -7,11 +7,13 @@ import android.hardware.SensorManager
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -70,13 +72,12 @@ fun TelaCalibracao(
                 Estilo.subtitulo, alinhar = TextAlign.Center,
             )
             Vao(10.dp)
-            Grupo {
+            Column(Modifier.caixa()) {
                 tentativas.forEachIndexed { i, t ->
-                    item { Linha("Tentativa ${i + 1}", subtitulo = "fora ${um(t.fora)} · dentro ${um(t.dentro)}") }
+                    Linha("Tentativa ${i + 1}", subtitulo = "fora ${um(t.fora)} · dentro ${um(t.dentro)}")
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(Estilo.texto.alfa(0.08f)))
                 }
-                item {
-                    Linha("Padrão", subtitulo = "fora ${um(Sacudida.FORA_MIN)} · dentro ${um(Sacudida.DENTRO_MIN)}", aoClicar = padrao)
-                }
+                Linha("Padrão", subtitulo = "fora ${um(Sacudida.FORA_MIN)} · dentro ${um(Sacudida.DENTRO_MIN)}", aoClicar = padrao)
             }
             if (proposta != null) {
                 Vao(10.dp)

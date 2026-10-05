@@ -18,12 +18,14 @@ import kotlinx.coroutines.flow.map
 data class Ajustes(
     val servidor: String = "",
     val token: String = "",
-    /** avatar e glitch vêm do orbe do PC; escolher um avatar aqui desliga */
+    /** avatar, glitch e linhas vêm do orbe do PC; escolher um avatar aqui desliga */
     val seguirPc: Boolean = true,
     val skin: String = "ofanim",
     /** a cor do orbe no ciclo da rolagem (Ciclo.cores); 0 = a do tema */
     val cor: Int = 0,
     val glitch: Boolean = true,
+    /** as linhas de varredura (o tubo de TV), nas skins desenhadas */
+    val linhas: Boolean = true,
     /** escala do orbe na tela: 1,0 enche o mostrador */
     val tamanho: Float = 1f,
     /** as linhas do raciocínio, abaixo do orbe */
@@ -45,16 +47,18 @@ data class Ajustes(
     val t: Long = 0,
     /** uma sacudida do pulso, com a tela acesa, abre o orbe já ouvindo (duas são do HinaWatch) */
     val sacudida: Boolean = true,
+    /** um toque no orbe fechado abre já no modo live (os turnos seguem sem tocar); sem isto, o segundo toque entra */
+    val live: Boolean = false,
     /** limiares da sacudida em rad/s (fora e dentro); a calibração troca */
     val sacudidaFora: Float = Sacudida.FORA_MIN,
     val sacudidaDentro: Float = Sacudida.DENTRO_MIN,
 ) {
     /** O que vai e volta com o PC (a [Sincronia]). */
-    fun sincronia() = Sincronia(t, agentes, voz, vozPc, microfone, vibrar, texto, glitch, tamanho, seguirPc)
+    fun sincronia() = Sincronia(t, agentes, voz, vozPc, microfone, vibrar, texto, glitch, linhas, tamanho, seguirPc)
 
     fun com(s: Sincronia) = copy(
         t = s.t, agentes = s.agentes, voz = s.voz, vozPc = s.vozPc, microfone = s.microfone, vibrar = s.vibrar,
-        texto = s.texto, glitch = s.glitch, tamanho = s.tamanho.coerceIn(TAMANHO_MIN, TAMANHO_MAX), seguirPc = s.seguirPc,
+        texto = s.texto, glitch = s.glitch, linhas = s.linhas, tamanho = s.tamanho.coerceIn(TAMANHO_MIN, TAMANHO_MAX), seguirPc = s.seguirPc,
     )
 
     companion object {
@@ -73,6 +77,7 @@ class Cofre(private val ctx: Context) {
         val skin = stringPreferencesKey("skin")
         val cor = intPreferencesKey("cor")
         val glitch = booleanPreferencesKey("glitch")
+        val linhas = booleanPreferencesKey("linhas")
         val tamanho = floatPreferencesKey("tamanho")
         val texto = booleanPreferencesKey("texto")
         val microfone = booleanPreferencesKey("microfone")
@@ -84,6 +89,7 @@ class Cofre(private val ctx: Context) {
         val agentes = stringPreferencesKey("agentes")      // "skin=agente;skin=agente"
         val t = longPreferencesKey("t")
         val sacudida = booleanPreferencesKey("sacudida")
+        val live = booleanPreferencesKey("live")
         val sacudidaFora = floatPreferencesKey("sacudida_fora")
         val sacudidaDentro = floatPreferencesKey("sacudida_dentro")
     }
@@ -102,6 +108,7 @@ class Cofre(private val ctx: Context) {
             skin = p[K.skin] ?: d.skin,
             cor = p[K.cor] ?: d.cor,
             glitch = p[K.glitch] ?: d.glitch,
+            linhas = p[K.linhas] ?: d.linhas,
             tamanho = (p[K.tamanho] ?: d.tamanho).coerceIn(Ajustes.TAMANHO_MIN, Ajustes.TAMANHO_MAX),
             texto = p[K.texto] ?: d.texto,
             microfone = p[K.microfone] ?: d.microfone,
@@ -113,6 +120,7 @@ class Cofre(private val ctx: Context) {
             agentes = lerAgentes(p[K.agentes]),
             t = p[K.t] ?: d.t,
             sacudida = p[K.sacudida] ?: d.sacudida,
+            live = p[K.live] ?: d.live,
             sacudidaFora = p[K.sacudidaFora] ?: d.sacudidaFora,
             sacudidaDentro = p[K.sacudidaDentro] ?: d.sacudidaDentro,
         )
@@ -126,6 +134,7 @@ class Cofre(private val ctx: Context) {
             p[K.skin] = a.skin
             p[K.cor] = a.cor
             p[K.glitch] = a.glitch
+            p[K.linhas] = a.linhas
             p[K.tamanho] = a.tamanho
             p[K.texto] = a.texto
             p[K.microfone] = a.microfone
@@ -137,6 +146,7 @@ class Cofre(private val ctx: Context) {
             p[K.agentes] = a.agentes.entries.joinToString(";") { "${it.key}=${it.value}" }
             p[K.t] = a.t
             p[K.sacudida] = a.sacudida
+            p[K.live] = a.live
             p[K.sacudidaFora] = a.sacudidaFora
             p[K.sacudidaDentro] = a.sacudidaDentro
         }

@@ -31,6 +31,8 @@ class Figura(skinInicial: Skin) : Arte {
             }
         }
     var glitch = true
+    /** linhas de varredura (o tubo de TV); nas skins de imagem não entram, riscam a hachura */
+    var varredura = true
     var peso = 1.0                       // traço mais grosso e opaco (o orbe usa mais)
     val cor = floatArrayOf(1f, 1f, 1f)
     /** tom do fundo: a massa escura por baixo do traço (Shoggoth e skins de imagem) */
@@ -496,9 +498,7 @@ class Figura(skinInicial: Skin) : Arte {
         pos.v4("corA", 0.00, 0.95, 0.95, alfaGl)
         pos.v4("corB", 1.00, 0.08, 0.55, alfaGl)
         pos.v4("glt", sep, if (rajada) 1.0 else 0.0, if (rajada) Random.nextDouble() * 1000 else 0.0, k)
-        // Sem linhas de varredura no relógio: de 1 px lógico a cada 3, na tela
-        // pequena e pouco brilhante elas viram faixas e escurecem a figura.
-        pos.v4("geo2", rb, lim, (t * 18) % 3, 0.0)
+        pos.v4("geo2", rb, lim, (t * 18) % 3, if (varredura && !skin.imagem) 1.0 else 0.0)
         pos.zero4("sombra")
         pos.v4("corSombra", corFundo[0].toDouble(), corFundo[1].toDouble(), corFundo[2].toDouble(), 1.0)
         pos.v4("modo", 0.0, 1.0, 0.0, 0.0)

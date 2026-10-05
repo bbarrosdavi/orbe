@@ -24,6 +24,8 @@ data class Tema(
     val popover: Color,
     /** accent do anel de energia (o do CSS do sistema, não o do GTK) */
     val anel: Color,
+    /** o papel de parede do PC em n x n cores, para o fundo; vazio sem ele */
+    val papel: List<Color> = emptyList(),
 ) {
     companion object {
         val Padrao = Tema(
@@ -33,7 +35,7 @@ data class Tema(
         )
 
         /** Do mapa da ponte (accent_bg_color, window_bg_color, ...); o que faltar fica no padrão. */
-        fun de(m: Map<String, String>): Tema = Tema(
+        fun de(m: Map<String, String>, papel: List<String> = emptyList()): Tema = Tema(
             accent = cor(m["accent_bg_color"]) ?: Padrao.accent,
             accentFg = cor(m["accent_fg_color"]) ?: Padrao.accentFg,
             fundo = cor(m["window_bg_color"]) ?: Padrao.fundo,
@@ -41,7 +43,14 @@ data class Tema(
             vista = cor(m["view_bg_color"]) ?: Padrao.vista,
             popover = cor(m["popover_bg_color"]) ?: Padrao.popover,
             anel = cor(m["anel"]) ?: Padrao.anel,
+            papel = papel.mapNotNull(::cor).takeIf { lado(it.size) > 1 }.orEmpty(),
         )
+
+        /** O lado do quadrado de [n] cores, ou 0 se [n] não é quadrado. */
+        fun lado(n: Int): Int {
+            val l = kotlin.math.sqrt(n.toDouble()).toInt()
+            return if (l * l == n) l else 0
+        }
 
         private fun cor(hex: String?): Color? {
             val h = hex?.trim()?.removePrefix("#") ?: return null

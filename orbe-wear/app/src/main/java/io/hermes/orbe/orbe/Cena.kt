@@ -54,6 +54,7 @@ class OrbeCena(entrar: Boolean = true) : Cena {
     // ── aparência; quem muda é a tela, quem lê é a thread do desenho ──
     @Volatile var skin = Skin.OFANIM
     @Volatile var glitch = true
+    @Volatile var varredura = true                                   // as linhas de TV
     @Volatile var tamanho = 1.0
     @Volatile var redonda = true
     @Volatile var comTexto = false
@@ -244,6 +245,7 @@ class OrbeCena(entrar: Boolean = true) : Cena {
         if (sk.avatar) {
             figura.skin = sk
             figura.glitch = glitch
+            figura.varredura = varredura
             corTema.copyInto(figura.cor)
             corFundo.copyInto(figura.corFundo)
             // no mostrador redondo a figura cabe no disco, não só no quadrado
@@ -289,6 +291,7 @@ class OrbeCena(entrar: Boolean = true) : Cena {
 class MiniCena(skinInicial: Skin) : Cena {
     @Volatile var skin = skinInicial
     @Volatile var glitch = true
+    @Volatile var varredura = true                                   // as linhas de TV
     @Volatile var peso = 1.2
     @Volatile var raio = -1.0                                          // -1 = o maior que cabe
     @Volatile var cor = floatArrayOf(0.722f, 0.792f, 0.796f)
@@ -306,6 +309,7 @@ class MiniCena(skinInicial: Skin) : Cena {
         if (sk.avatar) {
             figura.skin = sk
             figura.glitch = glitch
+            figura.varredura = varredura
             figura.peso = peso
             figura.raioFixo = raio
             cor.copyInto(figura.cor)

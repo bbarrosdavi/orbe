@@ -110,6 +110,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.wear.compose.foundation)
+    // a lista do menu em roda (TransformingLazyColumn com a transformação do sistema), como no HinaWatch
+    implementation(libs.wear.compose.material3)
     implementation(libs.androidx.wear.input)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.coroutines.android)

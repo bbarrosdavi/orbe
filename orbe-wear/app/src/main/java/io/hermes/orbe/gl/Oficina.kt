@@ -76,15 +76,24 @@ internal class Oficina(private val ctx: Context) {
     /** Primeiro passe da skin; null se o shader não compila nesta GPU. */
     fun figura(skin: Skin): Programa? = programa(skin.shader, skin.definicoes)
 
+    /**
+     * O primeiro passe das skins desenhadas por elemento (o Ophanim): o próprio
+     * figura.frag é o vértice (VERTICE) e o fragmento (PRIMITIVAS); ver o fim do
+     * arquivo. null nas outras skins ou se não compila nesta GPU.
+     */
+    fun primitivas(skin: Skin): Programa? =
+        if (!skin.primitivas) null else programa(skin.shader, skin.definicoes + ("PRIMITIVAS" to 1), comVertice = true)
+
     /** Segundo passe: cor, glitch e sombra. */
     fun pos(): Programa? = programa("pos.frag", emptyMap())
 
-    private fun programa(arquivo: String, definicoes: Map<String, Int>): Programa? {
+    private fun programa(arquivo: String, definicoes: Map<String, Int>, comVertice: Boolean = false): Programa? {
         val chave = arquivo + definicoes
         if (programas.containsKey(chave)) return programas[chave]
         val p = try {
             val fonte = ctx.assets.open("shaders/$arquivo").bufferedReader().use { it.readText() }
-            montar(Sombreador.paraEs(fonte, definicoes), chave)
+            val vertice = if (comVertice) Sombreador.paraEs(fonte, definicoes + ("VERTICE" to 1)) else Sombreador.VERTICE
+            montar(vertice, Sombreador.paraEs(fonte, definicoes), chave)
         } catch (e: Exception) {
             Log.e(TAG, "shader $chave: ${e.message}")
             null
@@ -93,14 +102,14 @@ internal class Oficina(private val ctx: Context) {
         return p
     }
 
-    private fun montar(fragmento: String, nome: String): Programa {
+    private fun montar(vertice: String, fragmento: String, nome: String): Programa {
         val t0 = System.nanoTime()
-        val cache = File(pasta, sha1(Sombreador.VERTICE + fragmento + gpu) + ".bin")
+        val cache = File(pasta, sha1(vertice + fragmento + gpu) + ".bin")
         doCache(cache)?.let {
             Log.i(TAG, "programa $nome: do cache em ${(System.nanoTime() - t0) / 1_000_000} ms")
             return Programa(it)
         }
-        val vs = compilar(GLES30.GL_VERTEX_SHADER, Sombreador.VERTICE)
+        val vs = compilar(GLES30.GL_VERTEX_SHADER, vertice)
         val fs = compilar(GLES30.GL_FRAGMENT_SHADER, fragmento)
         val id = GLES30.glCreateProgram()
         GLES30.glAttachShader(id, vs)
