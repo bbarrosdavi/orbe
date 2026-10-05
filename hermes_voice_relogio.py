@@ -27,7 +27,7 @@ Conversa (texto = uma linha por mensagem; binário = PCM s16le mono 16 kHz):
                                                     encerrar: fecha a sessão e, com o Claude no
                                                     orbe, a sessão do Claude Code
   relógio → agente <id>                             o agente do orbe em tela (vazio = Claude)
-  ponte   → sessoes [{"vaga", "pid", "rotulo", "estado", "canal", "ouve"}]
+  ponte   → sessoes [{"vaga", "pid", "rotulo", "titulo", "pasta", "estado", "canal", "ouve"}]
                                                     as sessões do Claude Code abertas no PC,
                                                     cada uma na sua vaga (também no "ola")
   relógio → vaga <k> | vaga                         o orbe em tela é o k-ésimo do Claude no
@@ -394,6 +394,7 @@ class PonteRelogio:
                     self._vagas[s["pid"]] = v
                     usadas.add(v)
             return sorted(({"vaga": self._vagas[s["pid"]], "pid": s["pid"], "rotulo": sessao.rotulo(s),
+                            "titulo": sessao.titulo(s), "pasta": s["pasta"],
                             "estado": s["estado"], "canal": s["canal"], "ouve": s["ouve"]} for s in vivas),
                           key=lambda s: s["vaga"])
 

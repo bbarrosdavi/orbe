@@ -49,6 +49,14 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.wear.compose.foundation.CurvedDirection
+import androidx.wear.compose.foundation.CurvedLayout
+import androidx.wear.compose.foundation.CurvedModifier
+import androidx.wear.compose.foundation.CurvedTextStyle
+import androidx.wear.compose.foundation.basicCurvedText
+import androidx.wear.compose.foundation.sizeIn
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -106,6 +114,10 @@ private val PONTO_PASSO = 6.dp
 /** Velocidade dos dois dedos, por segundo, que já passa à instância vizinha. */
 private val ARREMESSO = 400.dp
 
+/** O rótulo da sessão, curvado: a folga da borda da tela e o arco máximo de cada linha (graus). */
+private val BORDA_ROTULO = 6.dp
+private const val ARCO_ROTULO = 100f
+
 /**
  * A tela do orbe: a figura no mostrador inteiro, as linhas do raciocínio
  * abaixo dela e o ponto da sessão travada acima, como no orbe do desktop com o
@@ -134,14 +146,13 @@ fun TelaOrbe(
     val aparencia by vm.aparencia.collectAsStateWithLifecycle()
     val retrato by vm.retrato.collectAsStateWithLifecycle()
     val ligacao by vm.ligacao.collectAsStateWithLifecycle()
-    val previa by vm.previa.collectAsStateWithLifecycle()
     val sessoes by vm.sessoes.collectAsStateWithLifecycle()
     val abreClaude by vm.abreClaude.collectAsStateWithLifecycle()
     val claude = remember(ajustes.agentes) { vm.skinsClaude(ajustes) }
     val pode by rememberUpdatedState(podeGravar)
     val podeAgora = remember { { pode() } }
     val comTexto = ajustes.texto && retrato.linhas.isNotEmpty()
-    val skins = Skin.entries
+    val skins = remember(ajustes.ordem) { ajustes.skins() }
     val nSkins = skins.size
     val nInstancias = Instancias.contar(sessoes.orEmpty().map { it.vaga }, abreClaude)
 
@@ -151,27 +162,28 @@ fun TelaOrbe(
         vm.cena.corFundo = aparencia.corFundo()
     }
 
-    BoxWithConstraints(modifier.fillMaxSize().background(Color.Black)) {
+    // sem fundo próprio: o do menu fica parado atrás das duas páginas (OrbeApp)
+    BoxWithConstraints(modifier.fillMaxSize()) {
         val w = maxWidth.value
         val h = maxHeight.value
-        // o vidro do menu (o papel de parede do PC) atrás dos orbes, com a opção
-        if (aparencia.fundo) FundoVidro()
 
         // ── a lista dos orbes: na vertical (dedo ou coroa), uma skin por página; depois da última, a primeira ──
-        val paginas = rememberPagerState(initialPage = pagina(aparencia.skin, nSkins * VOLTAS / 2, nSkins)) { nSkins * VOLTAS }
+        val paginas = rememberPagerState(initialPage = pagina(skins, aparencia.skin, nSkins * VOLTAS / 2)) { nSkins * VOLTAS }
         val agora by rememberUpdatedState(aparencia)
-        // a escolha veio de fora (o menu, o PC, os ajustes lidos do disco): vai até ela sem animar
-        LaunchedEffect(aparencia.skin) {
+        // a escolha veio de fora (o menu, o PC, os ajustes lidos do disco) ou a ordem
+        // mudou no menu: vai até ela sem animar
+        LaunchedEffect(aparencia.skin, skins) {
             val p = paginas.settledPage
-            if (!paginas.isScrollInProgress && skins[p.mod(nSkins)] != aparencia.skin) paginas.scrollToPage(pagina(aparencia.skin, p, nSkins))
+            if (!paginas.isScrollInProgress && skins[p.mod(nSkins)] != aparencia.skin) paginas.scrollToPage(pagina(skins, aparencia.skin, p))
         }
         LaunchedEffect(paginas) {
             coroa.collect { passo -> if (!paginas.isScrollInProgress) paginas.animateScrollToPage(paginas.currentPage + passo) }
         }
         // assentou noutra skin pelo dedo: ela passa a ser o orbe do relógio
+        val ordem by rememberUpdatedState(skins)
         LaunchedEffect(paginas) {
             snapshotFlow { paginas.settledPage }.collect { p ->
-                val skin = skins[p.mod(nSkins)]
+                val skin = ordem[p.mod(nSkins)]
                 if (skin != agora.skin) vm.girar(skin)
             }
         }
@@ -199,11 +211,12 @@ fun TelaOrbe(
                         // a sessão desta instância, na cor dela; no orbe em tela o
                         // raciocínio ocupa o mesmo lugar e tem a vez
                         val lista = sessoes
-                        if (lista != null && previa == null && !(atual && comTexto)) {
+                        if (lista != null) {
                             RotuloSessao(
                                 lista.firstOrNull { it.vaga == k }, abreClaude,
                                 daPagina.copy(instancia = k).corFigura().let { Color(it[0], it[1], it[2]) },
-                                Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp),
+                                comPe = !(atual && comTexto),
+                                Modifier.fillMaxSize(),
                             )
                         }
                     }
@@ -269,9 +282,8 @@ fun TelaOrbe(
             }
         }
 
-        // ── rodapé: o estado da ponte (ou da prévia) ──
+        // ── rodapé: o estado da ponte ──
         val estado = when {
-            previa != null -> "prévia: $previa"
             ligacao is Ligacao.SemServidor -> if (ajustes.servidor.isBlank() || ajustes.token.isBlank()) "sem servidor" else ""
             ligacao is Ligacao.Conectando -> "conectando…"
             ligacao is Ligacao.Falha -> (ligacao as Ligacao.Falha).motivo
@@ -287,10 +299,12 @@ fun TelaOrbe(
     }
 }
 
-/** A página de [skin] mais perto de [perto], na lista de [n] skins que gira. */
-private fun pagina(skin: Skin, perto: Int, n: Int): Int {
+/** A página de [skin] mais perto de [perto], na lista [skins] que gira. */
+private fun pagina(skins: List<Skin>, skin: Skin, perto: Int): Int {
+    val n = skins.size
     val base = perto - perto.mod(n)
-    return listOf(base - n, base, base + n).map { it + skin.ordinal }.minBy { abs(it - perto) }
+    val i = skins.indexOf(skin).coerceAtLeast(0)
+    return listOf(base - n, base, base + n).map { it + i }.minBy { abs(it - perto) }
 }
 
 /**
@@ -518,24 +532,42 @@ private fun GraphicsLayerScope.roda(desvio: Float, vertical: Boolean) {
     else translationX = desvio * size.width * RODA_PUXAO
 }
 
-/** A sessão do Claude Code de uma instância: a pasta e o nome, e se ela está parada ou trabalhando. */
+/**
+ * A sessão do Claude Code de uma instância, discreta e curvada na borda da
+ * tela: uma linha no alto com o título da conversa, na cor da instância, e uma
+ * no pé com a pasta em que ela foi aberta e se ouve o orbe. Com o raciocínio
+ * na tela, o pé é dele.
+ */
 @Composable
-private fun RotuloSessao(sessao: SessaoInfo?, abreClaude: Boolean, cor: Color, modifier: Modifier = Modifier) {
-    val titulo = sessao?.rotulo ?: "livre"
-    val sub = when {
-        sessao == null -> if (abreClaude) "falar aqui abre uma sessão" else "nenhuma sessão"
-        !sessao.canal && !sessao.ouve -> "não ouve o orbe"
-        else -> sessao.estado
+private fun RotuloSessao(sessao: SessaoInfo?, abreClaude: Boolean, cor: Color, comPe: Boolean, modifier: Modifier = Modifier) {
+    val titulo = sessao?.let { it.titulo.ifEmpty { it.rotulo } } ?: "livre"
+    val pe = when {
+        sessao == null -> if (abreClaude) "falar aqui abre uma sessão" else ""
+        sessao.canal || sessao.ouve -> listOf(sessao.pasta, "ouve o orbe").filter { it.isNotEmpty() }.joinToString(" · ")
+        else -> listOf(sessao.pasta, "não ouve o orbe").filter { it.isNotEmpty() }.joinToString(" · ")
     }
-    val sombra = Shadow(Color.Black, Offset.Zero, 4f)
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        BasicText(
-            titulo, maxLines = 1,
-            style = Estilo.mono.copy(fontSize = 10.sp, color = cor.alfa(0.85f), shadow = sombra, textAlign = TextAlign.Center),
-        )
-        BasicText(
-            sub, maxLines = 1,
-            style = Estilo.mono.copy(color = Estilo.texto.alfa(0.5f), shadow = sombra, textAlign = TextAlign.Center),
-        )
+    val corTitulo = cor.alfa(0.75f)
+    val corPe = Estilo.texto.alfa(0.45f)
+    Box(modifier.padding(BORDA_ROTULO)) {
+        CurvedLayout(anchor = 270f) {
+            basicCurvedText(
+                titulo,
+                style = { CurvedTextStyle(color = corTitulo, fontSize = 10.sp) },
+                modifier = CurvedModifier.sizeIn(maxSweepDegrees = ARCO_ROTULO),
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (comPe && pe.isNotEmpty()) {
+            // no pé a leitura é da esquerda para a direita: o sentido contrário ao do alto
+            CurvedLayout(anchor = 90f, angularDirection = CurvedDirection.Angular.Reversed) {
+                basicCurvedText(
+                    pe,
+                    style = { CurvedTextStyle(color = corPe, fontSize = 9.sp, fontFamily = FontFamily.Monospace) },
+                    modifier = CurvedModifier.sizeIn(maxSweepDegrees = ARCO_ROTULO),
+                    angularDirection = CurvedDirection.Angular.Reversed,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }

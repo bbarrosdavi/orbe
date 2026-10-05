@@ -219,8 +219,10 @@ class ServicoSacudida : Service(), SensorEventListener {
                     Log.d(TAG, "armado; maior pico ignorado antes: %.1f".format(sacudida.maxAntesDeArmar))
                 }
                 sacudida.tirarResumo()?.let { Log.i(TAG, "sequência: $it") }
-                // durante a calibração o gesto é medido pela tela e não abre nada
-                if (gesto == Gesto.UMA && !calibrando) {
+                // durante a calibração o gesto é medido pela tela e não abre nada; logo
+                // depois de sair do orbe pela sacudida, a volta do pulso não o reabre
+                val acabouDeSair = SystemClock.uptimeMillis() - saiuEm < SAIU_MS
+                if (gesto == Gesto.UMA && !calibrando && !acabouDeSair) {
                     abrirOrbe()
                     fecharJanela()
                 }
@@ -294,6 +296,12 @@ class ServicoSacudida : Service(), SensorEventListener {
 
         /** a tela de calibração está aberta: o gesto não abre o orbe */
         @Volatile var calibrando = false
+
+        /** quando o orbe saiu pela sacudida para fora ([SystemClock.uptimeMillis]) */
+        @Volatile var saiuEm = -SAIU_MS
+
+        /** Depois de sair pela sacudida, quanto tempo a sacudida não reabre o orbe: a volta do pulso e a quietude que a classifica. */
+        private const val SAIU_MS = 2_000L
 
         fun ligar(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, ServicoSacudida::class.java))

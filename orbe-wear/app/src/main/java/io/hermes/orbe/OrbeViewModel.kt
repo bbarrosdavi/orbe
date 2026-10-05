@@ -28,10 +28,6 @@ import io.hermes.orbe.orbe.Retrato
 import io.hermes.orbe.orbe.Skin
 import io.hermes.orbe.ui.Tema
 import io.hermes.orbe.ui.rgb
-import kotlin.math.PI
-import kotlin.math.pow
-import kotlin.math.sin
-import kotlin.random.Random
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,7 +36,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** O que vale na tela: os ajustes do relógio já cruzados com a aparência do PC. */
@@ -73,9 +68,6 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     val ajustes: StateFlow<Ajustes> = _ajustes
     private val _retrato = MutableStateFlow(Retrato())
     val retrato: StateFlow<Retrato> = _retrato
-    /** rótulo do estado em cartaz na pré-visualização; null fora dela */
-    private val _previa = MutableStateFlow<String?>(null)
-    val previa: StateFlow<String?> = _previa
 
     /**
      * as sessões do Claude Code abertas no PC, cada uma na vaga dela: a
@@ -90,12 +82,12 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     /** o relógio tem alto-falante (ou fone pareado) para tocar a resposta */
     val temSaidaDeSom = AltoFalante.temSaida(app)
     private val altoFalante = AltoFalante(
-        aoNivel = { nivel, tom -> if (_previa.value == null) cena.comando("level $nivel $tom") },
+        aoNivel = { nivel, tom -> cena.comando("level $nivel $tom") },
         aoAcabar = { ponte.enviar("voz acabou") },
     )
     private val ponte: Ponte = Ponte(
         viewModelScope, Build.MODEL ?: "relógio", ::linhaDaPonte, ::olaDaPonte, ::configDaPonte,
-        aoVoz = ::vozDaPonte, aoAudio = { if (_previa.value == null) altoFalante.tocar(it) },
+        aoVoz = ::vozDaPonte, aoAudio = { altoFalante.tocar(it) },
         querVoz = { temSaidaDeSom && _ajustes.value.voz },
         querVozPc = { _ajustes.value.vozPc },
         aoAjustes = ::ajustesDaPonte,
@@ -115,7 +107,6 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
 
     private var carregado = false
     private var naTela = false
-    private var cicloPrevia: Job? = null
     /** mudanças feitas antes de o disco responder */
     private val pendentes = ArrayList<(Ajustes) -> Ajustes>()
 
@@ -141,7 +132,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
                     _sessoes.value = null
                     altoFalante.cortar()
                     pararEscuta()
-                    if (_previa.value == null) adormecer()
+                    adormecer()
                 } else if (querOuvir) {
                     iniciarEscuta()
                 }
@@ -279,7 +270,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
 
     /** As skins cujos orbes são do Claude (o agente padrão), na ordem da lista. */
     fun skinsClaude(a: Ajustes = _ajustes.value): List<Skin> =
-        Skin.entries.filter { a.agentes[it.id].orEmpty().let { id -> id.isEmpty() || id == "claude" } }
+        a.skins().filter { a.agentes[it.id].orEmpty().let { id -> id.isEmpty() || id == "claude" } }
 
     /** O agente seguinte para o orbe da [skin], em roda: o padrão (Claude) e os do PC. */
     fun proximoAgente(skin: Skin) {
@@ -301,6 +292,22 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
 
     fun sacudidaPadrao() = calibrarSacudida(Picos(Sacudida.FORA_MIN, Sacudida.DENTRO_MIN))
 
+    /** Com o orbe aberto, a sacudida só para fora sai dele. */
+    fun sair(v: Boolean) = mudar { it.copy(sair = v) }
+
+    /** O fora mínimo de sair, da calibração; 0 volta ao padrão. */
+    fun calibrarSair(fora: Float) = mudar { it.copy(sairFora = fora) }
+
+    /** Leva a [skin] um lugar para cima (-1) ou para baixo (+1) na lista dos orbes; só aqui no relógio. */
+    fun mover(skin: Skin, passo: Int) = mudar { a ->
+        val lista = a.skins().toMutableList()
+        val i = lista.indexOf(skin)
+        val j = i + passo
+        if (i < 0 || j !in lista.indices) return@mudar a
+        lista[i] = lista[j].also { lista[j] = skin }
+        a.copy(ordem = lista.map { it.id })
+    }
+
     // ── ponte ──
 
     fun entrou() {
@@ -313,7 +320,6 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         pararEscuta()
         toqueCancelado()
         altoFalante.cortar()
-        pararPrevia()
         esperaWifi?.cancel()
         ponte.desligar()        // a sessão continua no PC; na volta, a ponte conta em que pé está
         rede.soltar()
@@ -348,12 +354,12 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun linhaDaPonte(linha: String) {
-        if (_previa.value == null) cena.comando(linha)
+        cena.comando(linha)
     }
 
     private fun olaDaPonte(ola: Ola, bruto: String) {
         // a ponte repete em seguida o que o orbe do PC está mostrando
-        if (_previa.value == null) adormecer()
+        adormecer()
         _agentesPc.value = ola.agentes
         _sessoes.value = ola.sessoes
         _abreClaude.value = ola.abreClaude
@@ -369,7 +375,6 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
 
     /** A resposta em voz: a taxa do áudio que vem, o fim dela, ou o corte. */
     private fun vozDaPonte(arg: String) {
-        if (_previa.value != null) return
         val taxa = arg.toIntOrNull()
         when {
             taxa != null && taxa in 8000..48000 -> altoFalante.abrir(taxa)
@@ -404,7 +409,6 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Dedo encostou: os olhos vão para ele e o microfone já começa a guardar. */
     fun toqueBaixo(x: Float, y: Float, podeGravar: Boolean) {
-        if (_previa.value != null) return
         dedo = true
         desligarMicDaEscuta()           // o dedo assume a fala; a escuta volta quando ele sair
         olhar(x, y)
@@ -435,7 +439,6 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Parado além do tempo de segurar: é segurar para falar. */
     fun toqueSegurou() {
-        if (_previa.value != null) return
         altoFalante.cortar()            // quem fala por cima não espera a rede para o orbe calar
         segurando = true
         cena.toque = true
@@ -453,10 +456,6 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Solto antes de andar e antes do tempo de segurar: toque curto, contado. */
     fun toqueCurto(podeGravar: Boolean) {
-        if (_previa.value != null) {
-            pararPrevia()
-            return
-        }
         largar()
         // o dedo já saiu: o orbe ainda cresce um instante, para o toque ser visto
         cena.toque = true
@@ -640,58 +639,6 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ── pré-visualização: o ciclo da prévia do app do desktop, sem daemon ──
-
-    fun alternarPrevia() {
-        if (_previa.value != null) pararPrevia() else iniciarPrevia()
-    }
-
-    private fun iniciarPrevia() {
-        cicloPrevia?.cancel()
-        _previa.value = Estado.rotulos[Estado.IDLE]
-        cicloPrevia = viewModelScope.launch {
-            val fala = Fala()
-            cena.comando("hold 0")
-            cena.comando("show idle")
-            var fase = 0
-            var t = 0.0
-            var nLinha = 0
-            var ant = System.nanoTime()
-            while (isActive) {
-                delay(33)
-                val agora = System.nanoTime()
-                val dt = ((agora - ant) / 1e9).coerceAtMost(0.1)
-                ant = agora
-                t += dt
-                val (estado, dur) = CICLO[fase]
-                when (estado) {
-                    "listening" -> cena.comando("mic ${0.03 + 0.75 * fala.passo(dt).first}")
-                    "speaking" -> fala.passo(dt).let { (env, tom) -> cena.comando("level ${0.9 * env} $tom") }
-                    "thinking" -> if (nLinha < LINHAS.size && t >= 0.3 + nLinha) cena.comando("line " + LINHAS[nLinha++])
-                }
-                if (t >= dur) {
-                    fase = (fase + 1) % CICLO.size
-                    t = 0.0
-                    nLinha = 0
-                    if (fase == 0) listOf("level 0", "mic 0", "clear").forEach(cena::comando)
-                    cena.comando("state " + CICLO[fase].first)
-                    _previa.value = Estado.rotulos[Estado.de(CICLO[fase].first)]
-                }
-            }
-        }
-    }
-
-    private fun pararPrevia() {
-        if (_previa.value == null) return
-        cicloPrevia?.cancel()
-        cicloPrevia = null
-        _previa.value = null
-        listOf("level 0", "mic 0").forEach(cena::comando)
-        adormecer()
-        // a ponte repete o estado de verdade a quem conecta
-        if (naTela) conectar(forcar = true)
-    }
-
     override fun onCleared() {
         microfone.parar()
         altoFalante.cortar()
@@ -699,47 +646,10 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         rede.soltar()
     }
 
-    /** Envelope de fala sintético: sílabas de 120 a 240 ms, pausas e um tom que anda por sílaba. */
-    private class Fala {
-        private var t = 0.0
-        private var ini = 0.0
-        private var fim = 0.0
-        private var pico = 0.0
-        private var tom = 0.5
-
-        fun passo(dt: Double): Pair<Double, Double> {
-            t += dt
-            if (t >= fim) {
-                ini = t
-                val dur: Double
-                if (Random.nextDouble() < 0.2) {
-                    pico = 0.0
-                    dur = Random.nextDouble(0.12, 0.35)
-                } else {
-                    pico = Random.nextDouble(0.45, 1.0)
-                    dur = Random.nextDouble(0.12, 0.24)
-                    tom = (tom + Random.nextDouble(-0.25, 0.25)).coerceIn(0.0, 1.0)
-                }
-                fim = t + dur
-            }
-            val u = (t - ini) / (fim - ini).coerceAtLeast(1e-3)
-            return pico * sin(PI * u.coerceAtMost(1.0)).pow(0.8) to tom
-        }
-    }
-
     private companion object {
         /** quanto a ponte em casa espera o Wi-Fi acordar antes de sair pelo celular */
         const val ESPERA_WIFI = 4_000L
         /** toques curtos dentro disto contam juntos (um abre, dois ligam o live, três encerram) */
         const val JANELA_TOQUES = 400L
-
-        // o ciclo e as linhas da prévia do hermes_voice_app.py
-        val CICLO = listOf("idle" to 4.0, "listening" to 5.0, "thinking" to 5.0, "speaking" to 6.0)
-        val LINHAS = listOf(
-            "Pedido: resumir as mensagens não lidas de hoje.",
-            "Começo pelas conversas com menções diretas.",
-            "São três threads; a mais longa trata do prazo da entrega.",
-            "Junto um resumo de uma frase por thread e respondo.",
-        )
     }
 }

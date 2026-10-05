@@ -57,9 +57,21 @@ data class Ajustes(
     /** limiares da sacudida em rad/s (fora e dentro); a calibração troca */
     val sacudidaFora: Float = Sacudida.FORA_MIN,
     val sacudidaDentro: Float = Sacudida.DENTRO_MIN,
+    /** a ordem dos orbes na lista, pelas skins; vazia = a de [Skin.entries] */
+    val ordem: List<String> = emptyList(),
+    /** com o orbe aberto, uma sacudida do pulso só para fora sai dele (como no HinaWatch) */
+    val sair: Boolean = true,
+    /** o fora mínimo da sacudida de sair, em rad/s; 0 = sem calibrar, vale o padrão (o do HinaWatch, [Sacudida.FORA_MIN]) */
+    val sairFora: Float = 0f,
 ) {
     /** A escala do orbe da [skin]. */
     fun tamanhoDe(skin: Skin): Float = tamanhos[skin.id] ?: tamanho
+
+    /** As skins na ordem da lista: as de [ordem] e, depois delas, as que faltarem, na ordem de sempre. */
+    fun skins(): List<Skin> {
+        val escolhidas = ordem.mapNotNull { id -> Skin.entries.firstOrNull { it.id == id } }.distinct()
+        return escolhidas + Skin.entries.filter { it !in escolhidas }
+    }
 
     /** O que vai e volta com o PC (a [Sincronia]). */
     fun sincronia() = Sincronia(t, agentes, voz, vozPc, microfone, vibrar, texto, glitch, linhas, tamanho, seguirPc, tamanhos)
@@ -104,6 +116,9 @@ class Cofre(private val ctx: Context) {
         val live = booleanPreferencesKey("live")
         val sacudidaFora = floatPreferencesKey("sacudida_fora")
         val sacudidaDentro = floatPreferencesKey("sacudida_dentro")
+        val ordem = stringPreferencesKey("ordem")          // "anel,serafim_gravura,..."
+        val sair = booleanPreferencesKey("sair")
+        val sairFora = floatPreferencesKey("sair_fora")
     }
 
     private fun lerAgentes(s: String?): Map<String, String> =
@@ -144,6 +159,9 @@ class Cofre(private val ctx: Context) {
             live = p[K.live] ?: d.live,
             sacudidaFora = p[K.sacudidaFora] ?: d.sacudidaFora,
             sacudidaDentro = p[K.sacudidaDentro] ?: d.sacudidaDentro,
+            ordem = p[K.ordem].orEmpty().split(',').filter { it.isNotEmpty() },
+            sair = p[K.sair] ?: d.sair,
+            sairFora = p[K.sairFora] ?: d.sairFora,
         )
     }
 
@@ -172,6 +190,9 @@ class Cofre(private val ctx: Context) {
             p[K.live] = a.live
             p[K.sacudidaFora] = a.sacudidaFora
             p[K.sacudidaDentro] = a.sacudidaDentro
+            p[K.ordem] = a.ordem.joinToString(",")
+            p[K.sair] = a.sair
+            p[K.sairFora] = a.sairFora
         }
     }
 }

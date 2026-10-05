@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -44,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -51,6 +53,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -122,6 +125,61 @@ fun Botao(
         contentAlignment = Alignment.Center,
     ) {
         Texto(texto, Estilo.botao, cor = if (destaque) Estilo.accentFg else if (ligado) Estilo.accent else Estilo.texto, linhas = 1)
+    }
+}
+
+/** Ícone simbólico pintado na cor pedida, como o Icone.qml do app. */
+@Composable
+fun Icone(id: Int, cor: Color, modifier: Modifier = Modifier) {
+    Image(painterResource(id), contentDescription = null, modifier = modifier, colorFilter = ColorFilter.tint(cor))
+}
+
+/** Botão redondo e chapado com um ícone (o BotaoIcone.qml do app, com fundo). */
+@Composable
+fun BotaoIcone(icone: Int, modifier: Modifier = Modifier, ativo: Boolean = true, aoClicar: () -> Unit) {
+    val fonte = remember { MutableInteractionSource() }
+    val apertado by fonte.collectIsPressedAsState()
+    Box(
+        modifier
+            .alpha(if (ativo) 1f else 0.4f)
+            .size(28.dp)
+            .clip(CircleShape)
+            .background(Estilo.texto.alfa(if (apertado) 0.16f else 0.08f))
+            .clickable(fonte, indication = null, enabled = ativo, onClick = aoClicar),
+        contentAlignment = Alignment.Center,
+    ) { Icone(icone, Estilo.texto, Modifier.size(16.dp)) }
+}
+
+/**
+ * Um botão da gaveta: o vidro das caixas do app num círculo, o ícone da aba e
+ * o nome embaixo. Ligado (a prévia rodando), na cor de destaque, como a aba
+ * marcada no app.
+ */
+@Composable
+fun BotaoGaveta(icone: Int, nome: String, ligado: Boolean = false, aoClicar: () -> Unit) {
+    val fonte = remember { MutableInteractionSource() }
+    val apertado by fonte.collectIsPressedAsState()
+    Column(
+        Modifier.width(56.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Box(
+            Modifier
+                .size(46.dp)
+                .clip(CircleShape)
+                .background(
+                    when {
+                        ligado -> Estilo.accent.alfa(0.20f)
+                        apertado -> Estilo.accent.alfa(0.12f)
+                        else -> Estilo.vista.alfa(0.30f)
+                    },
+                )
+                .border(1.dp, Estilo.accent.alfa(if (ligado) 0.55f else 0.16f), CircleShape)
+                .clickable(fonte, indication = null, onClick = aoClicar),
+            contentAlignment = Alignment.Center,
+        ) { Icone(icone, if (ligado) Estilo.accent else Estilo.texto, Modifier.size(22.dp)) }
+        Texto(nome, Estilo.cartao, cor = if (ligado) Estilo.accent else Estilo.texto.alfa(0.85f), alinhar = TextAlign.Center, linhas = 1)
     }
 }
 

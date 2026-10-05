@@ -45,8 +45,12 @@ data class AgenteInfo(val id: String = "", val nome: String = "")
 data class SessaoInfo(
     val vaga: Int = 0,
     val pid: Int = 0,
-    /** a pasta e o nome da sessão */
+    /** a pasta e o nome da sessão (a ponte antiga só manda este) */
     val rotulo: String = "",
+    /** o título da conversa: o dado com /rename, ou o que o Claude Code deu (o do /resume) */
+    val titulo: String = "",
+    /** a pasta em que a sessão foi aberta */
+    val pasta: String = "",
     /** "parada" ou "trabalhando" */
     val estado: String = "",
     /** aberta pelo orbe (claude-orbe): o canal dele responde */

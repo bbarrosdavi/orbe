@@ -1,5 +1,6 @@
 package io.hermes.orbe
 
+import io.hermes.orbe.dados.Ajustes
 import io.hermes.orbe.orbe.Instancias
 import io.hermes.orbe.orbe.Skin
 import org.junit.Assert.assertEquals
@@ -33,5 +34,14 @@ class InstanciasTest {
     @Test
     fun aListaComecaPeloAnelEPeloSeraphim() {
         assertEquals(listOf(Skin.ANEL, Skin.SERAFIM_GRAVURA), Skin.entries.take(2))
+    }
+
+    @Test
+    fun aOrdemEscolhidaVemPrimeiroEAsOutrasDepois() {
+        assertEquals(Skin.entries, Ajustes().skins())
+        assertEquals(
+            listOf(Skin.OFANIM, Skin.ANEL, Skin.SERAFIM_GRAVURA, Skin.OFANIM_ALADO),
+            Ajustes(ordem = listOf("ofanim", "nao_existe", "ofanim")).skins(),
+        )
     }
 }

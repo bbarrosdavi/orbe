@@ -29,11 +29,15 @@ import androidx.compose.ui.unit.dp
 import io.hermes.orbe.gesto.Picos
 import io.hermes.orbe.gesto.Sacudida
 import io.hermes.orbe.gesto.ServicoSacudida
+import io.hermes.orbe.gesto.limiarSair
 import io.hermes.orbe.gesto.limiares
 import kotlin.math.sqrt
 
+/** Qual sacudida a tela de calibração mede. */
+enum class Calibracao { ABRIR, SAIR }
+
 /**
- * Calibração da sacudida (a do HinaWatch): mede [TENTATIVAS] sacudidas
+ * Calibração da sacudida de abrir (a do HinaWatch): mede [TENTATIVAS] sacudidas
  * fora→dentro do jeito que o serviço vê, com a mesma espera parada antes de
  * cada uma, e propõe os limiares a partir da mais fraca. Enquanto a tela está
  * aberta, o serviço não abre o orbe.
@@ -56,41 +60,91 @@ fun TelaCalibracao(
         sacudida.zerar()
     }
     val proposta = if (tentativas.size >= TENTATIVAS) limiares(tentativas) else null
+    Moldura(
+        "Calibrar o abrir", redonda,
+        aviso = if (proposta != null) "Fora ${um(proposta.fora)} · dentro ${um(proposta.dentro)} rad/s"
+        else "Pulso parado, depois uma sacudida para fora e de volta. Tentativa ${tentativas.size + 1} de $TENTATIVAS.",
+        tentativas = tentativas.map { "fora ${um(it.fora)} · dentro ${um(it.dentro)}" },
+        padrao = "fora ${um(Sacudida.FORA_MIN)} · dentro ${um(Sacudida.DENTRO_MIN)}", aoPadrao = padrao,
+        pronta = proposta != null, refazer = { tentativas.clear() }, salvar = { proposta?.let(salvar) },
+        emUso = "fora ${um(emUso.fora)} · dentro ${um(emUso.dentro)}",
+    )
+}
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(Estilo.fundo)) {
+/**
+ * Calibração da sacudida de sair (a do fechar do HinaWatch): mede [TENTATIVAS]
+ * sacudidas só para fora com o detector armado uma vez, como o orbe aberto vê
+ * (sem a espera parada a cada uma), e propõe o fora a partir da mais fraca.
+ * Com o orbe aberto a sacudida sai no pico para fora, então só o fora conta.
+ */
+@Composable
+fun TelaCalibracaoSair(
+    emUso: Float,
+    redonda: Boolean,
+    salvar: (Float) -> Unit,
+    padrao: () -> Unit,
+) {
+    val foras = remember { mutableStateListOf<Float>() }
+    val sacudida = remember { Sacudida(paradoMs = Sacudida.PARADO_MS) }
+    Sensores(sacudida) {
+        val fora = sacudida.tirarFora() ?: return@Sensores
+        if (fora < TENTATIVA_MIN || foras.size >= TENTATIVAS) return@Sensores
+        foras += fora
+    }
+    val proposta = if (foras.size >= TENTATIVAS) limiarSair(foras) else null
+    Moldura(
+        "Calibrar o sair", redonda,
+        aviso = if (proposta != null) "Fora ${um(proposta)} rad/s"
+        else "Pulso parado, depois uma sacudida só para fora. Tentativa ${foras.size + 1} de $TENTATIVAS.",
+        tentativas = foras.map { "fora ${um(it)}" },
+        padrao = "fora ${um(Sacudida.FORA_MIN)}", aoPadrao = padrao,
+        pronta = proposta != null, refazer = { foras.clear() }, salvar = { proposta?.let(salvar) },
+        emUso = if (emUso > 0f) "fora ${um(emUso)}" else "o padrão, fora ${um(Sacudida.FORA_MIN)}",
+    )
+}
+
+/** A tela das duas calibrações, sobre o mesmo fundo do menu. */
+@Composable
+private fun Moldura(
+    titulo: String,
+    redonda: Boolean,
+    aviso: String,
+    tentativas: List<String>,
+    padrao: String,
+    aoPadrao: () -> Unit,
+    pronta: Boolean,
+    refazer: () -> Unit,
+    salvar: () -> Unit,
+    emUso: String,
+) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        FundoVidro()
         val margem = maxWidth * (if (redonda) 0.14f else 0.05f)
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = margem),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Vao(if (redonda) 30.dp else 12.dp)
-            Texto("Calibrar a sacudida", Estilo.grupo, alinhar = TextAlign.Center)
+            Texto(titulo, Estilo.grupo, alinhar = TextAlign.Center)
             Vao(8.dp)
-            Texto(
-                if (proposta != null) "Fora ${um(proposta.fora)} · dentro ${um(proposta.dentro)} rad/s"
-                else "Pulso parado, depois uma sacudida para fora e de volta. Tentativa ${tentativas.size + 1} de $TENTATIVAS.",
-                Estilo.subtitulo, alinhar = TextAlign.Center,
-            )
+            Texto(aviso, Estilo.subtitulo, alinhar = TextAlign.Center)
             Vao(10.dp)
             Column(Modifier.caixa()) {
                 tentativas.forEachIndexed { i, t ->
-                    Linha("Tentativa ${i + 1}", subtitulo = "fora ${um(t.fora)} · dentro ${um(t.dentro)}")
+                    Linha("Tentativa ${i + 1}", subtitulo = t)
                     Box(Modifier.fillMaxWidth().height(1.dp).background(Estilo.texto.alfa(0.08f)))
                 }
-                Linha("Padrão", subtitulo = "fora ${um(Sacudida.FORA_MIN)} · dentro ${um(Sacudida.DENTRO_MIN)}", aoClicar = padrao)
+                Linha("Padrão", subtitulo = padrao, aoClicar = aoPadrao)
             }
-            if (proposta != null) {
+            if (pronta) {
                 Vao(10.dp)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Botao("Refazer", Modifier.weight(1f)) { tentativas.clear() }
-                    Botao("Salvar", Modifier.weight(1f), destaque = true) { salvar(proposta) }
+                    Botao("Refazer", Modifier.weight(1f), aoClicar = refazer)
+                    Botao("Salvar", Modifier.weight(1f), destaque = true, aoClicar = salvar)
                 }
             }
             Vao(8.dp)
-            Texto(
-                "Em uso: fora ${um(emUso.fora)} · dentro ${um(emUso.dentro)}",
-                Estilo.mono, cor = Estilo.texto.alfa(0.6f), alinhar = TextAlign.Center,
-            )
+            Texto("Em uso: $emUso", Estilo.mono, cor = Estilo.texto.alfa(0.6f), alinhar = TextAlign.Center)
             Vao(if (redonda) 40.dp else 16.dp)
         }
     }
@@ -143,5 +197,5 @@ private fun um(v: Float) = "%.1f".format(v).replace('.', ',')
 private const val TENTATIVAS = 3
 private const val ALFA_GRAVIDADE = 0.2f
 
-/** dentro mínimo para uma tentativa contar: abaixo disso é o pulso se ajeitando */
+/** pico mínimo para uma tentativa contar (o dentro no abrir, o fora no sair): abaixo disso é o pulso se ajeitando */
 private const val TENTATIVA_MIN = 5f

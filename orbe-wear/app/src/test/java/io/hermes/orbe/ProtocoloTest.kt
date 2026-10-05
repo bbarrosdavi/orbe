@@ -1,6 +1,7 @@
 package io.hermes.orbe
 
 import io.hermes.orbe.dados.Protocolo
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -20,5 +21,14 @@ class ProtocoloTest {
         for (s in listOf("100.95.140.97", "wss://acer-server.tail664e38.ts.net", "8.8.8.8:8777", "172.32.0.1", "", "192.168.15")) {
             assertFalse(s, Protocolo.local(s))
         }
+    }
+
+    @Test
+    fun aSessaoTrazOTituloEAPasta() {
+        val l = Protocolo.sessoes("""[{"vaga": 1, "pid": 9, "rotulo": "davi-2c", "titulo": "Orbe no PC travando", "pasta": "davi", "estado": "parada", "ouve": true}]""")!!
+        assertEquals("Orbe no PC travando", l[0].titulo)
+        assertEquals("davi", l[0].pasta)
+        // a ponte antiga só manda o rótulo
+        assertEquals("", Protocolo.sessoes("""[{"vaga": 0, "pid": 9, "rotulo": "davi-2c"}]""")!![0].titulo)
     }
 }

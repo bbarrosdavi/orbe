@@ -186,9 +186,10 @@ O toque vale como no orbe do desktop:
 | **Segurar** (mais de 350 ms) | Segurar para falar: a fala vai para o agente enquanto o dedo estiver na tela. Soltar encerra a fala. O relógio vibra ao segurar e ao soltar. |
 | **Toque curto** | Abre a sessão, ou interrompe a resposta e volta a ouvir. |
 | **Dois toques curtos** | Travam a sessão aberta (um ponto aparece acima da figura). |
-| **Arrastar para cima ou para baixo**, ou girar a coroa (nos relógios que têm) | Rola a lista dos orbes, com inércia: um arremesso passa por vários antes de parar num deles. Os pontos na borda direita mostram em que lugar da lista você está, e depois do último orbe vem o primeiro. A ordem é Anel de energia, Seraphim, Ophanim e Ophanim com asas. Cada skin tem o seu agente (veja [Sessão aberta pelo relógio](#sessão-aberta-pelo-relógio)). Desliga o "Seguir o orbe do PC". |
+| **Arrastar para cima ou para baixo**, ou girar a coroa (nos relógios que têm) | Rola a lista dos orbes, com inércia: um arremesso passa por vários antes de parar num deles. Os pontos na borda direita mostram em que lugar da lista você está, e depois do último orbe vem o primeiro. A ordem padrão é Anel de energia, Seraphim, Ophanim e Ophanim com asas, e o menu a troca (aba Skins). Cada skin tem o seu agente (veja [Sessão aberta pelo relógio](#sessão-aberta-pelo-relógio)). Desliga o "Seguir o orbe do PC". |
 | **Dois dedos para a esquerda ou para a direita**, num orbe do Claude | Passa pelas sessões do Claude Code abertas no computador, cada uma ao lado da outra e na sua cor (veja [Sessões do Claude Code](#sessões-do-claude-code)). |
 | **Arrastar para a esquerda** | Abre o menu, que fica ao lado do orbe. |
+| **Sacudir o pulso só para fora** | Sai do orbe e volta ao mostrador, como a Hina aberta no HinaWatch. Sai no pico do giro para fora, sem esperar a volta do pulso. A chave e a calibração ficam na aba Gestos do menu. |
 
 O microfone já começa a guardar um segundo de áudio quando o dedo encosta,
 para a primeira sílaba não se perder entre o toque e o "segurar". Com a
@@ -207,54 +208,60 @@ abre o menu.
 | `token recusado` | O token não confere. Veja [Problemas comuns](#problemas-comuns). |
 | `muitas tentativas` | A ponte trancou a origem depois de 5 provas erradas. |
 | `sem resposta`, `conexão caiu`, `desconectado` | A rede ou a ponte saiu do ar. O app reconecta sozinho. |
-| `prévia: …` | A prévia do menu está rodando. |
 
 ## O menu
 
-Arraste a tela para a esquerda. O menu tem o visual do aplicativo
-de configuração do Orbe: fundo de vidro escuro, cartões e as cores do tema do
-computador.
+Arraste a tela para a esquerda. O menu tem o visual do aplicativo de
+configuração do Orbe (vidro escuro, as cores do tema do computador) e se
+organiza como o do HinaWatch: entra-se por uma gaveta, com um botão por aba, e
+cada aba é uma lista que rola sozinha. O fundo fica parado atrás do orbe e do
+menu: ao arrastar de um para o outro só o conteúdo anda.
 
-### Conexão
+![A gaveta e duas abas](img/ajustes-gaveta.png)
 
-![Conexão: servidor, token e estado](img/ajustes-conexao.png)
+| Gesto no menu | Efeito |
+|---|---|
+| **Tocar num botão da gaveta** | Abre a aba, do alto. |
+| **Puxar para a direita** | Volta um nível: da aba para a gaveta, da gaveta para o orbe. |
+| **Puxar para a esquerda**, em qualquer lugar do menu | Volta ao orbe. |
+| **Voltar** (o botão do relógio) | Da aba para a gaveta, da gaveta para o orbe. |
 
-- **Servidor**: o endereço da ponte.
-- **Token**: o par do servidor. Aparece só como pontos.
-- **Estado**: `conectado`, `conectando…` ou o motivo da falha.
+Voltando ao orbe, a próxima visita ao menu começa pela gaveta.
 
-### Sessão de voz
-
-![Sessão de voz](img/ajustes-sessao.png)
-
-- **Aberta / Fechar**: mostra se a sessão de voz está aberta no computador, com
-  o estado dela (por exemplo, `parado`), e a abre ou fecha, como o atalho de
-  teclado do orbe.
-- **Travar a sessão**: faz dois toques no orbe travarem a sessão.
-
-### Avatar do orbe
-
-![Avatares e tamanho](img/ajustes-avatar.png)
-
-Quatro avatares, em miniaturas vivas. Escolher um troca o orbe do relógio. O
-controle **Tamanho** vai de 60% a 130% do mostrador, mostra a figura no
-tamanho escolhido e vale só para o orbe em tela: cada um guarda o seu.
-
-### Aparência, voz e prévia
-
-![Glitch, texto, voz e prévia](img/ajustes-voz.png)
+| Aba | O que tem |
+|---|---|
+| **Conexão** | O **servidor** (o endereço da ponte), o **token** (o par do servidor, só como pontos) e o **estado**: `conectado`, `conectando…` ou o motivo da falha. |
+| **Skins** | As quatro skins em miniaturas vivas (escolher uma troca o orbe do relógio); o **tamanho**, de 60% a 130% do mostrador, que vale para a skin em tela (cada uma guarda o seu); e a **ordem da lista**, com setas para subir e descer cada skin. A ordem vale só no relógio. |
+| **Agentes** | Dois grupos. **Sessão**: se a sessão de voz está **aberta** no computador, com o estado dela, e o botão que a abre ou fecha, como o atalho de teclado do orbe; o **modo live** e **abrir já no live**. **Agente de cada skin**: quem responde em cada orbe (veja [Sessão aberta pelo relógio](#sessão-aberta-pelo-relógio)). |
+| **Aparência** | Ver a tabela abaixo. |
+| **Voz** | Ver a tabela abaixo. |
+| **Gestos** | **Uma sacudida abre o orbe** e a calibração dela; **sacudida para fora sai do orbe** e a calibração dela. |
 
 | Opção | O que faz |
 |---|---|
 | **Glitch** | Aberração cromática, faixas arrancadas e linhas de varredura. |
-| **Fundo atrás do orbe** | O mesmo fundo do menu (o papel de parede do computador, em vidro escuro) atrás dos orbes. Desligado, o fundo é preto. Vale só no relógio. |
+| **Linhas de TV** | As linhas de varredura, como num tubo. |
+| **Fundo atrás do orbe** | O mesmo fundo do menu (o papel de parede do computador, em vidro escuro) atrás dos orbes. Desligado, o orbe fica no preto e o fundo acende junto com a entrada do menu. Vale só no relógio. |
 | **Texto do raciocínio** | Mostra as linhas do agente abaixo do orbe do relógio. Vale só no relógio: o orbe do computador segue o ajuste "Texto do raciocínio" da Aparência do app do Orbe. |
 | **Seguir o orbe do PC** | O avatar e o glitch vêm do computador. Desligado, valem os escolhidos no relógio. |
 | **Microfone do relógio** | Segurando o orbe, a fala vem do relógio e não do computador. O app pede a permissão de microfone uma vez, quando a ponte aceita fala. |
 | **Voz no relógio** | A resposta em voz toca no relógio. Desligada, ela sai no computador (pelo daemon) ou vem em texto (orbe de pulso). |
 | **Voz também no PC** | Com a ponte do daemon e a voz no relógio ligada, a resposta toca nos dois. |
 | **Vibrar** | Vibra ao segurar e ao soltar o orbe. |
-| **Pré-visualizar** | O orbe passa por todos os estados, sem ponte nem agente, para ver o avatar escolhido. |
+
+### As duas sacudidas
+
+**Abrir.** Com a tela acesa, uma sacudida do pulso para fora e de volta abre
+o orbe já ouvindo (duas são do HinaWatch, que abre a Hina). A calibração mede
+três sacudidas e propõe o fora e o dentro mínimos, a 60% da mais fraca.
+
+**Sair.** Com o orbe aberto, o primeiro giro forte só para fora o manda para
+trás e o relógio volta ao mostrador, como a Hina aberta no HinaWatch: a decisão
+sai no pico do giro, sem esperar a volta do pulso, e o resto do movimento não
+reabre o orbe. Antes de armar, o pulso tem de ficar parado por 0,6 s. Sem
+calibrar, o fora mínimo é o do HinaWatch, 3,5 rad/s; a calibração mede três
+sacudidas só para fora e propõe 60% da mais fraca. Enquanto uma tela de
+calibração está aberta, nenhuma das duas age.
 
 ## Avatares
 
@@ -347,8 +354,8 @@ permissões, que só o dono da máquina pode dar (e, a cada abertura, a dos
 canais de desenvolvimento). O daemon espera até 60 s; sem confirmação, o
 relógio mostra "O Claude não abriu o canal: veja o terminal no PC".
 
-**Aberto por uma sacudida.** O HinaWatch abre o orbe com uma sacudida do
-pulso (duas abrem a Hina), com o extra `ouvir`: o app manda `trigger` e a
+**Aberto por uma sacudida.** Uma sacudida do pulso abre o orbe (pelo próprio
+app ou pelo HinaWatch; duas abrem a Hina), com o extra `ouvir`: o app manda `trigger` e a
 sessão abre já ouvindo, pelo microfone do relógio, sem dedo na tela. O fim
 da fala é o silêncio, como no atalho do teclado. O microfone acompanha o
 orbe: ouvindo, transmite; pensando ou falando, descansa.
@@ -392,13 +399,18 @@ pode abrir sessão, mais uma livre no fim. A skin é só o visual: as quatro
 mostram as mesmas instâncias, e trocar de skin volta à primeira. Uma skin
 dada a outro agente (Hermes, por exemplo) não tem instâncias.
 
-**O rótulo.** No pé de cada instância, na cor dela, aparece a sessão: o
-nome (o que o Claude Code deriva da pasta, como `orbe-relogio-2c`, ou a pasta
-e o nome dado com `/rename`) e, embaixo, `parada` ou `trabalhando`. Uma vaga
-sem sessão mostra `livre`, e falar nela abre uma sessão nova no computador,
-que fica nessa vaga (só com a ponte do daemon; o orbe de pulso não abre
-terminal). Uma sessão que não ouve o orbe mostra `não ouve o orbe`. No orbe
-em tela, as linhas do raciocínio ocupam o mesmo lugar e têm a vez.
+**O rótulo.** Discreto, curvado na borda da tela, acompanhando o mostrador
+redondo:
+- no alto, na cor da instância, o **título da conversa**: o dado com
+  `/rename` ou, sem ele, o que o Claude Code deu à conversa (o mesmo do
+  `/resume`, lido no fim do transcript dela);
+- no pé, a **pasta** em que a sessão foi aberta e se ela **ouve o orbe** (por
+  exemplo, `orbe-relogio · ouve o orbe`).
+
+Uma vaga sem sessão mostra `livre`, e falar nela abre uma sessão nova no
+computador, que fica nessa vaga (só com a ponte do daemon; o orbe de pulso não
+abre terminal); o pé diz `falar aqui abre uma sessão`. No orbe em tela, as
+linhas do raciocínio ocupam o pé e têm a vez.
 
 **Como o pedido chega.** As sessões abertas pelo orbe (`claude-orbe`)
 respondem pelo canal, como antes. As abertas à mão ouvem o orbe por um hook do
@@ -482,7 +494,7 @@ Um WebSocket. Mensagens de texto são uma linha cada; as binárias são PCM
 | ponte → relógio | `desafio <sal em hex>` | Ao conectar. |
 | relógio → ponte | `ola {"prova": "...", "nome": "...", "voz": true, "voz_pc": false}` | A prova do token. `voz` pede a resposta em áudio no relógio; `voz_pc`, também no PC. |
 | ponte → relógio | `ola {"v": 1, "orbe": {...}, "tema": {...}, "microfone": true, "voz": true, "voz_pc": true, "agentes": [{"id", "nome"}], "sessoes": [...], "abre_claude": true}` | Pareado: a aparência e o que a ponte aceita (`voz_pc`: o PC também tem voz, só no daemon; `agentes`: os instalados no PC; `sessoes`: como no `sessoes` abaixo; `abre_claude`: falar numa vaga livre abre uma sessão, só no daemon). |
-| ponte → relógio | `sessoes [{"vaga", "pid", "rotulo", "estado", "canal", "ouve"}]` | As sessões do Claude Code abertas no computador mudaram. `canal`: aberta pelo orbe; `ouve`: tem o hook armado. |
+| ponte → relógio | `sessoes [{"vaga", "pid", "rotulo", "titulo", "pasta", "estado", "canal", "ouve"}]` | As sessões do Claude Code abertas no computador mudaram. `titulo`: o da conversa; `pasta`: onde foi aberta; `rotulo`: o nome antigo, para relógios de antes; `canal`: aberta pelo orbe; `ouve`: tem o hook armado. |
 | ponte → relógio | `show idle`, `state thinking`, `level 0.42 0.60`, `mic 0.3`, `line <texto>`, `hold 1`, `hide`, `clear` | As linhas do orbe, as mesmas do desktop. |
 | ponte → relógio | `config {"orbe": {...}, "tema": {...}}` | O avatar, o glitch ou o tema mudaram no computador. |
 | relógio → ponte | `touch down`, `touch up` | O dedo no orbe. |
@@ -507,7 +519,7 @@ orbe não usa Compose: é OpenGL ES 3.0 direto, como o Qt Quick do desktop.
 ```
 orbe-wear/app/src/main/java/io/hermes/orbe/
 ├── MainActivity.kt       entrada: extras do adb, permissão, teclado do relógio
-├── OrbeViewModel.kt      toque, áudio, ponte, prévia
+├── OrbeViewModel.kt      toque, áudio, ponte
 ├── dados/
 │   ├── Ponte.kt          WebSocket (OkHttp), reconexão, desafio-resposta
 │   ├── Protocolo.kt      prova PBKDF2, "ola", URL do servidor
@@ -617,6 +629,15 @@ Para travar a qualidade da máscara numa medição:
 
 ```sh
 adb shell am start -n io.hermes.orbe/.MainActivity --ef qualidade 0.5
+```
+
+Para ver o menu sem tocar no relógio (para uma captura de tela, por exemplo),
+`--es menu gaveta` abre a gaveta e `--es menu gestos` (ou o nome de outra
+aba) abre a aba:
+
+```sh
+adb shell am start -n io.hermes.orbe/.MainActivity --es menu skins
+adb shell screencap -p /sdcard/menu.png
 ```
 
 **Emulador.** Um AVD do Wear OS redondo serve. O computador aparece para o

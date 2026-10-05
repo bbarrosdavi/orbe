@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import sys
 import time
@@ -107,6 +108,7 @@ def sessoes() -> list[dict]:
             "nome_derivado": d.get("nameSource") == "derived",
             "pasta": Path(cwd).name or cwd,
             "cwd": cwd,
+            "sessao": str(d.get("sessionId") or ""),
             "estado": "parada" if d.get("status") == "idle" else "trabalhando",
             "desde": d.get("startedAt") or 0,
             "canal": (canal.PASTA / f"{pid}.sock").exists(),
@@ -120,6 +122,65 @@ def rotulo(s: dict) -> str:
     if s.get("nome_derivado") or not s.get("nome"):
         return s.get("nome") or s.get("pasta") or str(s.get("pid"))
     return f"{s['pasta']} · {s['nome']}" if s.get("pasta") else s["nome"]
+
+
+# transcript -> (bytes já lidos, último título achado)
+_TITULOS: dict[str, tuple[int, str]] = {}
+# só o fim do transcript na primeira leitura: o título é regravado a cada turno
+_CAUDA = 512 * 1024
+
+
+def _transcript(sessao: str, cwd: str) -> Path | None:
+    projetos = CLAUDE_DIR / "projects"
+    p = projetos / re.sub(r"[^A-Za-z0-9]", "-", cwd) / f"{sessao}.jsonl"
+    if p.exists():
+        return p
+    return next(iter(projetos.glob(f"*/{sessao}.jsonl")), None)
+
+
+def _ultimo_titulo(bloco: bytes) -> str:
+    for linha in reversed(bloco.splitlines()):
+        if b'"ai-title"' not in linha and b'"custom-title"' not in linha:
+            continue
+        try:
+            d = json.loads(linha)
+        except ValueError:
+            continue                    # a linha que ainda está sendo escrita
+        t = d.get("customTitle") or d.get("aiTitle")
+        if t:
+            return str(t)
+    return ""
+
+
+def titulo(s: dict) -> str:
+    """O título da conversa: o nome dado com /rename ou, sem ele, o que o Claude
+    Code deu (o do /resume, linha ai-title do transcript). Lê só o que o
+    transcript cresceu desde a última vez."""
+    if s.get("nome") and not s.get("nome_derivado"):
+        return s["nome"]
+    p = _transcript(s.get("sessao") or "", s.get("cwd") or "") if s.get("sessao") else None
+    if p is None:
+        return ""
+    try:
+        tam = p.stat().st_size
+    except OSError:
+        return ""
+    lido, achado = _TITULOS.get(str(p), (0, ""))
+    if tam == lido:
+        return achado
+    ini = lido if 0 < lido < tam else max(0, tam - _CAUDA)
+    try:
+        with open(p, "rb") as f:
+            f.seek(ini)
+            novo = _ultimo_titulo(f.read(tam - ini))
+            if not novo and not lido and ini > 0:
+                f.seek(0)               # a cauda não tinha título: o arquivo inteiro, uma vez
+                novo = _ultimo_titulo(f.read(ini))
+    except OSError:
+        return achado
+    achado = novo or achado
+    _TITULOS[str(p)] = (tam, achado)
+    return achado
 
 
 def _gravar(caminho: Path, dados: dict):
