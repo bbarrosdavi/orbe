@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicText
@@ -52,6 +52,7 @@ import io.hermes.orbe.orbe.Celula
 import io.hermes.orbe.orbe.Ciclo
 import io.hermes.orbe.orbe.OrbeCena
 import io.hermes.orbe.orbe.Quebra
+import kotlinx.coroutines.flow.Flow
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -68,9 +69,10 @@ private val ALFAS = floatArrayOf(0.10f, 0.24f, 0.42f, 0.66f, 0.92f)
  * A tela do orbe: a figura no mostrador inteiro, as linhas do raciocínio
  * abaixo dela e o ponto da sessão travada acima, como no orbe do desktop com o
  * texto "abaixo". O toque vale como lá: curto interrompe (e deixa ouvindo),
- * dois curtos travam a sessão, segurar é segurar para falar. Rolar para o
- * lado gira o orbe, como a face de um cubo, até a skin seguinte; depois da
- * última, a primeira volta na cor seguinte (Ciclo).
+ * dois curtos travam a sessão, segurar é segurar para falar. Arrastar para
+ * cima ou para baixo (ou girar a coroa, nos relógios que têm) gira o orbe,
+ * como a face de um cubo, até a skin seguinte; depois da última, a primeira
+ * volta na cor seguinte (Ciclo).
  */
 @Composable
 fun TelaOrbe(
@@ -78,6 +80,8 @@ fun TelaOrbe(
     redonda: Boolean,
     podeGravar: () -> Boolean,
     abrirAjustes: () -> Unit,
+    /** passos da coroa: +1 o orbe seguinte, -1 o anterior */
+    coroa: Flow<Int>,
     modifier: Modifier = Modifier,
 ) {
     val ajustes by vm.ajustes.collectAsStateWithLifecycle()
@@ -99,7 +103,7 @@ fun TelaOrbe(
         val h = maxHeight.value
         val densidade = LocalDensity.current.density
 
-        // ── o carrossel: rolar para o lado gira um cubo até o orbe seguinte ──
+        // ── o carrossel: arrastar na vertical (ou a coroa) gira um cubo até o orbe seguinte ──
         val paginas = rememberPagerState(initialPage = Ciclo.pagina(aparencia.skin, aparencia.cor)) { Ciclo.PAGINAS }
         val agora by rememberUpdatedState(aparencia)
         // a escolha veio de fora (o menu, o PC, os ajustes lidos do disco): vai até ela sem animar
@@ -109,6 +113,11 @@ fun TelaOrbe(
                 paginas.scrollToPage(Ciclo.pagina(aparencia.skin, aparencia.cor, p))
             }
         }
+        LaunchedEffect(paginas) {
+            coroa.collect { passo ->
+                if (!paginas.isScrollInProgress) paginas.animateScrollToPage(paginas.currentPage + passo)
+            }
+        }
         // assentou noutra combinação pelo dedo: ela passa a ser o orbe do relógio
         LaunchedEffect(paginas) {
             snapshotFlow { paginas.settledPage }.collect { p ->
@@ -116,7 +125,7 @@ fun TelaOrbe(
             }
         }
 
-        HorizontalPager(
+        VerticalPager(
             state = paginas,
             modifier = Modifier.fillMaxSize(),
             beyondViewportPageCount = 0,
@@ -140,11 +149,12 @@ fun TelaOrbe(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        // 0 no centro, 1 uma página à direita: cada orbe é uma face do cubo
-                        val x = ((pagina - paginas.currentPage) - paginas.currentPageOffsetFraction).coerceIn(-1f, 1f)
+                        // 0 no centro, 1 uma página abaixo: cada orbe é uma face do cubo,
+                        // que gira em torno da aresta que divide com a vizinha
+                        val y = ((pagina - paginas.currentPage) - paginas.currentPageOffsetFraction).coerceIn(-1f, 1f)
                         cameraDistance = 9f * density
-                        transformOrigin = TransformOrigin(if (x < 0f) 1f else 0f, 0.5f)
-                        rotationY = 90f * x
+                        transformOrigin = TransformOrigin(0.5f, if (y < 0f) 1f else 0f)
+                        rotationX = -90f * y
                     }
                     .pointerInput(Unit) {
                     val folga = viewConfiguration.touchSlop
@@ -252,8 +262,9 @@ fun TelaOrbe(
                 cor = Estilo.texto.alfa(0.6f), linhas = 1,
             )
         }
+        // a alça do menu, que fica ao lado: arrastar para a esquerda
         Box(
-            Modifier.align(Alignment.BottomCenter).padding(bottom = 9.dp).size(18.dp, 3.dp)
+            Modifier.align(Alignment.CenterEnd).padding(end = 7.dp).size(3.dp, 18.dp)
                 .clip(CircleShape).background(Estilo.texto.alfa(if (comTexto) 0.10f else 0.25f)),
         )
     }

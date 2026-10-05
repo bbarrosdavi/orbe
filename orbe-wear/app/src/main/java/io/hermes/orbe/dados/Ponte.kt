@@ -51,6 +51,8 @@ class Ponte(
     private val querVoz: () -> Boolean,
     /** tocando aqui, o PC toca junto (a chave "Voz também no PC") */
     private val querVozPc: () -> Boolean = { false },
+    /** os ajustes que o app do PC também edita, vindos de lá */
+    private val aoAjustes: (Sincronia) -> Unit = {},
 ) {
     private val cliente = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
@@ -126,6 +128,7 @@ class Ponte(
                     text.startsWith("config ") -> Protocolo.ola(text.substring(7))?.let {
                         aoConfig(it, text.substring(7))
                     }
+                    text.startsWith("ajustes ") -> if (conectou) Protocolo.sincronia(text.substring(8))?.let(aoAjustes)
                     conectou -> aoLinha(text)
                 }
             }

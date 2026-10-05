@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -37,7 +38,19 @@ data class Ajustes(
     val pediuMicrofone: Boolean = false,
     /** o último "ola" da ponte: o app abre com a aparência do PC antes de conectar */
     val pc: String = "",
+    /** o agente de cada orbe do carrossel, pela skin; "" = o padrão (Claude Code) */
+    val agentes: Map<String, String> = emptyMap(),
+    /** quando os ajustes que o PC também edita mudaram aqui por último (ms; 0 = nunca) */
+    val t: Long = 0,
 ) {
+    /** O que vai e volta com o PC (a [Sincronia]). */
+    fun sincronia() = Sincronia(t, agentes, voz, vozPc, microfone, vibrar, texto, glitch, tamanho, seguirPc)
+
+    fun com(s: Sincronia) = copy(
+        t = s.t, agentes = s.agentes, voz = s.voz, vozPc = s.vozPc, microfone = s.microfone, vibrar = s.vibrar,
+        texto = s.texto, glitch = s.glitch, tamanho = s.tamanho.coerceIn(TAMANHO_MIN, TAMANHO_MAX), seguirPc = s.seguirPc,
+    )
+
     companion object {
         const val TAMANHO_MIN = 0.6f
         const val TAMANHO_MAX = 1.3f
@@ -62,7 +75,14 @@ class Cofre(private val ctx: Context) {
         val vibrar = booleanPreferencesKey("vibrar")
         val pediuMicrofone = booleanPreferencesKey("pediu_microfone")
         val pc = stringPreferencesKey("pc")
+        val agentes = stringPreferencesKey("agentes")      // "skin=agente;skin=agente"
+        val t = longPreferencesKey("t")
     }
+
+    private fun lerAgentes(s: String?): Map<String, String> =
+        s.orEmpty().split(';').mapNotNull { par ->
+            par.split('=', limit = 2).takeIf { it.size == 2 && it[0].isNotEmpty() }?.let { it[0] to it[1] }
+        }.toMap()
 
     val fluxo: Flow<Ajustes> = ctx.guardado.data.map { p ->
         val d = Ajustes()
@@ -81,6 +101,8 @@ class Cofre(private val ctx: Context) {
             vibrar = p[K.vibrar] ?: d.vibrar,
             pediuMicrofone = p[K.pediuMicrofone] ?: d.pediuMicrofone,
             pc = p[K.pc] ?: d.pc,
+            agentes = lerAgentes(p[K.agentes]),
+            t = p[K.t] ?: d.t,
         )
     }
 
@@ -100,6 +122,8 @@ class Cofre(private val ctx: Context) {
             p[K.vibrar] = a.vibrar
             p[K.pediuMicrofone] = a.pediuMicrofone
             p[K.pc] = a.pc
+            p[K.agentes] = a.agentes.entries.joinToString(";") { "${it.key}=${it.value}" }
+            p[K.t] = a.t
         }
     }
 }

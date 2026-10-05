@@ -23,6 +23,30 @@ data class Ola(
     val voz: Boolean = false,
     /** o PC também tem voz (o daemon): o relógio escolhe se ela toca lá junto */
     @SerialName("voz_pc") val vozPc: Boolean = false,
+    /** os agentes instalados no PC, para cada orbe do carrossel ter o seu */
+    val agentes: List<AgenteInfo> = emptyList(),
+)
+
+@Serializable
+data class AgenteInfo(val id: String = "", val nome: String = "")
+
+/**
+ * Os ajustes do app do relógio que o app do PC também edita ("ajustes" nos
+ * dois sentidos, relogio.ajustes no config do PC): vale o [t] mais novo, em ms.
+ */
+@Serializable
+data class Sincronia(
+    val t: Long = 0,
+    /** skin → agente; "" = o padrão (Claude Code) */
+    val agentes: Map<String, String> = emptyMap(),
+    val voz: Boolean = true,
+    @SerialName("voz_pc") val vozPc: Boolean = false,
+    val microfone: Boolean = true,
+    val vibrar: Boolean = true,
+    val texto: Boolean = true,
+    val glitch: Boolean = true,
+    val tamanho: Float = 1f,
+    @SerialName("seguir_pc") val seguirPc: Boolean = true,
 )
 
 object Protocolo {
@@ -34,6 +58,17 @@ object Protocolo {
     } catch (e: Exception) {
         null
     }
+
+    // os ajustes vão inteiros: um campo no valor padrão omitido deixaria o do PC como estava
+    private val inteiro = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
+
+    fun sincronia(texto: String): Sincronia? = try {
+        inteiro.decodeFromString(Sincronia.serializer(), texto)
+    } catch (e: Exception) {
+        null
+    }
+
+    fun ajustes(s: Sincronia): String = "ajustes " + inteiro.encodeToString(Sincronia.serializer(), s)
 
     /** o custo da prova do token; o mesmo ITERACOES do hermes_voice_relogio.py */
     private const val ITERACOES = 60000

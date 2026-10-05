@@ -39,8 +39,8 @@ enum class Campo(val rotulo: String) {
 /**
  * O menu: o app do Orbe no pulso. Mesmo desenho do desktop (o Ophanim no topo,
  * grupos em caixas de vidro, cartões vivos dos avatares, o slider com o orbe
- * de botão), só com o que cabe ao relógio; agente, voz e conversa continuam no
- * app do computador.
+ * de botão), só com o que cabe ao relógio; voz e conversa continuam no app do
+ * computador, que também edita estes ajustes (a aba Relógio).
  */
 @Composable
 fun TelaAjustes(
@@ -57,6 +57,7 @@ fun TelaAjustes(
     val retrato by vm.retrato.collectAsStateWithLifecycle()
     val ligacao by vm.ligacao.collectAsStateWithLifecycle()
     val previa by vm.previa.collectAsStateWithLifecycle()
+    val agentesPc by vm.agentesPc.collectAsStateWithLifecycle()
     val conectada = ligacao is Ligacao.Conectada
 
     BoxWithConstraints(modifier.fillMaxSize().background(Estilo.fundo)) {
@@ -127,6 +128,24 @@ fun TelaAjustes(
             }
             Vao(18.dp)
 
+            Grupo(titulo = "Agente de cada orbe", descricao = "Rolar o carrossel troca de orbe e, com ele, de agente. Toque para trocar.") {
+                Skin.entries.forEach { skin ->
+                    item {
+                        val id = ajustes.agentes[skin.id].orEmpty()
+                        val nome = when {
+                            id.isEmpty() || id == "claude" -> agentesPc.firstOrNull { it.id == "claude" }?.nome ?: "Claude Code"
+                            else -> agentesPc.firstOrNull { it.id == id }?.nome ?: id
+                        }
+                        Linha(
+                            skin.nome, subtitulo = nome,
+                            ativo = agentesPc.size > 1,
+                            aoClicar = { vm.proximoAgente(skin) },
+                        )
+                    }
+                }
+            }
+            Vao(18.dp)
+
             Grupo(titulo = "Avatar do orbe", caixa = false) {
                 Skin.entries.chunked(2).forEach { par ->
                     item {
@@ -147,7 +166,7 @@ fun TelaAjustes(
                     SliderOrbe(ajustes.tamanho, Ajustes.TAMANHO_MIN, Ajustes.TAMANHO_MAX, aparencia.skin, aparencia.glitch) { vm.tamanho(it) }
                 }
                 item {
-                    LinhaSwitch("Glitch", aparencia.glitch, subtitulo = "aberração cromática, faixas arrancadas e linhas de varredura") { vm.glitch(it) }
+                    LinhaSwitch("Glitch", aparencia.glitch, subtitulo = "aberração cromática e faixas arrancadas") { vm.glitch(it) }
                 }
                 item {
                     LinhaSwitch("Texto do raciocínio", ajustes.texto, subtitulo = "as linhas do agente, abaixo do orbe") { vm.texto(it) }

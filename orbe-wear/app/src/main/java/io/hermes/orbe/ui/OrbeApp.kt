@@ -3,7 +3,7 @@ package io.hermes.orbe.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.pager.VerticalPager
+import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
@@ -22,11 +22,16 @@ import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.hermes.orbe.OrbeViewModel
 import io.hermes.orbe.dados.Ligacao
+import kotlin.math.abs
+import kotlin.math.sign
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 
 /**
- * As duas páginas do relógio, uma sobre a outra: o orbe e, arrastando para
- * cima (ou girando a coroa), o menu. Voltar do menu cai no orbe.
+ * As duas páginas do relógio, lado a lado: o orbe e, arrastando para a
+ * esquerda, o menu. Na vertical (dedo ou coroa) o orbe gira o carrossel; no
+ * menu, a coroa rola a lista. Voltar do menu cai no orbe.
  */
 @Composable
 fun OrbeApp(
@@ -45,6 +50,9 @@ fun OrbeApp(
     val rolagem = rememberScrollState()
     val escopo = rememberCoroutineScope()
     val foco = remember { FocusRequester() }
+    // a coroa no orbe: um passo do carrossel a cada tanto de giro
+    val coroa = remember { MutableSharedFlow<Int>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST) }
+    val giro = remember { floatArrayOf(0f) }
 
     // com a sessão aberta a tela não apaga no meio da conversa
     val view = LocalView.current
@@ -63,16 +71,18 @@ fun OrbeApp(
         LocalTema provides aparencia.tema,
         LocalRolando provides (paginas.isScrollInProgress || rolagem.isScrollInProgress),
     ) {
-        VerticalPager(
+        HorizontalPager(
             state = paginas,
             modifier = Modifier
                 .fillMaxSize()
                 .onRotaryScrollEvent { e ->
                     val d = e.verticalScrollPixels
                     if (paginas.currentPage == 0) {
-                        if (d > 0 && !paginas.isScrollInProgress) escopo.launch { paginas.animateScrollToPage(1) }
-                    } else if (d < 0 && rolagem.value == 0) {
-                        if (!paginas.isScrollInProgress) escopo.launch { paginas.animateScrollToPage(0) }
+                        giro[0] += d
+                        if (abs(giro[0]) >= GIRO_POR_PASSO) {
+                            coroa.tryEmit(giro[0].sign.toInt())
+                            giro[0] = 0f
+                        }
                     } else {
                         rolagem.dispatchRawDelta(d)
                     }
@@ -84,7 +94,7 @@ fun OrbeApp(
             beyondViewportPageCount = 1,
         ) { pagina ->
             if (pagina == 0) {
-                TelaOrbe(vm, redonda, podeGravar, abrirAjustes = { escopo.launch { paginas.animateScrollToPage(1) } })
+                TelaOrbe(vm, redonda, podeGravar, abrirAjustes = { escopo.launch { paginas.animateScrollToPage(1) } }, coroa = coroa)
             } else {
                 TelaAjustes(
                     vm, rolagem, redonda, editar, pedirMicrofone,
@@ -98,3 +108,6 @@ fun OrbeApp(
     // de volta ao orbe, o menu recomeça do alto na próxima visita
     LaunchedEffect(paginas.settledPage) { if (paginas.settledPage == 0) rolagem.scrollTo(0) }
 }
+
+/** Pixels de giro da coroa por orbe do carrossel. */
+private const val GIRO_POR_PASSO = 90f

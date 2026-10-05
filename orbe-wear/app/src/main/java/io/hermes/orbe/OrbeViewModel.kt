@@ -6,6 +6,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.hermes.orbe.dados.AgenteInfo
 import io.hermes.orbe.dados.Ajustes
 import io.hermes.orbe.dados.AltoFalante
 import io.hermes.orbe.dados.Cofre
@@ -14,6 +15,7 @@ import io.hermes.orbe.dados.Microfone
 import io.hermes.orbe.dados.Ola
 import io.hermes.orbe.dados.Ponte
 import io.hermes.orbe.dados.Protocolo
+import io.hermes.orbe.dados.Sincronia
 import io.hermes.orbe.orbe.Ciclo
 import io.hermes.orbe.orbe.Estado
 import io.hermes.orbe.orbe.OrbeCena
@@ -74,8 +76,13 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         aoVoz = ::vozDaPonte, aoAudio = { if (_previa.value == null) altoFalante.tocar(it) },
         querVoz = { temSaidaDeSom && _ajustes.value.voz },
         querVozPc = { _ajustes.value.vozPc },
+        aoAjustes = ::ajustesDaPonte,
     )
     val ligacao: StateFlow<Ligacao> = ponte.estado
+
+    /** os agentes instalados no PC (vêm no "ola"): cada orbe do carrossel tem um deles */
+    private val _agentesPc = MutableStateFlow<List<AgenteInfo>>(emptyList())
+    val agentesPc: StateFlow<List<AgenteInfo>> = _agentesPc
 
     val aparencia: StateFlow<Aparencia> = ajustes.map(::aparenciaDe)
         .stateIn(viewModelScope, SharingStarted.Eagerly, Aparencia())
@@ -87,7 +94,10 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     private val pendentes = ArrayList<(Ajustes) -> Ajustes>()
 
     init {
-        cena.aoMudar = { _retrato.value = it }
+        cena.aoMudar = {
+            _retrato.value = it
+            seguirEscuta(it)
+        }
         viewModelScope.launch {
             // o que mudou antes de o disco responder (o endereço vindo pelo adb) vale por cima
             _ajustes.value = pendentes.fold(cofre.fluxo.first()) { a, f -> f(a) }
@@ -102,7 +112,10 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
             ligacao.collect {
                 if (it !is Ligacao.Conectada) {
                     altoFalante.cortar()
+                    pararEscuta()
                     if (_previa.value == null) adormecer()
+                } else if (querOuvir) {
+                    iniciarEscuta()
                 }
             }
         }
@@ -134,6 +147,33 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         _ajustes.value = novo
         aplicar(novo)
         if (carregado) viewModelScope.launch { cofre.gravar(novo) }
+        enviarAgente()
+    }
+
+    /**
+     * Mudança nos ajustes que o app do PC também edita: ganha a hora de agora
+     * e vai para lá (vale a mais nova dos dois lados).
+     */
+    private fun mudarSinc(f: (Ajustes) -> Ajustes) {
+        mudar { f(it).copy(t = System.currentTimeMillis()) }
+        ponte.enviar(Protocolo.ajustes(_ajustes.value.sincronia()))
+    }
+
+    /** O PC mandou os ajustes: ficam se forem mais novos que os daqui. */
+    private fun ajustesDaPonte(s: Sincronia) {
+        if (s.t > _ajustes.value.t) mudar { it.com(s) }
+    }
+
+    // o último "agente" que a ponte desta conexão recebeu; null = mandar de novo
+    private var agenteEnviado: String? = null
+
+    /** A ponte fica sabendo do agente do orbe em tela (a sessão aberta daqui usa ele). */
+    private fun enviarAgente() {
+        if (ligacao.value !is Ligacao.Conectada) return
+        val a = _ajustes.value
+        val id = a.agentes[aparenciaDe(a).skin.id].orEmpty()
+        if (id == agenteEnviado) return
+        if (ponte.enviar("agente $id".trim())) agenteEnviado = id
     }
 
     private fun adormecer() {
@@ -154,36 +194,47 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Escolher o avatar no relógio solta o orbe do PC: fica o que o relógio escolheu. */
-    fun skin(s: Skin) = mudar { it.copy(seguirPc = false, skin = s.id, glitch = aparencia.value.glitch) }
+    fun skin(s: Skin) = mudarSinc { it.copy(seguirPc = false, skin = s.id, glitch = aparencia.value.glitch) }
 
-    fun glitch(v: Boolean) = mudar { it.copy(seguirPc = false, glitch = v, skin = aparencia.value.skin.id) }
+    fun glitch(v: Boolean) = mudarSinc { it.copy(seguirPc = false, glitch = v, skin = aparencia.value.skin.id) }
 
-    fun seguirPc(v: Boolean) = mudar { it.copy(seguirPc = v) }
+    fun seguirPc(v: Boolean) = mudarSinc { it.copy(seguirPc = v) }
 
     /** Rolou o carrossel para outra skin (e cor): como escolher no menu, solta o orbe do PC. */
-    fun girar(s: Skin, cor: Int) =
-        mudar { it.copy(seguirPc = false, skin = s.id, cor = cor, glitch = aparencia.value.glitch) }
+    fun girar(s: Skin, cor: Int) {
+        val a = _ajustes.value
+        if (a.seguirPc) mudarSinc { it.copy(seguirPc = false, skin = s.id, cor = cor, glitch = aparencia.value.glitch) }
+        else mudar { it.copy(skin = s.id, cor = cor) }        // a skin em tela não vai ao PC, só o agente dela
+    }
 
-    fun tamanho(v: Float) = mudar { it.copy(tamanho = v.coerceIn(Ajustes.TAMANHO_MIN, Ajustes.TAMANHO_MAX)) }
+    fun tamanho(v: Float) = mudarSinc { it.copy(tamanho = v.coerceIn(Ajustes.TAMANHO_MIN, Ajustes.TAMANHO_MAX)) }
 
-    fun texto(v: Boolean) = mudar { it.copy(texto = v) }
+    fun texto(v: Boolean) = mudarSinc { it.copy(texto = v) }
 
-    fun microfone(v: Boolean) = mudar { it.copy(microfone = v) }
+    fun microfone(v: Boolean) = mudarSinc { it.copy(microfone = v) }
 
     /** A ponte fica sabendo ao conectar se o relógio toca a resposta: mudou, reconecta. */
     fun voz(v: Boolean) {
-        mudar { it.copy(voz = v) }
+        mudarSinc { it.copy(voz = v) }
         if (!v) altoFalante.cortar()
         if (naTela) conectar(forcar = true)
     }
 
     /** Também vai no "ola": mudou, reconecta. */
     fun vozPc(v: Boolean) {
-        mudar { it.copy(vozPc = v) }
+        mudarSinc { it.copy(vozPc = v) }
         if (naTela) conectar(forcar = true)
     }
 
-    fun vibrar(v: Boolean) = mudar { it.copy(vibrar = v) }
+    fun vibrar(v: Boolean) = mudarSinc { it.copy(vibrar = v) }
+
+    /** O agente seguinte para o orbe da [skin], em roda: o padrão (Claude) e os do PC. */
+    fun proximoAgente(skin: Skin) {
+        val ids = listOf("") + _agentesPc.value.map { it.id }.filter { it != "claude" }
+        val atual = _ajustes.value.agentes[skin.id].orEmpty().let { if (it == "claude") "" else it }
+        val prox = ids[(ids.indexOf(atual) + 1).mod(ids.size)]
+        mudarSinc { it.copy(agentes = it.agentes + (skin.id to prox)) }
+    }
 
     fun pediuMicrofone() = mudar { it.copy(pediuMicrofone = true) }
 
@@ -196,6 +247,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
 
     fun saiu() {
         naTela = false
+        pararEscuta()
         toqueCancelado()
         altoFalante.cortar()
         pararPrevia()
@@ -214,7 +266,12 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     private fun olaDaPonte(ola: Ola, bruto: String) {
         // a ponte repete em seguida o que o orbe do PC está mostrando
         if (_previa.value == null) adormecer()
+        _agentesPc.value = ola.agentes
+        agenteEnviado = null
         mudar { it.copy(pc = bruto) }
+        // os ajustes daqui vão ao PC; se os de lá forem mais novos, a ponte devolve os dela
+        ponte.enviar(Protocolo.ajustes(_ajustes.value.sincronia()))
+        enviarAgente()
     }
 
     private fun configDaPonte(ola: Ola, bruto: String) = mudar { it.copy(pc = bruto) }
@@ -255,6 +312,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     /** Dedo encostou: os olhos vão para ele e o microfone já começa a guardar. */
     fun toqueBaixo(x: Float, y: Float, podeGravar: Boolean) {
         if (_previa.value != null) return
+        pararEscuta()                   // o dedo assume a fala
         olhar(x, y)
         val lig = ligacao.value
         if (podeGravar && _ajustes.value.microfone && lig is Ligacao.Conectada && lig.microfone) {
@@ -333,6 +391,74 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
             segurando = false
             ponte.enviar("touch up")
             tremer()
+        }
+    }
+
+    // ── aberto pela sacudida (HinaWatch): a sessão abre e o microfone fica com ela ──
+    //
+    // O "trigger" abre a sessão no PC como o atalho do teclado; a fala vai
+    // inteira, sem dedo, e o daemon decide o fim pelo silêncio. O microfone
+    // acompanha o orbe: ouvindo, transmite; pensando ou falando, descansa (a
+    // voz da resposta no alto-falante do relógio não volta como fala).
+
+    private var querOuvir = false
+    private var escutando = false
+    private var micDaEscuta = false
+    private var sessaoVista = false             // a sessão já apareceu: sumir depois disso é fechar
+
+    /** Pedido pela sacudida: abre a sessão assim que a ponte estiver conectada. */
+    fun ouvir(podeGravar: Boolean) {
+        if (!podeGravar || !_ajustes.value.microfone) return
+        querOuvir = true
+        if (ligacao.value is Ligacao.Conectada) iniciarEscuta()
+    }
+
+    private fun iniciarEscuta() {
+        querOuvir = false
+        val lig = ligacao.value
+        if (lig !is Ligacao.Conectada || !lig.microfone) return
+        synchronized(trava) {
+            escutando = true
+            sessaoVista = false
+        }
+        ponte.enviar("trigger")
+        ligarMicDaEscuta()
+        tremer()
+    }
+
+    private fun ligarMicDaEscuta() {
+        synchronized(trava) {
+            if (!escutando || micDaEscuta) return
+            micDaEscuta = true
+            preRolo.clear()
+            transmitindo = true
+            microfone.iniciar(::blocoDoMicrofone)
+        }
+    }
+
+    private fun desligarMicDaEscuta() {
+        synchronized(trava) {
+            if (!micDaEscuta) return
+            micDaEscuta = false
+            transmitindo = false
+            microfone.parar()
+        }
+    }
+
+    private fun pararEscuta() {
+        querOuvir = false
+        desligarMicDaEscuta()
+        synchronized(trava) { escutando = false }
+    }
+
+    private fun seguirEscuta(r: Retrato) {
+        if (!escutando || segurando) return
+        when {
+            r.visivel -> {
+                sessaoVista = true
+                if (r.estado == Estado.LISTENING) ligarMicDaEscuta() else desligarMicDaEscuta()
+            }
+            sessaoVista -> pararEscuta()        // a sessão fechou no PC
         }
     }
 
