@@ -39,7 +39,7 @@ import kotlinx.coroutines.launch
 /**
  * As duas páginas do relógio, lado a lado: o orbe e, arrastando para a
  * esquerda, o menu (a gaveta e as abas). Na vertical (dedo ou coroa) a lista
- * passa de orbe em orbe; no menu, a coroa rola a gaveta ou a aba. Voltar da aba
+ * passa de orbe em orbe; no menu, a coroa rola a aba (a gaveta não rola). Voltar da aba
  * cai na gaveta, e da gaveta no orbe. No menu o pager não arrasta: puxar para a
  * direita volta um nível e para a esquerda volta ao orbe (TelaAjustes). O fundo
  * do menu fica parado atrás das duas páginas: só o conteúdo anda, sem a emenda
@@ -58,9 +58,11 @@ fun OrbeApp(
     val ajustes by vm.ajustes.collectAsStateWithLifecycle()
     val retrato by vm.retrato.collectAsStateWithLifecycle()
     val ligacao by vm.ligacao.collectAsStateWithLifecycle()
+    val historico by vm.historico.collectAsStateWithLifecycle()
+    val agentesPc by vm.agentesPc.collectAsStateWithLifecycle()
+    val listaHistorico = rememberTransformingLazyColumnState()
     val redonda = LocalConfiguration.current.isScreenRound
     val paginas = rememberPagerState { 2 }
-    val gaveta = rememberTransformingLazyColumnState()
     val lista = rememberTransformingLazyColumnState()
     // a aba aberta no menu; null = a gaveta
     var aba by remember { mutableStateOf<Aba?>(null) }
@@ -87,7 +89,7 @@ fun OrbeApp(
 
     CompositionLocalProvider(
         LocalTema provides aparencia.tema,
-        LocalRolando provides (paginas.isScrollInProgress || gaveta.isScrollInProgress || lista.isScrollInProgress),
+        LocalRolando provides (paginas.isScrollInProgress || lista.isScrollInProgress),
     ) {
       Box(Modifier.fillMaxSize().background(Color.Black)) {
         // sem o fundo atrás do orbe, ele acende junto com a entrada do menu
@@ -102,14 +104,16 @@ fun OrbeApp(
                 .fillMaxSize()
                 .onRotaryScrollEvent { e ->
                     val d = e.verticalScrollPixels
-                    if (paginas.currentPage == 0) {
+                    if (historico != null) {
+                        listaHistorico.dispatchRawDelta(d)
+                    } else if (paginas.currentPage == 0) {
                         giro[0] += d
                         if (abs(giro[0]) >= GIRO_POR_PASSO) {
                             coroa.tryEmit(giro[0].sign.toInt())
                             giro[0] = 0f
                         }
                     } else {
-                        (if (aba == null) gaveta else lista).dispatchRawDelta(d)
+                        if (aba != null) lista.dispatchRawDelta(d)
                     }
                     true
                 }
@@ -125,7 +129,7 @@ fun OrbeApp(
                 TelaOrbe(vm, redonda, podeGravar, abrirAjustes = { escopo.launch { paginas.animateScrollToPage(1) } }, coroa = coroa)
             } else {
                 TelaAjustes(
-                    vm, gaveta, lista, aba,
+                    vm, lista, aba,
                     abrir = { a ->
                         // cada aba abre do alto
                         if (a != null) escopo.launch { lista.scrollToItem(0) }
@@ -164,12 +168,18 @@ fun OrbeApp(
             )
             null -> Unit
         }
+        historico?.let { h ->
+            TelaHistorico(h, nomeAgente(ajustes, aparencia.skin, agentesPc), listaHistorico, redonda, retomar = vm::retomar)
+        }
       }
     }
     BackHandler(calibrando != null) { calibrando = null }
     BackHandler(calibrando == null && paginas.currentPage == 1) {
         if (aba != null) aba = null else escopo.launch { paginas.animateScrollToPage(0) }
     }
+    BackHandler(historico != null) { vm.fecharHistorico() }
+    // cada abertura do histórico começa do alto
+    LaunchedEffect(historico == null) { if (historico != null) listaHistorico.scrollToItem(0) }
     LaunchedEffect(Unit) { foco.requestFocus() }
     LaunchedEffect(menuPedido.value) {
         val m = menuPedido.value ?: return@LaunchedEffect
@@ -177,12 +187,9 @@ fun OrbeApp(
         paginas.scrollToPage(1)
         aba = Aba.entries.firstOrNull { it.name.equals(m, ignoreCase = true) }
     }
-    // de volta ao orbe, o menu recomeça da gaveta, do alto, na próxima visita
+    // de volta ao orbe, o menu recomeça da gaveta na próxima visita
     LaunchedEffect(paginas.settledPage) {
-        if (paginas.settledPage == 0) {
-            aba = null
-            gaveta.scrollToItem(0)
-        }
+        if (paginas.settledPage == 0) aba = null
     }
 }
 

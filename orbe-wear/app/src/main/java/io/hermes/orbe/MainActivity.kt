@@ -11,6 +11,7 @@ import android.hardware.SensorManager
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -110,6 +111,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Na frente, a tela não apaga pelo tempo sem toque. Abaixar ou virar o
+        // pulso ainda apaga: o ungaze do Wear OS põe o relógio para dormir como
+        // o botão ("Going to sleep due to sleep_button" junto do GESTURE UNGAZE
+        // no log), e isso passa por cima desta trava.
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         provisionar(intent)
         setContent {
             OrbeApp(

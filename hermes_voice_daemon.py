@@ -55,6 +55,7 @@ _AT = VCFG["ativacao"]
 AGENTE_CFG = VCFG["agente"]
 # 0 = agente ACP sempre carregado; N = descarrega N min depois da sessão.
 MANTER_MIN = float(AGENTE_CFG.get("manter_carregado_min") or 0)
+ETAPAS = AGENTE_CFG.get("falar_etapas") is not False
 
 # nenhum | openwakeword | sherpa | microwakeword
 WAKE_PROVEDOR = str(_AT["provedor"])
@@ -836,7 +837,7 @@ COR_OLHOS_RELOGIO = "#ff2a2a"
 _CLAUDE_JANELA: subprocess.Popen | None = None
 
 
-def _abrir_claude(pasta: str, espera: float = 60.0, nova: bool = False) -> int:
+def _abrir_claude(pasta: str, espera: float = 60.0, nova: bool = False, retomar: str = "") -> int:
     """Garante uma sessão do Claude com o canal do orbe, abrindo um terminal no PC.
 
     Sem sessão aberta (ou com [nova], pedida de um orbe livre no relógio),
@@ -844,7 +845,8 @@ def _abrir_claude(pasta: str, espera: float = 60.0, nova: bool = False) -> int:
     com as ferramentas aprovadas sozinhas (como o orbe faz por ACP). Fechar a
     janela encerra o Claude; o próximo uso do orbe abre outra. Espera o canal
     se anunciar (com folga para os avisos que o Claude pede confirmar na
-    janela). Devolve o pid da sessão, ou 0.
+    janela). Com [retomar], a conversa passada com esse id (claude --resume),
+    escolhida no histórico do relógio. Devolve o pid da sessão, ou 0.
     """
     global _CLAUDE_JANELA
     vivas = canal.sessoes()
@@ -853,6 +855,8 @@ def _abrir_claude(pasta: str, espera: float = 60.0, nova: bool = False) -> int:
     antes = {int(s["pid"]) for s in vivas}
     if nova or _CLAUDE_JANELA is None or _CLAUDE_JANELA.poll() is not None:
         claude = [str(Path(__file__).resolve().parent / "claude-orbe"), "--dangerously-skip-permissions"]
+        if retomar:
+            claude += ["--resume", retomar]
         terminal = [AGENTE_CFG.get("terminal") or "ghostty", "-e", *claude]
         # num escopo próprio: reiniciar o serviço do orbe não fecha a janela
         if shutil.which("systemd-run"):
@@ -1531,7 +1535,7 @@ class Daemon:
             # três toques no relógio: a sessão de voz fecha e, com o Claude no
             # orbe, a sessão do Claude Code também (a janela do terminal fecha junto)
             tipo = ((_RELOGIO.agente() if _RELOGIO is not None else "") or "claude") \
-                if origem == "relogio" else AGENTE_CFG["tipo"]
+                if origem == "relogio" else self._agente_cfg()["tipo"]
             self._kill_active(hide=True)
             self._end_session("encerrar")
             if tipo == "claude":
@@ -1612,11 +1616,71 @@ class Daemon:
                 ao_controle=lambda linha: self._ctl_q.put(linha + " relogio"),
                 ao_comando=self._relogio_comando,
                 ao_quadro=self._relogio_quadro if rc["microfone"] else None,
-                voz=True, voz_pc=True, agentes=agentes, abre_claude=True)
+                voz=True, voz_pc=True, agentes=agentes, abre_claude=True,
+                ao_historico=self._historico, ao_retomar=self._retomar)
             if ponte.iniciar():
                 _RELOGIO = ponte
         except Exception as e:
             LOG.warning("relógio: ponte indisponível (%s)", e)
+
+    def _historico(self, agente: str) -> dict:
+        """As sessões passadas do agente de um orbe do relógio (quatro toques), para retomar."""
+        tipo = agente or "claude"
+        if tipo == "claude":
+            return {"agente": tipo, "sessoes": [{k: s[k] for k in ("id", "titulo", "pasta", "quando")}
+                                                 for s in sessao.passadas()]}
+        # o agente ACP já carregado serve; senão um sobe só para listar e sai
+        ag, proprio = self.agente, False
+        if ag is None or not ag.vivo() or self._agente_viva.split("|")[0] != tipo:
+            argv, extra = acp.comando(dict(AGENTE_CFG, tipo=tipo, modelo=""),
+                                      self._hermes_rt if tipo == "hermes" else None)
+            env = self._hermes_env()
+            env.update(extra)
+            ag, proprio = acp.AgenteACP(argv, env), True
+        try:
+            if proprio:
+                ag.iniciar()
+            return {"agente": tipo, "sessoes": ag.listar_sessoes()}
+        except acp.ErroACP as e:
+            LOG.info("histórico de %s: %s", tipo, e)
+            return {"agente": tipo, "sessoes": [], "erro": "este agente não lista as sessões"}
+        except Exception as e:
+            LOG.warning("histórico de %s: %s", tipo, e)
+            return {"agente": tipo, "sessoes": [], "erro": "o agente não respondeu"}
+        finally:
+            if proprio:
+                ag.fechar()
+
+    def _retomar(self, agente: str, vaga: int, sid: str):
+        """Retoma a sessão escolhida no histórico do relógio, no orbe dele."""
+        tipo = agente or "claude"
+        if tipo == "claude":
+            # num terminal, na pasta da conversa, e na vaga do orbe de onde foi escolhida
+            s = next((x for x in sessao.passadas(500) if x["id"] == sid), None)
+            if s is None:
+                orb_cmd("line Essa conversa do Claude não está mais no histórico")
+                return
+            pid = _abrir_claude(s["cwd"], nova=True, retomar=sid)
+            if not pid:
+                orb_cmd("line O Claude não abriu o canal: veja o terminal no PC")
+                return
+            if vaga >= 0 and _RELOGIO is not None:
+                _RELOGIO.atribuir(pid, vaga)
+            LOG.info("histórico: conversa %s do Claude retomada (pid %d, vaga %d)", sid[:8], pid, vaga)
+            return
+        # um agente ACP: a próxima sessão do relógio com ele carrega esta (session/load)
+        chave = self._chave(dict(AGENTE_CFG, tipo=tipo))
+        try:
+            vcfg.gravar_estado({"chave": chave, "sessao": sid, "instruir": True})
+        except OSError as e:
+            LOG.warning("histórico: a sessão %s não foi guardada (%s)", sid, e)
+            return
+        with self._agente_lock:
+            if self._agente_viva == chave and self.agente is not None:
+                self.agente.fechar()
+                self.agente = None
+                self._agente_viva = ""
+        LOG.info("histórico: sessão %s de %s fica para a próxima fala", sid, tipo)
 
     def _relogio_comando(self, op: str):
         """Os verbos do orb_control, pela fila do laço de áudio, com a origem."""
@@ -1695,7 +1759,7 @@ class Daemon:
             if op == "touch" and arg == "down":
                 self._toque_down(origem)
             elif op == "touch" and arg == "up":
-                self._toque_up()
+                self._toque_up(origem)
             elif op == "cmd":
                 self._executar_cmd(arg, origem)
             elif op == "relato":
@@ -1754,13 +1818,17 @@ class Daemon:
         self._touch_session()
         orb_cmd("show listening")
 
-    def _toque_up(self):
+    def _toque_up(self, origem: str = "pc"):
         rec = self.rec
         if self.state != "recording" or rec is None or not rec.segurando:
             return
         rec.segurando = False
         dur = time.monotonic() - self._toque_t
-        if dur >= TOQUE_SEGURAR_SEC:
+        # O relógio só manda o "touch down" depois do tempo de segurar, e conta
+        # os toques curtos lá: o dedo dele é sempre fala. Medido de novo aqui,
+        # soltar logo depois virava toque curto (a fala sumia) e dois seguidos
+        # ligavam o live, que no relógio são os dois toques.
+        if dur >= TOQUE_SEGURAR_SEC or origem == "relogio":
             LOG.info("toque solto após %.1fs: fim da fala", dur)
             rec.fim = True
         elif self._toque_rec_novo:
@@ -2025,7 +2093,9 @@ class Daemon:
                     LOG.warning("TTS %s", line)
                 break
 
-    def _tts_push(self, sentence: str, gen: int | None = None):
+    def _tts_push(self, sentence: str, gen: int | None = None, etapa: bool = False):
+        """[etapa]: a descrição de uma ferramenta do agente, dita no meio do
+        turno; o orbe segue em "tools" enquanto ela toca."""
         s = _clean_tts(sentence)
         if len(s) < 2:
             return
@@ -2035,7 +2105,7 @@ class Daemon:
             gen = self._tts_gen
         if gen != self._tts_gen:
             return
-        self._tts_sent_q.put((s, gen))
+        self._tts_sent_q.put((s, gen, etapa))
         self._tts_turn_n += 1
         self._tts_playing = True
         self._last_spoken.append(s)
@@ -2067,10 +2137,12 @@ class Daemon:
                 continue
             if item is None:
                 continue
-            text, gen = item
+            text, gen, etapa = item
             if gen != self._tts_gen:
                 continue
-            orb_cmd("state speaking")
+            # a etapa não é a resposta: o relógio com o orbe fora da tela só
+            # volta para a frente quando o estado vira "speaking"
+            orb_cmd("state tools" if etapa else "state speaking")
             self._tts_playing = True
             try:
                 self._tts_worker_say(text, gen)
@@ -2302,7 +2374,8 @@ class Daemon:
         return ouvido
 
     def _agente_cfg(self) -> dict:
-        """O agente da sessão: o do config, ou o do orbe em tela quando ela veio do relógio.
+        """O agente da sessão: o do orbe em tela no relógio, quando ela veio de
+        lá; no PC, o da skin em uso, pelo mesmo mapa de agentes por skin.
 
         Do relógio, um orbe do Claude é uma vaga: a sessão do Claude Code que
         está nela (pid), ou nenhuma (pid 0: falar ali abre uma nova).
@@ -2314,10 +2387,17 @@ class Daemon:
             vaga = _RELOGIO.vaga() if _RELOGIO is not None and tipo == "claude" else -1
             pid = _RELOGIO.sessao_da_vaga(vaga) if vaga >= 0 else 0
             return dict(AGENTE_CFG, tipo=tipo, modelo=modelo, vaga=vaga, pid=pid)
-        return AGENTE_CFG
+        tipo = vcfg.agente_da_skin()
+        if tipo == AGENTE_CFG["tipo"]:
+            return AGENTE_CFG
+        return dict(AGENTE_CFG, tipo=tipo, modelo="")
 
     def _agente_chave(self) -> str:
-        a = self._agente_cfg()
+        return self._chave(self._agente_cfg())
+
+    @staticmethod
+    def _chave(a: dict) -> str:
+        """O que identifica a conversa de um agente: o tipo, o perfil ou o comando e, no Claude, a vaga."""
         alvo = ""
         if a["tipo"] == "claude" and a.get("vaga", -1) >= 0:
             alvo = f"pid {a['pid']}" if a["pid"] else f"vaga {a['vaga']}"
@@ -2385,8 +2465,9 @@ class Daemon:
                 raise
             self.agente = ag
             self._agente_viva = chave
-            # A conversa retomada já recebeu a instrução de voz no 1º pedido.
-            self._instruido = bool(retomar) and ag.sessao == retomar
+            # A conversa retomada já recebeu a instrução de voz no 1º pedido
+            # (a escolhida no histórico do relógio, não: pode nunca ter sido de voz).
+            self._instruido = bool(retomar) and ag.sessao == retomar and not estado.get("instruir")
             info = ag.info.get("agentInfo") or {}
             if cfg["tipo"] == "claude":
                 LOG.info("Claude: sessão %s em %s", ag.sessao, ag.cwd or "?")
@@ -2489,6 +2570,35 @@ class Daemon:
             if self._tts_gen == gen:
                 orb_cmd("state tools")
 
+        # As etapas (a descrição de cada ferramenta do Claude, a linha com o
+        # ponto no terminal) vão para a voz só com ela calada: a que chega com
+        # a voz ocupada espera, e uma mais nova toma o lugar dela. A resposta
+        # espera no máximo a etapa que já está tocando.
+        etapa = [""]
+        trava_etapa = threading.Lock()
+
+        def _falar_etapa():
+            while self._tts_gen == gen and not partes:
+                with trava_etapa:
+                    if not etapa[0]:
+                        return
+                    if not self._tts_playing and self._tts_sent_q.empty():
+                        s, etapa[0] = etapa[0], ""
+                        self._tts_push(s, gen, etapa=True)
+                        return
+                time.sleep(0.1)
+            with trava_etapa:
+                etapa[0] = ""
+
+        def a_etapa(t: str):
+            if self._tts_gen != gen or partes or not t:
+                return
+            with trava_etapa:
+                esperando = bool(etapa[0])
+                etapa[0] = t
+            if not esperando:
+                threading.Thread(target=_falar_etapa, name="etapa", daemon=True).start()
+
         daemon = self
 
         class _Parar:
@@ -2499,7 +2609,8 @@ class Daemon:
         try:
             fim = ag.perguntar(pedido, ao_texto, ao_pensamento, a_ferramenta,
                                parar=_Parar(),
-                               teto=600.0 if cfg["tipo"] == "claude" else 120.0)
+                               teto=600.0 if cfg["tipo"] == "claude" else 120.0,
+                               a_etapa=a_etapa if ETAPAS else None)
             if fim not in ("end_turn", "cancelled"):
                 LOG.info("agente ACP: turno terminou com %s", fim or "?")
         except acp.ErroACP as e:

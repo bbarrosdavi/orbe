@@ -6,10 +6,12 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.hermes.orbe.dados.AcaoToque
 import io.hermes.orbe.dados.AgenteInfo
 import io.hermes.orbe.dados.Ajustes
 import io.hermes.orbe.dados.AltoFalante
 import io.hermes.orbe.dados.Cofre
+import io.hermes.orbe.dados.Historico
 import io.hermes.orbe.dados.Ligacao
 import io.hermes.orbe.dados.Microfone
 import io.hermes.orbe.dados.Ola
@@ -70,8 +72,20 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     val retrato: StateFlow<Retrato> = _retrato
 
     /**
-     * as sessões do Claude Code abertas no PC, cada uma na vaga dela: a
-     * instância de mesmo número dos orbes do Claude; null sem ponte, ou com uma que não as conta
+     * O orbe (skin e instância) que estava em tela quando a sessão abriu; null
+     * sem sessão. Rolando para outro, a sessão segue, mas só o dono a mostra.
+     */
+    private val _dono = MutableStateFlow<Pair<Skin, Int>?>(null)
+
+    /** O histórico aberto pela ação Histórico dos toques; null fechado. */
+    private val _historico = MutableStateFlow<Historico?>(null)
+    val historico: StateFlow<Historico?> = _historico
+    val dono: StateFlow<Pair<Skin, Int>?> = _dono
+
+    /**
+     * as sessões do Claude Code abertas no PC, cada uma na vaga dela (com mais de
+     * um orbe do Claude, as vagas se alternam entre eles: [Instancias.vaga]);
+     * null sem ponte, ou com uma que não as conta
      */
     private val _sessoes = MutableStateFlow<List<SessaoInfo>?>(null)
     val sessoes: StateFlow<List<SessaoInfo>?> = _sessoes
@@ -83,7 +97,12 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     val temSaidaDeSom = AltoFalante.temSaida(app)
     private val altoFalante = AltoFalante(
         aoNivel = { nivel, tom -> cena.comando("level $nivel $tom") },
-        aoAcabar = { ponte.enviar("voz acabou") },
+        aoAcabar = {
+            ponte.enviar("voz acabou")
+            // a resposta tocou com o orbe fora da tela (a tela não pôde abrir): a
+            // espera acabou. Uma etapa dita no meio do trabalho não acaba nada.
+            if (aoFundo && !naTela && !pcTrabalhando()) viewModelScope.launch { largarFundo() }
+        },
     )
     private val ponte: Ponte = Ponte(
         viewModelScope, Build.MODEL ?: "relógio", ::linhaDaPonte, ::olaDaPonte, ::configDaPonte,
@@ -92,6 +111,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         querVozPc = { _ajustes.value.vozPc },
         aoAjustes = ::ajustesDaPonte,
         aoSessoes = { _sessoes.value = it },
+        aoHistorico = { h -> if (_historico.value != null) _historico.value = h },
     )
     val ligacao: StateFlow<Ligacao> = ponte.estado
     /** a ponte em casa vai pelo Wi-Fi do relógio, não pelo celular */
@@ -112,8 +132,12 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         cena.aoMudar = {
+            if (!it.visivel) _dono.value = null
+            else if (_dono.value == null) aparenciaDe(_ajustes.value).let { ap -> _dono.value = ap.skin to ap.instancia }
+            acertarDono(aparenciaDe(_ajustes.value))
             _retrato.value = it
             seguirEscuta(it)
+            if (aoFundo) acompanharFundo(it)
         }
         viewModelScope.launch {
             // o que mudou antes de o disco responder (o endereço vindo pelo adb) vale por cima
@@ -158,6 +182,13 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         cena.tamanho = a.tamanhoDe(ap.skin).toDouble()
         cena.corTema = ap.corFigura()
         cena.accent = ap.corAnel()
+        acertarDono(ap)
+    }
+
+    /** O orbe em tela mostra a sessão só se foi dele que ela abriu. */
+    private fun acertarDono(ap: Aparencia) {
+        val d = _dono.value
+        cena.alheia = d != null && d != (ap.skin to ap.instancia)
     }
 
     // a ponte também muda os ajustes (a aparência do PC chega na thread da rede)
@@ -183,7 +214,14 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
 
     /** O PC mandou os ajustes: ficam se forem mais novos que os daqui. */
     private fun ajustesDaPonte(s: Sincronia) {
-        if (s.t > _ajustes.value.t) mudar { it.com(s) }
+        if (s.t <= _ajustes.value.t) return
+        val sacudia = _ajustes.value.sacudida
+        mudar { it.com(s) }
+        // a chave da sacudida mexida no PC liga e desliga o serviço daqui
+        val sacode = _ajustes.value.sacudida
+        if (sacode != sacudia) {
+            if (sacode) ServicoSacudida.ligar(getApplication()) else ServicoSacudida.desligar(getApplication())
+        }
     }
 
     // o último "agente" e a última "vaga" que a ponte desta conexão recebeu; null = mandar de novo
@@ -200,7 +238,9 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         val ap = aparenciaDe(a)
         val id = a.agentes[ap.skin.id].orEmpty()
         if (id != agenteEnviado && ponte.enviar("agente $id".trim())) agenteEnviado = id
-        val vaga = if (ap.skin in skinsClaude(a)) ap.instancia else -1
+        val claude = skinsClaude(a)
+        val j = claude.indexOf(ap.skin)
+        val vaga = if (j >= 0) Instancias.vaga(ap.instancia, j, claude.size) else -1
         if (vaga != vagaEnviada && ponte.enviar(if (vaga < 0) "vaga" else "vaga $vaga")) vagaEnviada = vaga
     }
 
@@ -240,8 +280,8 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     /** Dois dedos levaram a outra instância do orbe do Claude: a sessão do PC que ele mostra. */
     fun instancia(k: Int) = mudar { it.copy(instancia = k.coerceAtLeast(0)) }
 
-    /** O fundo do menu atrás dos orbes; só aqui no relógio. */
-    fun fundo(v: Boolean) = mudar { it.copy(fundo = v) }
+    /** O fundo do menu atrás dos orbes. */
+    fun fundo(v: Boolean) = mudarSinc { it.copy(fundo = v) }
 
     /** O tamanho do orbe em tela: cada skin guarda o seu. */
     fun tamanho(v: Float) {
@@ -284,26 +324,26 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
 
     /** A chave da sacudida liga e desliga o serviço que escuta o pulso. */
     fun sacudida(v: Boolean) {
-        mudar { it.copy(sacudida = v) }
+        mudarSinc { it.copy(sacudida = v) }
         if (v) ServicoSacudida.ligar(getApplication()) else ServicoSacudida.desligar(getApplication())
     }
 
-    fun calibrarSacudida(p: Picos) = mudar { it.copy(sacudidaFora = p.fora, sacudidaDentro = p.dentro) }
+    fun calibrarSacudida(p: Picos) = mudarSinc { it.copy(sacudidaFora = p.fora, sacudidaDentro = p.dentro) }
 
     fun sacudidaPadrao() = calibrarSacudida(Picos(Sacudida.FORA_MIN, Sacudida.DENTRO_MIN))
 
     /** Com o orbe aberto, a sacudida só para fora sai dele. */
-    fun sair(v: Boolean) = mudar { it.copy(sair = v) }
+    fun sair(v: Boolean) = mudarSinc { it.copy(sair = v) }
 
     /** O fora mínimo de sair, da calibração; 0 volta ao padrão. */
-    fun calibrarSair(fora: Float) = mudar { it.copy(sairFora = fora) }
+    fun calibrarSair(fora: Float) = mudarSinc { it.copy(sairFora = fora) }
 
-    /** Leva a [skin] um lugar para cima (-1) ou para baixo (+1) na lista dos orbes; só aqui no relógio. */
-    fun mover(skin: Skin, passo: Int) = mudar { a ->
+    /** Leva a [skin] um lugar para cima (-1) ou para baixo (+1) na lista dos orbes. */
+    fun mover(skin: Skin, passo: Int) = mudarSinc { a ->
         val lista = a.skins().toMutableList()
         val i = lista.indexOf(skin)
         val j = i + passo
-        if (i < 0 || j !in lista.indices) return@mudar a
+        if (i < 0 || j !in lista.indices) return@mudarSinc a
         lista[i] = lista[j].also { lista[j] = skin }
         a.copy(ordem = lista.map { it.id })
     }
@@ -312,6 +352,11 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
 
     fun entrou() {
         naTela = true
+        if (aoFundo) {
+            aoFundo = false
+            tetoFundo?.cancel()
+            ServicoEspera.desligar(getApplication())
+        }
         if (carregado) conectar()
     }
 
@@ -319,10 +364,98 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         naTela = false
         pararEscuta()
         toqueCancelado()
+        // com um pedido esperando a resposta, a ponte fica: a resposta traz o orbe de volta
+        if (pedidoNoAr()) esperarAoFundo() else soltarPonte()
+    }
+
+    private fun soltarPonte() {
         altoFalante.cortar()
         esperaWifi?.cancel()
         ponte.desligar()        // a sessão continua no PC; na volta, a ponte conta em que pé está
         rede.soltar()
+    }
+
+    // ── a resposta com o orbe fora da tela ──
+    //
+    // Saiu do orbe (o botão, a sacudida para fora, a tela que apagou) com o
+    // agente pensando: o ServicoEspera segura o relógio acordado e a ponte
+    // segue. A resposta (a voz que chega, ou a sessão que volta a ouvir) acende
+    // a tela e traz o orbe para a frente, falando. A sessão que fecha sem
+    // resposta, a voz que acaba sem a tela ter vindo ou o teto encerram a espera.
+
+    @Volatile private var aoFundo = false
+    private var tetoFundo: Job? = null
+
+    /** O agente está pensando num pedido: a resposta ainda vem. */
+    private fun pedidoNoAr(): Boolean =
+        ligacao.value is Ligacao.Conectada && _retrato.value.visivel && pcTrabalhando()
+
+    /**
+     * O estado que o PC mandou por último ("show", "state", "line"). O do
+     * retrato não serve aqui: a voz tocada no relógio o põe em "speaking" pelo
+     * nível, e as etapas ditas no meio do trabalho também tocam.
+     */
+    @Volatile private var estadoPc = Estado.IDLE
+
+    private fun pcTrabalhando() = estadoPc == Estado.THINKING || estadoPc == Estado.TOOLS
+
+    private fun acompanharPc(linha: String) {
+        val l = linha.trim()
+        val op = l.substringBefore(' ')
+        val arg = l.substringAfter(' ', "").trim()
+        when (op) {
+            "show", "state" -> {
+                val e = Estado.de(arg.ifEmpty { "listening" })
+                if (e < 0) return
+                estadoPc = e
+            }
+            "line" -> {
+                if (estadoPc != Estado.THINKING) estadoPc = Estado.TOOLS
+                return
+            }
+            "hide" -> {
+                estadoPc = Estado.IDLE
+                return
+            }
+            else -> return
+        }
+        // a resposta: o PC passou a falar ou voltou a ouvir (as etapas vêm em "tools")
+        if (aoFundo && !pcTrabalhando()) trazer()
+    }
+
+    private fun esperarAoFundo() {
+        aoFundo = true
+        trouxe = false
+        ServicoEspera.ligar(getApplication())
+        tetoFundo?.cancel()
+        tetoFundo = viewModelScope.launch {
+            delay(ServicoEspera.TETO_MS)
+            if (aoFundo && !naTela) largarFundo()
+        }
+    }
+
+    private fun largarFundo() {
+        aoFundo = false
+        tetoFundo?.cancel()
+        ServicoEspera.desligar(getApplication())
+        if (!naTela) soltarPonte()
+    }
+
+    private fun acompanharFundo(r: Retrato) {
+        // a ponte que cai ou reconecta esconde o orbe e logo repete o que o PC
+        // mostra: só a sessão que segue fechada encerra a espera
+        if (!r.visivel) viewModelScope.launch {
+            delay(CONFIRMA_FECHOU)
+            if (aoFundo && !_retrato.value.visivel && ligacao.value is Ligacao.Conectada) largarFundo()
+        }
+    }
+
+    /** A resposta chegou: a tela acende e o orbe vem para a frente (uma vez por espera). */
+    @Volatile private var trouxe = false
+    private fun trazer() {
+        if (trouxe) return
+        trouxe = true
+        ServicoEspera.trazer(getApplication())
     }
 
     private fun conectar(forcar: Boolean = false) {
@@ -355,6 +488,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun linhaDaPonte(linha: String) {
         cena.comando(linha)
+        acompanharPc(linha)
     }
 
     private fun olaDaPonte(ola: Ola, bruto: String) {
@@ -393,7 +527,47 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         if (v) entrarNoLive(podeGravar) else ponte.enviar("release")
     }
 
-    fun live(v: Boolean) = mudar { it.copy(live = v) }
+    fun live(v: Boolean) = mudarSinc { it.copy(live = v) }
+
+    /** A ação seguinte, em roda, para [n] toques (1 a 4). */
+    fun proximaAcao(n: Int) = mudarSinc { a ->
+        val l = a.toques.toMutableList()
+        if (n - 1 !in l.indices) return@mudarSinc a
+        l[n - 1] = AcaoToque.entries[(l[n - 1].ordinal + 1) % AcaoToque.entries.size]
+        a.copy(toques = l)
+    }
+
+    /** Pede à ponte as sessões passadas do agente do orbe em tela. */
+    private fun abrirHistorico() {
+        if (ligacao.value !is Ligacao.Conectada) return
+        enviarAgente()
+        _historico.value = Historico(carregando = true)
+        if (!ponte.enviar("historico")) _historico.value = Historico(erro = "sem a ponte")
+        tremer()
+    }
+
+    fun fecharHistorico() {
+        _historico.value = null
+    }
+
+    /**
+     * Retoma uma sessão passada no orbe em tela. Num orbe do Claude ela vai
+     * para uma instância sem sessão: a em tela, se está livre, ou a do fim.
+     */
+    fun retomar(id: String) {
+        _historico.value = null
+        val a = _ajustes.value
+        val ap = aparenciaDe(a)
+        val claude = skinsClaude(a)
+        val j = claude.indexOf(ap.skin)
+        if (j >= 0) {
+            val ocupadas = Instancias.doOrbe(_sessoes.value.orEmpty().map { it.vaga }, j, claude.size)
+            if (ap.instancia in ocupadas) instancia((ocupadas.maxOrNull() ?: -1) + 1)
+        }
+        enviarAgente()
+        ponte.enviar("retomar $id")
+        tremer()
+    }
 
     // ── toque no orbe ──
     //
@@ -464,9 +638,16 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
             if (!segurando) cena.toque = false
         }
         contagem?.cancel()
-        if (++toques >= 3) {
+        // chegou ao maior número de toques que faz algo: não espera outro
+        val teto = _ajustes.value.maisToques()
+        if (teto == 0) {
             toques = 0
-            encerrar()
+            return
+        }
+        if (++toques >= teto) {
+            val n = toques
+            toques = 0
+            toquesCurtos(n, podeGravar)
             return
         }
         contagem = viewModelScope.launch {
@@ -477,20 +658,35 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /**
-     * Um toque: fechado, abre (ou já no live, com a opção); aberto, entra no
-     * live; no live, interrompe a fala ou o raciocínio, e só ouvindo, fecha.
-     * Dois: o live liga (abrindo, se precisar) ou, ligado, fecha.
-     */
+    /** [n] toques curtos: a ação escolhida para eles ([Ajustes.toques]). */
     private fun toquesCurtos(n: Int, podeGravar: Boolean) {
+        when (_ajustes.value.toque(n)) {
+            AcaoToque.ABRIR -> toqueSessao(live = false, podeGravar)
+            AcaoToque.LIVE -> toqueSessao(live = true, podeGravar)
+            AcaoToque.ENCERRAR -> encerrar()
+            AcaoToque.HISTORICO -> abrirHistorico()
+            AcaoToque.NADA -> Unit
+        }
+    }
+
+    /**
+     * Cada ação faz só a sua, sem invadir a dos outros toques: fechar é só do
+     * Encerrar. Abrir: fechada, abre (ou já no live, com a opção); aberta,
+     * interrompe a fala ou o raciocínio, e ouvindo não faz nada. Live: liga o
+     * live (abrindo, se precisar) ou, ligado, desliga, e a sessão segue.
+     */
+    private fun toqueSessao(live: Boolean, podeGravar: Boolean) {
         if (ligacao.value !is Ligacao.Conectada) return
         val r = _retrato.value
         val aberta = r.visivel || escutando
         when {
-            !aberta -> abrir(n >= 2 || _ajustes.value.live, podeGravar)
-            !r.travado -> entrarNoLive(podeGravar)
-            n >= 2 || r.estado == Estado.LISTENING -> fecharSessao()
-            else -> {
+            !aberta -> abrir(live || _ajustes.value.live, podeGravar)
+            live && r.travado -> {
+                ponte.enviar("release")
+                tremer()
+            }
+            live -> entrarNoLive(podeGravar)
+            r.estado == Estado.SPEAKING || r.estado == Estado.THINKING || r.estado == Estado.TOOLS -> {
                 altoFalante.cortar()
                 ponte.enviar("interromper")
             }
@@ -514,14 +710,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         ponte.enviar("hold")
     }
 
-    private fun fecharSessao() {
-        altoFalante.cortar()
-        pararEscuta()
-        ponte.enviar("dismiss")
-        tremer()
-    }
-
-    /** Três toques: fecha a sessão e, com o Claude no orbe, a sessão dele no PC. */
+    /** Encerrar: fecha a sessão e, com o Claude no orbe, a sessão dele no PC. */
     private fun encerrar() {
         contagem?.cancel()
         altoFalante.cortar()
@@ -640,6 +829,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        if (aoFundo) ServicoEspera.desligar(getApplication())
         microfone.parar()
         altoFalante.cortar()
         ponte.desligar()
@@ -649,7 +839,9 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     private companion object {
         /** quanto a ponte em casa espera o Wi-Fi acordar antes de sair pelo celular */
         const val ESPERA_WIFI = 4_000L
-        /** toques curtos dentro disto contam juntos (um abre, dois ligam o live, três encerram) */
+        /** toques curtos dentro disto contam juntos; cada número tem a sua ação ([Ajustes.toques]) */
         const val JANELA_TOQUES = 400L
+        /** com o orbe fora da tela, quanto a sessão escondida espera para contar como fechada */
+        const val CONFIRMA_FECHOU = 2_000L
     }
 }

@@ -30,8 +30,13 @@ Conversa (texto = uma linha por mensagem; binário = PCM s16le mono 16 kHz):
   ponte   → sessoes [{"vaga", "pid", "rotulo", "titulo", "pasta", "estado", "canal", "ouve"}]
                                                     as sessões do Claude Code abertas no PC,
                                                     cada uma na sua vaga (também no "ola")
-  relógio → vaga <k> | vaga                         o orbe em tela é o k-ésimo do Claude no
-                                                    carrossel (nada: não é orbe do Claude)
+  relógio → vaga <k> | vaga                         a vaga do orbe do Claude em tela (nada: não
+                                                    é orbe do Claude)
+  relógio → historico                               as sessões passadas do agente do orbe em tela
+  ponte   → historico {"agente", "sessoes": [{"id", "titulo", "pasta", "quando"}], "erro"}
+                                                    só a quem pediu; quando em segundos
+  relógio → retomar <id>                            retoma uma delas no orbe em tela (no Claude,
+                                                    num terminal, na vaga dele)
   relógio → (binário) a fala, enquanto o dedo segura o orbe (ou na sessão
             aberta por "trigger", enquanto ela ouve)
   os dois → ajustes {"t": ..., "agentes": {...}, "voz": true, ...}
@@ -193,6 +198,30 @@ def token_da_config(trocar: bool = False) -> str:
 # o que o app do relógio guarda e o app do PC também edita (relogio.ajustes)
 CAMPOS_AJUSTES = {"voz": bool, "voz_pc": bool, "microfone": bool, "vibrar": bool,
                   "texto": bool, "glitch": bool, "linhas": bool, "seguir_pc": bool, "tamanho": float}
+# os que o PC só conhece pelo relógio: null no config até ele mandar os dele
+CAMPOS_DO_RELOGIO = ("toques", "live", "fundo", "ordem", "sacudida", "sair",
+                     "sacudida_fora", "sacudida_dentro", "sair_fora")
+ACOES_TOQUE = ("abrir", "live", "encerrar", "historico", "nada")
+
+
+def _do_relogio(k: str, v):
+    """Um dos CAMPOS_DO_RELOGIO validado; None se não serve."""
+    if k == "toques":
+        ok = isinstance(v, list) and len(v) == 4 and all(a in ACOES_TOQUE for a in v)
+        return list(v) if ok else None
+    if k == "ordem":
+        if not isinstance(v, list):
+            return None
+        lista = []
+        for skin in v:
+            if skin in vcfg.SKINS and skin not in lista:
+                lista.append(skin)
+        return lista + [skin for skin in vcfg.SKINS if skin not in lista]
+    if k in ("sacudida_fora", "sacudida_dentro", "sair_fora"):
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return round(min(50.0, max(0.0, float(v))), 2)
+        return None
+    return v if isinstance(v, bool) else None
 
 
 def ajustes_relogio() -> dict:
@@ -208,8 +237,22 @@ def gravar_ajustes(novos: dict) -> bool:
         t = int(novos.get("t") or 0)
     except (TypeError, ValueError):
         return False
+    # o que o PC ainda não conhece vem do relógio, seja qual for o "t"
+    aprendeu = False
+    for k in CAMPOS_DO_RELOGIO:
+        if atual.get(k) is None:
+            v = _do_relogio(k, novos.get(k))
+            if v is not None:
+                atual[k] = v
+                aprendeu = True
     if t <= int(atual.get("t") or 0):
+        if aprendeu:
+            vcfg.salvar(cfg)
         return False
+    for k in CAMPOS_DO_RELOGIO:
+        v = _do_relogio(k, novos.get(k))
+        if v is not None:
+            atual[k] = v
     for k, tipo in CAMPOS_AJUSTES.items():
         v = novos.get(k)
         if tipo is bool and isinstance(v, bool):
@@ -269,7 +312,7 @@ class PonteRelogio:
 
     def __init__(self, porta: int, token: str, ao_controle, ao_comando, ao_quadro=None,
                  host: str = "0.0.0.0", ao_fala_fim=None, voz: bool = False, voz_pc: bool = False,
-                 agentes=None, abre_claude: bool = False):
+                 agentes=None, abre_claude: bool = False, ao_historico=None, ao_retomar=None):
         self.porta = int(porta)
         self.host = host
         self._token = token.strip().lower().encode()
@@ -281,9 +324,12 @@ class PonteRelogio:
         self._voz_pc = voz_pc
         self._agentes = list(agentes or [])   # [{"id", "nome"}]: o relógio dá um a cada orbe
         self._abre_claude = abre_claude       # falar num orbe do Claude sem sessão abre uma (o daemon)
+        self._ao_historico = ao_historico     # agente → {"agente", "sessoes", "erro"}
+        self._ao_retomar = ao_retomar         # (agente, vaga, id): a sessão escolhida no histórico
         self._agente = ""             # o do orbe em tela no relógio ("agente <id>")
         # as sessões do Claude Code: cada uma numa vaga, que não muda enquanto ela vive
-        # (a vaga k é o k-ésimo orbe do Claude no carrossel do relógio)
+        # (com m orbes do Claude no relógio, as vagas se alternam entre eles: a
+        # instância k do j-ésimo é a vaga k·m + j; o relógio faz a conta)
         self._vaga = -1               # a do orbe em tela ("vaga <k>"); -1 = não é orbe do Claude
         self._vagas = {}              # pid → vaga
         self._sessoes = []            # o último "sessoes" difundido
@@ -587,6 +633,12 @@ class PonteRelogio:
         if msg.startswith("ajustes "):
             self._ajustes(ws, msg[8:4096])
             return
+        if msg.startswith("retomar "):
+            sid = msg[8:200].strip()
+            if sid and self._ao_retomar is not None:
+                threading.Thread(target=self._ao_retomar, args=(self._agente, self._vaga, sid),
+                                 name="retomar", daemon=True).start()
+            return
         linha = " ".join(msg.split())[:64]
         if linha in ("touch down", "touch up"):
             if linha == "touch up":
@@ -608,6 +660,31 @@ class PonteRelogio:
             self._vaga = int(k) if k.isdigit() and int(k) < 1000 else -1
         elif linha == "voz acabou" and self._ao_fala_fim is not None:
             self._ao_fala_fim()
+        elif linha == "historico" and self._ao_historico is not None:
+            self._historico(ws)
+
+    def _historico(self, ws):
+        """Lista fora do laço (um agente ACP pode subir para isso) e responde só a quem pediu."""
+        agente, loop = self._agente, self._loop
+
+        def _listar():
+            try:
+                h = self._ao_historico(agente)
+            except Exception as e:
+                LOG.warning("histórico: %s", e)
+                h = {"agente": agente, "sessoes": [], "erro": "o histórico falhou"}
+            msg = "historico " + json.dumps(h, ensure_ascii=False)
+
+            def _mandar():
+                fila = self._clientes.get(ws)
+                if fila is not None:
+                    fila.put_nowait(msg)
+            if loop is not None:
+                try:
+                    loop.call_soon_threadsafe(_mandar)
+                except RuntimeError:
+                    pass
+        threading.Thread(target=_listar, name="historico", daemon=True).start()
 
     def _ajustes(self, ws, texto: str):
         """Os ajustes do relógio: os dele mais novos ficam; os do PC mais novos vão para ele."""

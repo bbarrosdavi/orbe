@@ -62,6 +62,16 @@
                 android:value="gesto do pulso que abre o orbe" />
         </service>
 
+        <!-- um pedido esperando a resposta com o orbe fora da tela: a ponte segue, e a resposta o traz de volta -->
+        <service
+            android:name=".ServicoEspera"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="esperar a resposta do agente com o orbe fora da tela" />
+        </service>
+
         <receiver
             android:name=".gesto.Partida"
             android:exported="true">

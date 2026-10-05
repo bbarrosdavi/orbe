@@ -85,5 +85,17 @@ object Instancias {
      */
     fun contar(vagas: List<Int>, abre: Boolean): Int = maxOf(1, (vagas.maxOrNull() ?: -1) + 1 + if (abre) 1 else 0)
 
+    /**
+     * Com [m] orbes do Claude na lista, as sessões se alternam entre eles: a
+     * instância [k] do [j]-ésimo é a vaga k·m + j.
+     */
+    fun vaga(k: Int, j: Int, m: Int): Int = k * m.coerceAtLeast(1) + j
+
+    /** As instâncias com sessão do [j]-ésimo dos [m] orbes do Claude, a partir das [vagas] ocupadas. */
+    fun doOrbe(vagas: List<Int>, j: Int, m: Int): List<Int> {
+        val mm = m.coerceAtLeast(1)
+        return vagas.filter { it >= 0 && it % mm == j }.map { it / mm }
+    }
+
     private fun rgb(c: Int) = floatArrayOf((c shr 16 and 0xFF) / 255f, (c shr 8 and 0xFF) / 255f, (c and 0xFF) / 255f)
 }

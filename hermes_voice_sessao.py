@@ -8,8 +8,11 @@ claude-orbe. As abertas à mão o orbe alcança por um hook do usuário, posto n
 - `--hook`, em SessionStart e Stop, com asyncRewake: roda em segundo plano e
   espera num socket local da sessão (a escuta). Chegou uma fala do orbe, a
   escuta sai com código 2 e o Claude daquela sessão acorda com o pedido, mesmo
-  parado. No Stop desse turno a mesma entrada deixa a última resposta para o
-  orbe (só quando o turno foi um pedido dele) e arma a escuta de novo.
+  parado. Com a sessão no meio de um turno, ele entra na fila "next" do Claude
+  Code, a mesma do que se digita enquanto ela trabalha, e chega no turno em
+  andamento. O pedido leva uma marca: no Stop do turno em que ela já está no
+  transcript, a mesma entrada deixa a última resposta para o orbe e arma a
+  escuta de novo.
 - Importado pelo daemon e pelo pulso: `sessoes()` lista as sessões vivas, pelo
   registro do próprio Claude Code (~/.claude/sessions), e `agente(pid)` dá o
   agente de uma delas, com a cara do AgenteClaude.
@@ -117,6 +120,64 @@ def sessoes() -> list[dict]:
     return sorted(vivas, key=lambda s: (s["desde"], s["pid"]))
 
 
+def _inicio(p: Path) -> dict:
+    """A pasta, a entrada e o primeiro pedido de um transcript (o que o /resume
+    mostra de uma conversa sem título)."""
+    try:
+        with open(p, "rb") as f:
+            bloco = f.read(256 * 1024)
+    except OSError:
+        return {}
+    ini = {}
+    for linha in bloco.splitlines():
+        if b'"cwd"' not in linha:
+            continue
+        try:
+            d = json.loads(linha)
+        except ValueError:
+            continue
+        if d.get("cwd") and "cwd" not in ini:
+            ini = {"cwd": str(d["cwd"]), "entrypoint": str(d.get("entrypoint") or ""), "pedido": ""}
+        c = (d.get("message") or {}).get("content") if d.get("type") == "user" and not d.get("isMeta") else None
+        if isinstance(c, list):
+            c = next((x.get("text") for x in c if isinstance(x, dict) and x.get("type") == "text"), None)
+        # os comandos de barra e os avisos do sistema vêm entre tags: não são o pedido
+        if isinstance(c, str) and c.strip() and not c.lstrip().startswith("<"):
+            ini["pedido"] = " ".join(c.split())[:120]
+            break
+    return ini
+
+
+def passadas(limite: int = 25) -> list[dict]:
+    """As conversas do Claude Code abertas no terminal que não estão vivas, da
+    mais recente para a mais velha: id, título, pasta, cwd e quando (s). As do
+    claude -p (o SDK, os hooks) ficam de fora: não são conversa do Davi."""
+    vivas = {s["sessao"] for s in sessoes()}
+    arquivos = []
+    for p in (CLAUDE_DIR / "projects").glob("*/*.jsonl"):
+        try:
+            arquivos.append((p.stat().st_mtime, p))
+        except OSError:
+            pass
+    arquivos.sort(reverse=True)
+    achadas = []
+    for quando, p in arquivos:
+        if p.stem in vivas:
+            continue
+        ini = _inicio(p)
+        if not ini or ini["entrypoint"] not in ("", "cli") or not Path(ini["cwd"]).is_dir():
+            continue                    # o --resume roda na pasta da conversa: sem ela, não há onde
+        cwd = ini["cwd"]
+        nome = titulo({"sessao": p.stem, "cwd": cwd}) or ini.get("pedido", "")
+        if not nome:
+            continue                    # aberta e fechada sem conversa: nada a retomar
+        achadas.append({"id": p.stem, "titulo": nome, "pasta": Path(cwd).name or cwd,
+                        "cwd": cwd, "quando": int(quando)})
+        if len(achadas) >= limite:
+            break
+    return achadas
+
+
 def rotulo(s: dict) -> str:
     """O nome que o relógio mostra: o derivado já diz a pasta; o dado à mão vem com ela."""
     if s.get("nome_derivado") or not s.get("nome"):
@@ -183,6 +244,75 @@ def titulo(s: dict) -> str:
     return achado
 
 
+class Etapas:
+    """As etapas de um turno do Claude enquanto o orbe espera a resposta: a
+    descrição de cada ferramenta chamada (a linha que o terminal mostra com o
+    ponto, como "Checking branch and Windows/macOS notes in README"). Lê só o
+    que o transcript cresceu desde que o pedido saiu; ferramenta sem descrição
+    (ler, editar, buscar) não é etapa."""
+
+    def __init__(self, pid: int | str):
+        self._pid = int(pid)
+        self._caminho: Path | None = None
+        self._lido = 0
+        self._resto = b""
+        self._achar()
+
+    def _achar(self):
+        s = next((x for x in sessoes() if x["pid"] == self._pid), None)
+        p = _transcript(s["sessao"], s["cwd"]) if s and s.get("sessao") else None
+        if p is None or p == self._caminho:
+            return
+        # o /clear troca o transcript: o novo vale do começo
+        primeiro = self._caminho is None
+        self._caminho, self._resto = p, b""
+        try:
+            self._lido = p.stat().st_size if primeiro else 0
+        except OSError:
+            self._lido = 0
+
+    def novas(self) -> list[str]:
+        if self._caminho is None:
+            self._achar()
+            if self._caminho is None:
+                return []
+        try:
+            tam = self._caminho.stat().st_size
+        except OSError:
+            self._caminho = None
+            return []
+        if tam < self._lido:
+            self._lido, self._resto = 0, b""
+        if tam == self._lido:
+            return []
+        try:
+            with open(self._caminho, "rb") as f:
+                f.seek(self._lido)
+                bloco = self._resto + f.read(tam - self._lido)
+        except OSError:
+            return []
+        self._lido = tam
+        linhas = bloco.split(b"\n")
+        self._resto = linhas.pop()          # a linha que ainda está sendo escrita
+        achadas = []
+        for linha in linhas:
+            if b'"tool_use"' not in linha or b'"description"' not in linha:
+                continue
+            try:
+                d = json.loads(linha)
+            except ValueError:
+                continue
+            if d.get("type") != "assistant":
+                continue
+            for c in (d.get("message") or {}).get("content") or []:
+                if not isinstance(c, dict) or c.get("type") != "tool_use":
+                    continue
+                desc = (c.get("input") or {}).get("description")
+                if isinstance(desc, str) and desc.strip():
+                    achadas.append(" ".join(desc.split())[:200])
+        return achadas
+
+
 def _gravar(caminho: Path, dados: dict):
     tmp = caminho.with_name(caminho.name + ".tmp")
     tmp.write_text(json.dumps(dados, ensure_ascii=False))
@@ -242,18 +372,47 @@ def _registro_de(sessao: str, espera: float) -> dict | None:
         time.sleep(0.25)
 
 
-def _entregar(pasta: Path, pid: int, texto: str):
-    """Stop de um turno pedido pelo orbe: a última resposta fica para ele."""
+def marca(pedido: str) -> str:
+    """O que vai junto do pedido e o acha no transcript."""
+    return f"(pedido do orbe {pedido})"
+
+
+def _no_transcript(caminho: str, alvo: str) -> bool:
+    """O [alvo] está no fim do transcript (o turno que acabou viu o pedido)."""
+    try:
+        with open(caminho, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - 4 * 1024 * 1024))
+            return alvo.encode() in f.read()
+    except OSError:
+        return True                     # sem como conferir: entrega, como antes
+
+
+def _entregar(pasta: Path, pid: int, texto: str, transcript: str = ""):
+    """Stop de um turno com pedido do orbe: a última resposta fica para ele. Se o
+    pedido ainda não entrou neste turno (chegou depois da última ferramenta e
+    vai abrir o seguinte), fica para o Stop do próximo."""
     pedido = pasta / f"{pid}.pedido"
     try:
         d = json.loads(pedido.read_text())
     except (OSError, ValueError):
+        return
+    if transcript and d.get("pedido") and not _no_transcript(transcript, marca(str(d["pedido"]))):
         return
     try:
         pedido.unlink()
     except OSError:
         pass
     _gravar(pasta / f"{pid}.resposta", {"pedido": d.get("pedido", ""), "texto": texto})
+
+
+def _acordar(pasta: Path, pid: int, pedido: str, texto: str) -> int:
+    """Sai com 2: o Claude da sessão acorda com o pedido, ou o recebe no turno em andamento."""
+    if pedido:
+        _gravar(pasta / f"{pid}.pedido", {"pedido": pedido, "t": time.time()})
+    sys.stderr.write(texto + (f"\n{marca(pedido)}" if pedido else "") + "\n")
+    sys.stderr.flush()
+    return 2
 
 
 def _escutar(pasta: Path, pid: int) -> int:
@@ -303,17 +462,13 @@ def _escutar(pasta: Path, pid: int) -> int:
                     cli.sendall(b'{"tipo": "ok"}\n')
                     return 0
                 elif tipo == "pergunta":
-                    # com a sessão no meio de um turno, o pedido entraria na fila
-                    # e o Stop desse turno levaria a resposta errada: o orbe espera
+                    # parada, acorda; trabalhando, o Claude Code põe o pedido na
+                    # fila "next" e ele chega no turno em andamento, como o que se
+                    # digita com ela trabalhando
                     reg = next((d for d in _registros() if d["pid"] == pid), {})
-                    if reg.get("status") not in (None, "idle"):
-                        cli.sendall(b'{"tipo": "ocupada"}\n')
-                        continue
-                    _gravar(pasta / f"{pid}.pedido", {"pedido": str(m.get("pedido") or ""), "t": time.time()})
-                    cli.sendall(b'{"tipo": "aceito"}\n')
-                    sys.stderr.write(str(m.get("texto") or "").strip() + "\n")
-                    sys.stderr.flush()
-                    return 2
+                    trabalhando = reg.get("status") not in (None, "idle")
+                    cli.sendall(b'{"tipo": "no_turno"}\n' if trabalhando else b'{"tipo": "aceito"}\n')
+                    return _acordar(pasta, pid, str(m.get("pedido") or ""), str(m.get("texto") or "").strip())
             except OSError:
                 continue
             finally:
@@ -345,7 +500,8 @@ def _hook() -> int:
     pasta = _pasta()
     pasta.mkdir(parents=True, exist_ok=True, mode=0o700)
     if ent.get("hook_event_name") == "Stop":
-        _entregar(pasta, reg["pid"], str(ent.get("last_assistant_message") or ""))
+        _entregar(pasta, reg["pid"], str(ent.get("last_assistant_message") or ""),
+                  str(ent.get("transcript_path") or ""))
     return _escutar(pasta, reg["pid"])
 
 
@@ -468,11 +624,13 @@ class AgenteSessao:
         return ""
 
     def perguntar(self, texto, ao_texto, ao_pensamento=None, a_ferramenta=None,
-                  parar=None, teto: float = 600.0) -> str:
+                  parar=None, teto: float = 600.0, a_etapa=None) -> str:
         """Acorda a sessão com a fala e espera o Stop do turno dela. Interromper
-        só para a espera: o Claude segue o que estiver fazendo no terminal."""
+        só para a espera: o Claude segue o que estiver fazendo no terminal.
+        [a_etapa] recebe a descrição de cada ferramenta que ela chama."""
         import uuid
         pedido = uuid.uuid4().hex[:8]
+        etapas = Etapas(self.alvo) if a_etapa else None
         sock = self._pasta / f"{self.alvo}.sock"
         resposta = self._pasta / f"{self.alvo}.resposta"
         fim = time.monotonic() + teto
@@ -490,6 +648,11 @@ class AgenteSessao:
             tipo = (r or {}).get("tipo")
             if tipo == "aceito":
                 break
+            if tipo == "no_turno":
+                if ao_pensamento is not None:
+                    ao_pensamento("a sessão está trabalhando: o pedido entrou no turno dela\n")
+                break
+            # "ocupada" é a escuta antiga: o orbe espera ela parar
             if tipo != "ocupada":
                 raise self._erro(f"a sessão {self.alvo} recusou o pedido ({tipo or 'sem resposta'})")
             if not avisou and ao_pensamento is not None:
@@ -517,6 +680,9 @@ class AgenteSessao:
                 return "end_turn"
             if not _vivo(self.alvo):
                 raise self._erro(f"a sessão {self.alvo} do Claude fechou")
+            if etapas is not None and a_etapa:
+                for e in etapas.novas():
+                    a_etapa(e)
             time.sleep(0.2)
 
     def _desistir(self, pedido: str):

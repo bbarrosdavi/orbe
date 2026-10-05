@@ -16,29 +16,44 @@ object Quebra {
         if (larguras.isEmpty()) return emptyList()
         val vistas = HashMap<String, Float>()
         val larg = { p: String -> vistas.getOrPut(p) { medir(p) } }
-        val msgs = ArrayList(linhas.map { l -> l.split(' ').filter { it.isNotEmpty() } }.filter { it.isNotEmpty() })
+        val msgs = linhas.map { l -> l.split(' ').filter { it.isNotEmpty() } }.filter { it.isNotEmpty() }
         if (msgs.isEmpty()) return emptyList()
+        encaixar(msgs, larguras, larg)?.let { return it }
         // não coube: a linha mais antiga perde palavras do começo, uma a uma,
-        // e sai inteira quando sobra só a última (as fileiras nunca ficam ociosas)
-        var cortada = false
-        while (true) {
-            val tentativa = if (cortada) listOf(listOf("…") + msgs[0]) + msgs.drop(1) else msgs
-            encaixar(tentativa, larguras, larg)?.let { return it }
-            if (msgs[0].size > 1) {
-                msgs[0] = msgs[0].drop(1)
-                cortada = true
-            } else if (msgs.size > 1) {
-                msgs.removeAt(0)
-                cortada = false
-            } else break
+        // e sai inteira quando sobra só a última (as fileiras nunca ficam
+        // ociosas). Cada tentativa é (a primeira linha, quantas palavras saíram
+        // dela); quanto mais adiante, mais fácil caber, então a primeira que
+        // cabe sai por busca binária: tentar uma a uma media o texto centenas
+        // de vezes na thread da tela.
+        val tentativas = msgs.indices.flatMap { i -> List(msgs[i].size) { d -> i to d } }
+        val (_, cabe) = primeira(tentativas.size) { k ->
+            val (i, d) = tentativas[k]
+            val primeira = if (d > 0) listOf(listOf("…") + msgs[i].drop(d)) else listOf(msgs[i])
+            encaixar(primeira + msgs.drop(i + 1), larguras, larg)
         }
+        if (cabe != null) return cabe
         // uma palavra só, maior que a tela inteira: o fim dela
-        var p = msgs[0][0]
-        while (p.length > 1) {
-            p = p.substring(1)
-            encaixar(listOf(listOf(p)), larguras, larg)?.let { return it }
+        val p = msgs.last().last()
+        return primeira(p.length - 1) { k -> encaixar(listOf(listOf(p.substring(k + 1))), larguras, larg) }.second
+            ?: emptyList()
+    }
+
+    /** A primeira de [n] tentativas que dá certo, supondo que depois dela todas dão (índice -1 e null se nenhuma). */
+    private fun <T : Any> primeira(n: Int, tentar: (Int) -> T?): Pair<Int, T?> {
+        var a = 0
+        var b = n - 1
+        var achada = -1
+        var r: T? = null
+        while (a <= b) {
+            val m = (a + b) / 2
+            val t = tentar(m)
+            if (t != null) {
+                achada = m
+                r = t
+                b = m - 1
+            } else a = m + 1
         }
-        return emptyList()
+        return achada to r
     }
 
     /** Quebra de cima para baixo; null se passa do número de fileiras. */
@@ -69,8 +84,7 @@ object Quebra {
                 // palavra maior que a fileira: parte onde couber
                 var resto = palavra
                 while (resto.length > 1 && larg(resto) > larguras[fileiras.size]) {
-                    var n = resto.length - 1
-                    while (n > 1 && larg(resto.substring(0, n)) > larguras[fileiras.size]) n--
+                    val n = corte(resto, larguras[fileiras.size], larg)
                     fileiras.add(resto.substring(0, n))
                     resto = resto.substring(n)
                     if (fileiras.size >= larguras.size) return null
@@ -84,5 +98,20 @@ object Quebra {
             }
         }
         return fileiras
+    }
+
+    /**
+     * O maior começo de [p] (ao menos um caractere, nunca a palavra toda) que cabe
+     * em [largura]. Busca binária: medir cada começo, do maior ao menor, custava
+     * milhares de medições num caminho de arquivo e travava a tela por segundos.
+     */
+    private fun corte(p: String, largura: Float, larg: (String) -> Float): Int {
+        var cabe = 1
+        var passa = p.length
+        while (passa - cabe > 1) {
+            val m = (cabe + passa) / 2
+            if (larg(p.substring(0, m)) <= largura) cabe = m else passa = m
+        }
+        return cabe
     }
 }

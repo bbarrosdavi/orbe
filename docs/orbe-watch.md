@@ -168,7 +168,13 @@ Para ver o relógio funcionando sem agente nenhum, `./hermes_voice_relogio.py
 A tela inicial é o orbe no mostrador inteiro, com as linhas do raciocínio
 abaixo dele. Os pontos na borda direita mostram o lugar do orbe na lista, e
 o menu fica ao lado. O orbe fica sempre no mostrador, e a sessão aberta
-mantém a tela acesa.
+mantém a tela acesa. No alto, curvado na borda, vai o agente que o orbe
+controla no computador (com a conversa, nos orbes do Claude: veja [O
+rótulo](#sessões-do-claude-code)).
+
+Com a sessão aberta, só o orbe de onde ela foi aberta (a skin e a instância)
+mostra o estado dela. Rolando para outro, a sessão segue no computador, mas o
+orbe novo fica parado, sem as linhas do raciocínio.
 
 | Estado | O que o orbe mostra |
 |---|---|
@@ -184,16 +190,42 @@ O toque vale como no orbe do desktop:
 | Gesto | Efeito |
 |---|---|
 | **Segurar** (mais de 350 ms) | Segurar para falar: a fala vai para o agente enquanto o dedo estiver na tela. Soltar encerra a fala. O relógio vibra ao segurar e ao soltar. |
-| **Toque curto** | Abre a sessão, ou interrompe a resposta e volta a ouvir. |
-| **Dois toques curtos** | Travam a sessão aberta (um ponto aparece acima da figura). |
+| **Toques curtos** (um a quatro) | Cada número de toques tem a sua ação, escolhida no menu (aba Ativação, grupo Toques) ou na aba Relógio do app do computador. Veja as ações abaixo. |
 | **Arrastar para cima ou para baixo**, ou girar a coroa (nos relógios que têm) | Rola a lista dos orbes, com inércia: um arremesso passa por vários antes de parar num deles. Os pontos na borda direita mostram em que lugar da lista você está, e depois do último orbe vem o primeiro. A ordem padrão é Anel de energia, Seraphim, Ophanim e Ophanim com asas, e o menu a troca (aba Agentes). Cada skin tem o seu agente (veja [Sessão aberta pelo relógio](#sessão-aberta-pelo-relógio)). Desliga o "Seguir o orbe do PC". |
-| **Dois dedos para a esquerda ou para a direita**, num orbe do Claude | Passa pelas sessões do Claude Code abertas no computador, cada uma ao lado da outra e na sua cor (veja [Sessões do Claude Code](#sessões-do-claude-code)). |
+| **Dois dedos para cima ou para baixo**, num orbe do Claude | Passa pelas instâncias desse orbe, as sessões do Claude Code dele no computador, com a mesma roda da lista e cada uma na sua cor (veja [Sessões do Claude Code](#sessões-do-claude-code)). |
 | **Arrastar para a esquerda** | Abre o menu, que fica ao lado do orbe. |
 | **Sacudir o pulso só para fora** | Sai do orbe e volta ao mostrador, como a Hina aberta no HinaWatch. Sai no pico do giro para fora, sem esperar a volta do pulso. A chave e a calibração ficam na aba Ativação do menu. |
 
+As ações dos toques:
+
+| Ação | O que faz | Padrão |
+|---|---|---|
+| **Abrir** | Fechada, abre a sessão (ou já no live, com **abrir já no live**); aberta, interrompe a resposta ou o raciocínio e volta a ouvir; ouvindo, não faz nada. | 1 toque |
+| **Live** | Liga o live, abrindo a sessão se precisar (um ponto aparece acima da figura); ligado, desliga o live, e a sessão segue. | 2 toques |
+| **Encerrar** | Encerra a sessão de voz (e a do Claude Code no computador, se o orbe a abriu). | 3 toques |
+| **Histórico** | Abre o histórico de sessões do agente do orbe (veja [Retomar uma sessão](#retomar-uma-sessão)). | |
+| **Nada** | O toque não faz nada. | 4 toques |
+
+Os toques contam juntos numa janela de 400 ms. Chegou ao maior número que faz
+algo, a ação sai na hora; antes dele, espera a janela fechar. Com os padrões,
+três toques encerram sem esperar; com uma ação nos quatro, os três esperam a
+janela.
+
 O microfone já começa a guardar um segundo de áudio quando o dedo encosta,
-para a primeira sílaba não se perder entre o toque e o "segurar". Com a
-sessão aberta, a tela do relógio não apaga no meio da conversa.
+para a primeira sílaba não se perder entre o toque e o "segurar".
+
+**A tela.** Com o orbe na frente, a tela não apaga pelo tempo sem toque.
+Abaixar ou virar o pulso apaga, como em qualquer app: é o gesto do Wear OS
+(ungaze), que põe o relógio para dormir como o botão.
+
+**Saiu antes da resposta.** Se você sai do orbe (o botão, a sacudida para
+fora, o pulso que abaixa) com o agente pensando, a ponte não cai: um serviço
+em primeiro plano ("Esperando a resposta") segura o relógio acordado. Quando
+a resposta chega, a tela acende, o orbe volta para a frente e fala. A espera
+acaba sem trazer o orbe se a sessão fechar sem resposta, e tem o teto de
+10 min do daemon. Abrir a tela de outro app por cima do mostrador precisa da
+permissão de sobreposição (a mesma da sacudida); sem ela, a resposta toca com
+o orbe atrás.
 
 ### Rodapé de estado
 
@@ -214,7 +246,8 @@ abre o menu.
 Arraste a tela para a esquerda. O menu tem o visual do aplicativo de
 configuração do Orbe (vidro escuro, as cores do tema do computador) e se
 organiza como o do HinaWatch: entra-se por uma gaveta, com um botão por aba, e
-cada aba é uma lista que rola sozinha. O fundo fica parado atrás do orbe e do
+cada aba é uma lista que rola sozinha. A gaveta é fixa: o orbe e os quatro
+botões cabem na tela sem rolar. O fundo fica parado atrás do orbe e do
 menu: ao arrastar de um para o outro só o conteúdo anda.
 
 ![A gaveta e duas abas](img/ajustes-gaveta.png)
@@ -231,9 +264,9 @@ Voltando ao orbe, a próxima visita ao menu começa pela gaveta.
 | Aba | O que tem |
 |---|---|
 | **Conexão** | O **servidor** (o endereço da ponte), o **token** (o par do servidor, só como pontos) e o **estado**: `conectado`, `conectando…` ou o motivo da falha. |
-| **Agentes** | Os quatro orbes em miniaturas vivas, cada um com o nome do agente que controla no computador embaixo: **tocar num orbe troca o agente dele** (veja [Sessão aberta pelo relógio](#sessão-aberta-pelo-relógio)). O orbe em tela, que se escolhe rolando a lista na tela do orbe, fica marcado. Depois, o **tamanho**, de 60% a 130% do mostrador, que vale para o orbe em tela (cada um guarda o seu); a **ordem da lista**, com setas para subir e descer cada orbe, que vale só no relógio; e o grupo **Aparência** (a tabela abaixo). |
+| **Agentes** | Os quatro orbes em miniaturas vivas, cada um com o nome do agente que controla no computador embaixo: **tocar num orbe troca o agente dele** (veja [Sessão aberta pelo relógio](#sessão-aberta-pelo-relógio)). O orbe em tela, que se escolhe rolando a lista na tela do orbe, fica marcado. Depois, o **tamanho**, de 60% a 130% do mostrador, que vale para o orbe em tela (cada um guarda o seu); a **ordem da lista**, com setas para subir e descer cada orbe; e o grupo **Aparência** (a tabela abaixo). |
 | **Voz** | Ver a tabela abaixo. |
-| **Ativação** | Dois grupos. **Sessão**: se a sessão de voz está **aberta** no computador, com o estado dela, e o botão que a abre ou fecha, como o atalho de teclado do orbe; o **modo live** e **abrir já no live**. **Gestos**: **uma sacudida abre o orbe** e a calibração dela; **sacudida para fora sai do orbe** e a calibração dela. |
+| **Ativação** | Dois grupos. **Sessão**: se a sessão de voz está **aberta** no computador, com o estado dela, e o botão que a abre ou fecha, como o atalho de teclado do orbe; o **modo live** e **abrir já no live**. **Toques**: a ação de 1, 2, 3 e 4 toques, que um toque na linha troca, em roda (veja [Toque](#toque)). **Gestos**: **uma sacudida abre o orbe** e a calibração dela; **sacudida para fora sai do orbe** e a calibração dela. |
 
 | Opção | O que faz |
 |---|---|
@@ -328,12 +361,15 @@ sessão de voz do computador, e ela passa a ser do relógio até fechar:
 
 - **O agente é o do orbe em tela**: cada skin da lista tem o seu (no menu,
   aba Agentes, um toque no orbe troca; ou a aba Relógio do app do computador),
-  e o padrão é o Claude Code. O agente do `config.json` continua valendo para o atalho e a
-  palavra de ativação. Os agentes ACP (Hermes, OpenCode, Gemini CLI) rodam em
-  segundo plano.
+  e o padrão é o Claude Code. O computador usa o mesmo mapa: o atalho e a
+  palavra de ativação falam com o agente da skin em uso no orbe do PC (aba
+  Agente do app, "Agente do orbe em uso", que troca junto com a skin na
+  Aparência). Com o relógio ligado, uma skin sem escolha é o Claude nos dois
+  lados; sem ele, vale o `agente.tipo` do `config.json`. Os agentes ACP
+  (Hermes, OpenCode, Gemini CLI) rodam em segundo plano.
 - **O Claude abre num terminal.** Ele não roda em segundo plano: sem uma
   sessão aberta com o canal do orbe, o daemon abre uma no computador, pelo
-  relógio ou pelo atalho (com o Claude como agente do `config.json`):
+  relógio ou pelo atalho (com o Claude como agente da skin em uso):
   `<agente.terminal> -e claude-orbe --dangerously-skip-permissions` (o padrão
   é o Ghostty), na pasta de `agente.claude_pasta` (vazio = a pasta do
   usuário). As ferramentas são aprovadas sozinhas, como o orbe faz por ACP, e
@@ -358,13 +394,20 @@ sessão abre já ouvindo, pelo microfone do relógio, sem dedo na tela. O fim
 da fala é o silêncio, como no atalho do teclado. O microfone acompanha o
 orbe: ouvindo, transmite; pensando ou falando, descansa.
 
-**Ajustes nos dois sentidos.** Os ajustes do app do relógio (o agente de
-cada orbe, voz, microfone, vibrar, texto, glitch, tamanho de cada orbe,
-seguir o PC)
-também ficam no `config.json` do computador, em `relogio.ajustes`, e a aba
-Relógio do app do Orbe os edita. Cada lado guarda a hora da última mudança e
-vale a mais nova: o relógio manda os dele ao conectar e a cada mudança; a
-ponte vigia o config e manda os do computador quando mudam.
+**Ajustes nos dois sentidos.** Tudo que o menu do relógio configura (o
+agente de cada orbe, voz, microfone, vibrar, texto, glitch, linhas, fundo,
+tamanho de cada orbe, seguir o PC, as ações dos toques, abrir já no live, as
+sacudidas e as calibrações delas, a ordem da lista) também fica no
+`config.json` do computador, em `relogio.ajustes`, e a aba Relógio do app do
+Orbe edita. Ficam de fora só o endereço e o token, que são o par da ponte, e
+o orbe em tela. Cada lado guarda a hora da última mudança e vale a mais nova:
+o relógio manda os dele ao conectar e a cada mudança; a ponte vigia o config
+e manda os do computador quando mudam.
+
+Os toques, o live, o fundo, a ordem e as sacudidas o computador só conhece
+depois de o relógio mandar os dele: até lá ficam `null` no config, a aba não
+mostra essas linhas e o relógio fica com os que tem. As calibrações se fazem
+no relógio; a aba mostra os valores e volta ao padrão (manda 0).
 
 ## Sessões do Claude Code
 
@@ -373,15 +416,20 @@ Code aberta no computador, inclusive as abertas à mão num terminal, é uma
 instância dos orbes do Claude, ao lado das outras.
 
 **Vagas.** A ponte lê o registro do próprio Claude Code (`~/.claude/sessions`)
-a cada 2 s e põe cada sessão viva numa vaga: a mais antiga na 0, e cada nova
-na menor vaga livre. A vaga de uma sessão não muda enquanto ela vive; a de
-uma sessão que fecha fica livre. Contam as sessões de terminal e as de segundo
-plano (`claude --bg`); o `claude -p` e o SDK ficam de fora.
+a cada 2 s e põe cada sessão viva numa vaga. A aberta pelo relógio fica na
+vaga do orbe de onde foi pedida; a aberta à mão vai para a menor vaga livre. A
+vaga de uma sessão não muda enquanto ela vive; a de uma sessão que fecha fica
+livre. Contam as sessões de terminal e as de segundo plano (`claude --bg`); o
+`claude -p` e o SDK ficam de fora.
 
 **As instâncias.** Os orbes do Claude são as skins cujo agente é o Claude
-Code (o padrão). Num deles, arrastar com dois dedos para a esquerda traz a
-instância seguinte, que fica à direita do orbe; para a direita, volta. A
-instância k é a sessão da vaga k, e cada uma tem a sua cor:
+Code (o padrão). Num deles, arrastar com dois dedos para cima traz a
+instância seguinte, que fica embaixo do orbe, com a mesma roda da lista; para
+baixo, volta. Um dedo continua passando de um orbe a outro. Com mais de um
+orbe do Claude, as vagas se alternam entre eles, para a mesma conversa não
+aparecer em dois: com m orbes do Claude na lista, a instância k do j-ésimo
+(contando da 0, na ordem da lista) é a vaga k·m + j. Com dois, o primeiro tem
+as vagas 0, 2, 4… e o segundo, 1, 3, 5…. Cada instância tem a sua cor:
 
 | Instância | Cor |
 |---|---|
@@ -392,18 +440,19 @@ instância k é a sessão da vaga k, e cada uma tem a sua cor:
 | 4 | violeta |
 | 5 em diante | as mesmas, de novo |
 
-Há uma instância para cada vaga até a mais alta ocupada e, quando a ponte
-pode abrir sessão, mais uma livre no fim. A skin é só o visual: as quatro
-mostram as mesmas instâncias, e trocar de skin volta à primeira. Uma skin
-dada a outro agente (Hermes, por exemplo) não tem instâncias.
+Cada orbe do Claude tem uma instância para cada vaga dele até a mais alta
+ocupada e, quando a ponte pode abrir sessão, mais uma livre no fim. Trocar de
+orbe volta à primeira instância. Uma skin dada a outro agente (Hermes, por
+exemplo) não tem instâncias.
 
 **O rótulo.** Discreto, curvado na borda da tela, acompanhando o mostrador
 redondo:
-- no alto, na cor da instância, o **título da conversa**: o dado com
-  `/rename` ou, sem ele, o que o Claude Code deu à conversa (o mesmo do
-  `/resume`, lido no fim do transcript dela);
-- no pé, a **pasta** em que a sessão foi aberta e se ela **ouve o orbe** (por
-  exemplo, `orbe-relogio · ouve o orbe`).
+- no alto, na cor da instância, o **agente e o título da conversa**, com o
+  máximo do título que couber (por exemplo `Claude Code · Orb no PC
+  travando`). O título é o dado com `/rename` ou, sem ele, o que o Claude Code
+  deu à conversa (o mesmo do `/resume`, lido no fim do transcript dela);
+- no pé, a **pasta** em que a sessão foi aberta, com a barra, e se ela **ouve
+  o orbe** (por exemplo, `/orbe-relogio · ouve o orbe`).
 
 Uma vaga sem sessão mostra `livre`, e falar nela abre uma sessão nova no
 computador, que fica nessa vaga (só com a ponte do daemon; o orbe de pulso não
@@ -429,19 +478,88 @@ Claude recusa uma mensagem que não veio do usuário. As sessões já abertas
 passam a ouvir no fim do próximo turno delas. A instalação guarda a cópia
 anterior em `settings.json.orbe-bak`.
 
-**O que o orbe fala.** Só a resposta ao pedido de voz: o Stop do turno que o
-pedido abriu deixa a última resposta para o orbe, e a resposta a algo
-digitado no terminal não vai para ele. Com a sessão no meio de um turno, o
-pedido espera ela parar (o relógio mostra a linha "a sessão está trabalhando;
-o pedido entra quando ela parar"). Interromper no relógio só para a espera: o
-Claude segue o que estiver fazendo no terminal.
+**O que o orbe fala.** A resposta ao pedido de voz e, enquanto o Claude
+trabalha nele, as etapas. O pedido leva uma marca, `(pedido do orbe <id>)`, e
+o Stop do primeiro turno que já tem a marca no transcript deixa a última
+resposta para o orbe. A resposta a algo digitado no terminal não vai para ele.
 
-**Encerrar.** Três toques fecham a sessão do orbe em tela só se ela foi aberta
+**Etapas.** Cada ferramenta que o Claude chama com descrição vira uma etapa
+falada: a mesma linha que o terminal mostra com o ponto, como "Checking branch
+and Windows/macOS notes in README". Ferramenta sem descrição (ler, editar,
+buscar) não é etapa. O daemon lê o transcript da sessão enquanto espera a
+resposta, nas sessões com o canal e nas que ouvem pelo hook. Uma etapa só toca
+com a voz calada; a que chega com ela ocupada espera, e uma mais nova toma o
+lugar dela, então a resposta espera no máximo a etapa que já está tocando. O
+orbe segue em "trabalhando" enquanto a etapa toca: com o orbe do relógio fora
+da tela, ela toca no pulso sem trazer o app de volta, e só a resposta o traz.
+`agente.falar_etapas: false` no `config.json` desliga.
+
+**Sessão trabalhando.** O pedido feito com a sessão no meio de um turno entra
+na fila "next" do Claude Code, a mesma do que se digita enquanto ela trabalha,
+e chega no turno em andamento, entre uma ferramenta e outra. O relógio mostra
+"a sessão está trabalhando: o pedido entrou no turno dela". Se o pedido chega
+depois da última ferramenta, ele abre o turno seguinte, e a resposta vem do
+Stop desse. Se o relógio deixar de esperar (interromper, outra sessão de voz,
+o teto de 10 min), o pedido segue na sessão e a resposta fica só no terminal.
+
+No terminal de uma sessão que ouve pelo hook, o pedido aparece como a linha
+"Pedido do orbe de voz". O Claude Code mostra só esse resumo, fixo no hook:
+ele não deixa um programa de fora pôr o texto no chat como se tivesse sido
+digitado, e o terminal não aceita teclas de fora. Nas sessões com o canal
+(`claude-orbe`), o wrapper que roda o Claude num pseudo-terminal
+(`hermes_voice_aceite.py`) cola a fala no prompt e dá Enter: o pedido fica
+inteiro no chat, como se fosse digitado, seguido de
+`(pelo orbe: no fim, reply com pedido <código>)`, que diz ao Claude por onde
+responder. Ele só cola com o prompt vazio (nada digitado desde o último Enter,
+Ctrl+C ou Ctrl+U; as setas do histórico contam como digitado), em pedaços de
+até 700 caracteres (acima de 800 o Claude Code troca a colagem por
+`[Pasted text #n]`), e só dá o Enter quando a marca aparece na tela; com um
+diálogo aberto ela não aparece e não há Enter. Nesses casos, e com o Claude
+aberto de outro jeito, o pedido vai como mensagem de canal: o texto chega
+inteiro ao Claude, mas o Claude Code (2.1.280) a desenha numa linha só,
+cortada em 60 caracteres (`← orbe: ...…`), sem opção que a abra. Para o `claude`
+digitado à mão já abrir com o canal, uma função no `~/.bashrc` troca um pelo
+outro só na conversa no terminal:
+
+```sh
+claude() {
+  local a
+  for a in "$@"; do
+    case "$a" in -p|--print|--bg|--background|-h|--help|-v|--version) command claude "$@"; return;; esac
+  done
+  case "$1" in
+    agents|attach|auth|auto-mode|doctor|gateway|import|install|logs|mcp|plugin|plugins|project|respawn|rm|setup-token|stop|kill|ultrareview|update)
+      command claude "$@"; return;;
+  esac
+  if [ -t 0 ] && [ -t 1 ] && command -v claude-orbe >/dev/null; then claude-orbe "$@"; else command claude "$@"; fi
+}
+```
+
+Uma sessão aberta antes disso passa a ter o canal ao ser reaberta com
+`claude --resume`.
+
+**Encerrar.** A ação Encerrar (três toques, de padrão) fecha a sessão do orbe em tela só se ela foi aberta
 pelo orbe (tem o canal). Uma sessão aberta à mão nunca é fechada pelo relógio.
 
 **Limites.** A escuta dura um dia com a sessão parada (o `timeout` do hook);
 depois disso a sessão volta a ouvir no fim do próximo turno. Cada sessão
 aberta à mão mantém um processo Python pequeno com a escuta.
+
+## Retomar uma sessão
+
+Com a ação **Histórico** num número de toques (aba Ativação, grupo Toques;
+nenhum tem ela de padrão), esses toques no orbe abrem a lista das sessões
+passadas do agente dele, da mais recente
+para a mais velha: o título, a pasta e há quanto tempo. Tocar numa retoma a
+conversa, e o orbe passa a falar com ela em vez de abrir uma vazia. O voltar
+fecha a lista sem escolher.
+
+| Agente | De onde vem a lista | Como retoma |
+|---|---|---|
+| **Claude Code** | Os transcripts do Claude Code (`~/.claude/projects`): as conversas de terminal que não estão abertas e cuja pasta ainda existe, com o título do `/resume` ou, sem ele, o primeiro pedido. Ficam de fora as do `claude -p` e as vazias. | Num terminal, na pasta da conversa: `claude-orbe --resume <id>`. A sessão fica na instância do orbe em tela, ou na livre do fim se a em tela já tem sessão. |
+| **Hermes, OpenCode, Gemini CLI** | O `session/list` do ACP. Sem um agente carregado, um sobe só para listar e sai. | A próxima fala no orbe carrega a sessão (`session/load`), em segundo plano. No OpenCode e no Gemini o primeiro pedido leva a instrução de voz (o Hermes já tem a do perfil). |
+
+Um agente que não lista as sessões mostra "este agente não lista as sessões".
 
 ## Rede
 
@@ -498,8 +616,11 @@ Um WebSocket. Mensagens de texto são uma linha cada; as binárias são PCM
 | relógio → ponte | `touch down`, `touch up` | O dedo no orbe. |
 | relógio → ponte | `toggle`, `trigger`, `dismiss`, `hold`, `release` | Os comandos do `orb_control`. |
 | relógio → ponte | `agente <id>` | O agente do orbe em tela (vazio = Claude Code): a sessão aberta pelo relógio usa ele. |
-| relógio → ponte | `vaga <k>`, `vaga` | O orbe em tela mostra a instância k do Claude (sem número: não é orbe do Claude). A sessão aberta pelo relógio fala com a sessão dessa vaga. |
-| os dois | `ajustes {"t": ..., "agentes": {...}, "voz": true, "tamanhos": {"anel": 0.9, ...}, ...}` | Os ajustes do app do relógio; vale o `t` (ms) mais novo. `tamanhos`: o de cada skin (sem a skin, vale o `tamanho` comum). |
+| relógio → ponte | `vaga <k>`, `vaga` | A vaga do orbe do Claude em tela: com m orbes do Claude, a instância k do j-ésimo é a vaga k·m + j (sem número: não é orbe do Claude). A sessão aberta pelo relógio fala com a sessão dessa vaga. |
+| relógio → ponte | `historico` | Pede as sessões passadas do agente do orbe em tela (a ação Histórico dos toques). |
+| ponte → relógio | `historico {"agente", "sessoes": [{"id", "titulo", "pasta", "quando"}], "erro"}` | A resposta, só a quem pediu: da mais recente para a mais velha; `quando` em segundos; `erro` quando o agente não lista. |
+| relógio → ponte | `retomar <id>` | Retoma a sessão escolhida no orbe em tela (no Claude, num terminal, na vaga dele). |
+| os dois | `ajustes {"t": ..., "agentes": {...}, "voz": true, "tamanhos": {"anel": 0.9, ...}, "toques": ["abrir", "live", "encerrar", "nada"], ...}` | Os ajustes do app do relógio; vale o `t` (ms) mais novo. `tamanhos`: o de cada skin (sem a skin, vale o `tamanho` comum). `toques`, `live`, `fundo`, `ordem`, `sacudida`, `sair`, `sacudida_fora`, `sacudida_dentro`, `sair_fora`: `null` do computador é "não sei", e o relógio fica com o seu; o computador aprende os do relógio mesmo com o `t` dele mais velho. Calibração 0 volta ao padrão. |
 | relógio → ponte | *(binário)* | A fala, em quadros de 30 ms a 16 kHz, enquanto o dedo segura o orbe (ou, na sessão aberta por `trigger`, enquanto ela ouve). |
 | ponte → relógio | `voz 24000`, *(binário)*, `voz fim`, `voz corta` | A resposta em voz (taxa do áudio, o áudio, o fim, calar já). No orbe de pulso, e no daemon quando a sessão é do relógio. |
 | relógio → ponte | `voz acabou` | O relógio tocou até o fim. |

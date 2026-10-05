@@ -123,6 +123,9 @@ DEFAULTS = {
         # do jarvis ocupa 515 MB depois do primeiro turno; subir de novo custa
         # ~2 s de initialize mais a sessão, feito em paralelo à fala.
         "manter_carregado_min": 10,
+        # O orbe fala as etapas do Claude enquanto ele trabalha: a descrição
+        # de cada ferramenta, a mesma linha que o terminal mostra com o ponto.
+        "falar_etapas": True,
         # O Claude não roda em segundo plano: sem sessão com o canal do orbe,
         # o daemon abre "<terminal> -e claude-orbe" no PC, na pasta dada
         # (vazio = a pasta do usuário). Vale para o atalho e para o relógio.
@@ -232,6 +235,19 @@ DEFAULTS = {
             # a escala de cada orbe do relógio; null = a de "tamanho"
             "tamanhos": {"anel": None, "serafim_gravura": None, "ofanim": None, "ofanim_alado": None},
             "seguir_pc": True,    # o avatar e o glitch vêm do orbe do PC
+            # Os de baixo o PC só conhece depois de o relógio mandar os dele:
+            # null é "ainda não sei", e o relógio fica com o que tem.
+            # a ação de 1, 2, 3 e 4 toques: abrir | live | encerrar | historico | nada
+            "toques": None,
+            "live": None,         # um toque no orbe fechado abre já no live
+            "fundo": None,        # o fundo do menu também atrás dos orbes
+            "ordem": None,        # a ordem dos orbes na lista do relógio, pelas skins
+            "sacudida": None,     # uma sacudida do pulso abre o orbe
+            "sair": None,         # com o orbe aberto, a sacudida para fora sai dele
+            # as calibrações das sacudidas, em rad/s; 0 volta ao padrão do relógio
+            "sacudida_fora": None,
+            "sacudida_dentro": None,
+            "sair_fora": None,
         },
     },
 }
@@ -278,6 +294,18 @@ def carregar() -> dict:
     cfg = _mesclar(DEFAULTS, bruto if isinstance(bruto, dict) else {})
     cfg["orbe"]["skin"] = skin_valida(cfg["orbe"]["skin"])
     return cfg
+
+
+def agente_da_skin(cfg: dict | None = None) -> str:
+    """O agente das sessões abertas no PC: o da skin em uso no mapa de agentes
+    por skin, o mesmo que o relógio edita. Sem escolha ("" = o padrão), o
+    relógio usa o Claude, e o PC também quando o relógio está ligado; sem ele,
+    vale agente.tipo, como antes do mapa."""
+    cfg = cfg or carregar()
+    escolhido = str(cfg["relogio"]["ajustes"].get("agentes", {}).get(cfg["orbe"]["skin"]) or "")
+    if escolhido:
+        return escolhido
+    return "claude" if cfg["relogio"]["ligado"] else cfg["agente"]["tipo"]
 
 
 def salvar(cfg: dict) -> None:

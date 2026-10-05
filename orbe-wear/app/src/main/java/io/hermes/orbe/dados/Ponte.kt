@@ -55,6 +55,8 @@ class Ponte(
     private val aoAjustes: (Sincronia) -> Unit = {},
     /** as sessões do Claude Code abertas no PC mudaram */
     private val aoSessoes: (List<SessaoInfo>) -> Unit = {},
+    /** as sessões passadas do agente do orbe em tela, pedidas com "historico" */
+    private val aoHistorico: (Historico) -> Unit = {},
 ) {
     private val cliente = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
@@ -132,6 +134,7 @@ class Ponte(
                     }
                     text.startsWith("ajustes ") -> if (conectou) Protocolo.sincronia(text.substring(8))?.let(aoAjustes)
                     text.startsWith("sessoes ") -> if (conectou) Protocolo.sessoes(text.substring(8))?.let(aoSessoes)
+                    text.startsWith("historico ") -> if (conectou) Protocolo.historico(text.substring(10))?.let(aoHistorico)
                     conectou -> aoLinha(text)
                 }
             }

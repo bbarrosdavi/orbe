@@ -498,9 +498,11 @@ class Ponte(QObject):
     def agentesRelogio(self):
         """O que cada orbe do relógio pode ter: o Claude (padrão) e os ACP instalados."""
         perfil = self._cfg["agente"]["perfil"]
+        # o comando ACP só existe no PC: o relógio não o oferece, mas um orbe que o tenha o mostra
+        comando = [{"id": "comando", "nome": acp.NOMES["comando"]}] if self._cfg["agente"]["comando"] else []
         return [{"id": "", "nome": "Claude Code (padrão)"}] + [
             {"id": t, "nome": acp.NOMES[t] + (f" ({perfil})" if t == "hermes" else "")}
-            for t in ("hermes", "opencode", "gemini") if acp.disponivel(t)]
+            for t in ("hermes", "opencode", "gemini") if acp.disponivel(t)] + comando
 
     @Slot(result=str)
     def trocarTokenRelogio(self):

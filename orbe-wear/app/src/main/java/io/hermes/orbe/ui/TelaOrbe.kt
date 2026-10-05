@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -72,6 +71,7 @@ import io.hermes.orbe.orbe.Celula
 import io.hermes.orbe.orbe.Instancias
 import io.hermes.orbe.orbe.OrbeCena
 import io.hermes.orbe.orbe.Quebra
+import io.hermes.orbe.orbe.Retrato
 import io.hermes.orbe.orbe.Skin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
@@ -87,6 +87,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import androidx.compose.foundation.pager.PagerState as EstadoFileira
 import androidx.compose.foundation.pager.rememberPagerState as lembrarFileira
+import androidx.compose.foundation.pager.VerticalPager as PaginasDaFileira
 
 /** Mais que isto parado, o dedo está segurando para falar (o segurar_s do daemon). */
 private const val SEGURAR_MS = 350L
@@ -114,8 +115,9 @@ private val PONTO_PASSO = 6.dp
 /** Velocidade dos dois dedos, por segundo, que já passa à instância vizinha. */
 private val ARREMESSO = 400.dp
 
-/** O rótulo da sessão, curvado: a folga da borda da tela e o arco máximo de cada linha (graus). */
+/** O rótulo da sessão, curvado: a folga da borda da tela e o arco máximo do alto e do pé (graus). */
 private val BORDA_ROTULO = 6.dp
+private const val ARCO_TITULO = 150f
 private const val ARCO_ROTULO = 100f
 
 /**
@@ -129,8 +131,9 @@ private const val ARCO_ROTULO = 100f
  * Os orbes ficam numa lista vertical, uma skin por página, que rola como os
  * avatares do HinaWatch: com inércia, o orbe encolhendo ao sair do centro e os
  * pontos à direita mostrando em que parte da lista se está; a coroa passa de
- * um em um. À direita de cada orbe do Claude ficam as instâncias dele, uma por
- * sessão do Claude Code aberta no PC, com dois dedos para os lados ([Fileira]).
+ * um em um. Cada orbe do Claude tem as instâncias dele, uma por sessão do
+ * Claude Code aberta no PC, que passam com dois dedos na vertical ([Fileira]).
+ * Com a sessão aberta, só o orbe de onde ela foi aberta mostra o estado dela.
  */
 @Composable
 fun TelaOrbe(
@@ -145,16 +148,20 @@ fun TelaOrbe(
     val ajustes by vm.ajustes.collectAsStateWithLifecycle()
     val aparencia by vm.aparencia.collectAsStateWithLifecycle()
     val retrato by vm.retrato.collectAsStateWithLifecycle()
+    val dono by vm.dono.collectAsStateWithLifecycle()
+    val agentesPc by vm.agentesPc.collectAsStateWithLifecycle()
     val ligacao by vm.ligacao.collectAsStateWithLifecycle()
     val sessoes by vm.sessoes.collectAsStateWithLifecycle()
     val abreClaude by vm.abreClaude.collectAsStateWithLifecycle()
-    val claude = remember(ajustes.agentes) { vm.skinsClaude(ajustes) }
+    val claude = remember(ajustes.agentes, ajustes.ordem) { vm.skinsClaude(ajustes) }
     val pode by rememberUpdatedState(podeGravar)
     val podeAgora = remember { { pode() } }
-    val comTexto = ajustes.texto && retrato.linhas.isNotEmpty()
+    // rolado para outro orbe, a sessão segue, mas o texto e o ponto ficam com o dono
+    val visto = if (dono == null || dono == (aparencia.skin to aparencia.instancia)) retrato else Retrato()
+    val comTexto = ajustes.texto && visto.linhas.isNotEmpty()
     val skins = remember(ajustes.ordem) { ajustes.skins() }
     val nSkins = skins.size
-    val nInstancias = Instancias.contar(sessoes.orEmpty().map { it.vaga }, abreClaude)
+    val vagas = sessoes.orEmpty().map { it.vaga }
 
     SideEffect {
         vm.cena.redonda = redonda
@@ -200,28 +207,36 @@ fun TelaOrbe(
             val skin = skins[pagina.mod(nSkins)]
             val emTela = pagina == paginas.settledPage
             val daPagina = if (skin == aparencia.skin) aparencia else aparencia.copy(skin = skin, instancia = 0)
+            val agente = nomeAgente(ajustes, skin, agentesPc)
             Box(
                 Modifier
                     .fillMaxSize()
                     // lido no desenho: a rolagem não recompõe as páginas
                     .graphicsLayer { roda(paginas.currentPage - pagina + paginas.currentPageOffsetFraction, vertical = true) },
             ) {
-                if (skin in claude) {
-                    Fileira(vm, daPagina, emTela, nInstancias, ajustes.tamanhoDe(skin), redonda, podeAgora) { k, atual ->
+                val j = claude.indexOf(skin)
+                if (j >= 0) {
+                    // as vagas se alternam entre os orbes do Claude: cada um tem as suas
+                    val m = claude.size
+                    val n = Instancias.contar(Instancias.doOrbe(vagas, j, m), abreClaude)
+                    Fileira(vm, daPagina, emTela, n, ajustes.tamanhoDe(skin), redonda, podeAgora) { k, atual ->
                         // a sessão desta instância, na cor dela; no orbe em tela o
                         // raciocínio ocupa o mesmo lugar e tem a vez
+                        val cor = daPagina.copy(instancia = k).corFigura().let { Color(it[0], it[1], it[2]) }
                         val lista = sessoes
                         if (lista != null) {
                             RotuloSessao(
-                                lista.firstOrNull { it.vaga == k }, abreClaude,
-                                daPagina.copy(instancia = k).corFigura().let { Color(it[0], it[1], it[2]) },
+                                lista.firstOrNull { it.vaga == Instancias.vaga(k, j, m) }, abreClaude, agente, cor,
                                 comPe = !(atual && comTexto),
                                 Modifier.fillMaxSize(),
                             )
+                        } else {
+                            Rotulo(agente, "", cor, Modifier.fillMaxSize())
                         }
                     }
                 } else {
                     Orbe(vm, daPagina, emTela, ajustes.tamanhoDe(skin), redonda, podeAgora)
+                    Rotulo(agente, "", daPagina.corFigura().let { Color(it[0], it[1], it[2]) }, Modifier.fillMaxSize())
                 }
             }
         }
@@ -245,14 +260,14 @@ fun TelaOrbe(
             val nMax = min(5, floor((h * 0.95f - y0) / passo).toInt())
             val medidor = rememberTextMeasurer()
             val densidade = LocalDensity.current.density
-            val fileiras = remember(retrato.linhas, w, h, y0, nMax, redonda) {
+            val fileiras = remember(visto.linhas, w, h, y0, nMax, redonda) {
                 // cada fileira tem a largura da corda do mostrador na altura do pé dela
                 val larguras = List(max(0, nMax)) { i ->
                     val yb = y0 + (i + 1) * passo
                     val corda = if (redonda) 2 * sqrt(max(0f, (h / 2) * (h / 2) - (yb - h / 2) * (yb - h / 2))) else w
                     max(0f, corda - 18f) * densidade
                 }
-                Quebra.quebrar(retrato.linhas, larguras) { medidor.measure(it, estilo).size.width.toFloat() }
+                Quebra.quebrar(visto.linhas, larguras) { medidor.measure(it, estilo).size.width.toFloat() }
             }
             Box(Modifier.fillMaxSize().graphicsLayer { alpha = alfaTexto }) {
                 fileiras.forEachIndexed { i, fileira ->
@@ -267,7 +282,7 @@ fun TelaOrbe(
         }
 
         // ── sessão travada: ponto logo acima da figura, com respiro lento ──
-        if (retrato.travado && retrato.visivel) {
+        if (visto.travado && visto.visivel) {
             val t = remember { mutableLongStateOf(0L) }
             LaunchedEffect(Unit) { while (true) withFrameNanos { t.longValue = it } }
             val cel = Celula.para(w.toDouble(), h.toDouble(), ajustes.tamanhoDe(aparencia.skin).toDouble(), comTexto)
@@ -338,11 +353,11 @@ private fun PontosDaLista(n: Int, posicao: () -> Float, modifier: Modifier = Mod
 }
 
 /**
- * As instâncias de um orbe do Claude, lado a lado: a 0 é o próprio orbe e as
- * seguintes ficam à direita, uma por vaga de sessão do Claude Code no PC, e
- * por fim uma livre quando falar nela abre uma sessão. Dois dedos para os
- * lados passam de uma a outra, com a mesma roda da lista; um dedo continua
- * sendo da lista, do menu e do voltar do sistema.
+ * As instâncias de um orbe do Claude, uma embaixo da outra: a 0 é o próprio
+ * orbe e as seguintes são as vagas dele de sessão do Claude Code no PC, e por
+ * fim uma livre quando falar nela abre uma sessão. Dois dedos na vertical
+ * passam de uma a outra, com a mesma roda da lista; um dedo continua sendo da
+ * lista (de um orbe a outro), do menu e do voltar do sistema.
  */
 @Composable
 private fun Fileira(
@@ -373,7 +388,7 @@ private fun Fileira(
         }
     }
     Box(Modifier.fillMaxSize().pointerInput(fileira) { doisDedos(fileira, escopo, view) }) {
-        HorizontalPager(
+        PaginasDaFileira(
             state = fileira,
             modifier = Modifier.fillMaxSize(),
             beyondViewportPageCount = 0,
@@ -383,7 +398,7 @@ private fun Fileira(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .graphicsLayer { roda(fileira.currentPage - k + fileira.currentPageOffsetFraction, vertical = false) },
+                    .graphicsLayer { roda(fileira.currentPage - k + fileira.currentPageOffsetFraction, vertical = true) },
             ) {
                 Orbe(vm, aparencia.copy(instancia = k), atual, tamanho, redonda, pode)
                 rotulo(k, atual)
@@ -464,10 +479,11 @@ private suspend fun PointerInputScope.tocar(vm: OrbeViewModel, densidade: Float,
 }
 
 /**
- * Dois dedos para os lados passam de uma instância a outra. O segundo dedo tem
+ * Dois dedos na vertical passam de uma instância a outra. O segundo dedo tem
  * que chegar antes do tempo de segurar (depois disso o primeiro já está
  * falando); daí em diante o gesto é todo da fileira, e nem a lista, nem o
- * menu, nem o voltar do sistema (deslizar para a direita) o veem. Soltos, a
+ * menu, nem o voltar do sistema o veem: a fileira trata os dedos antes da
+ * lista e os consome. Soltos, a
  * fileira assenta na instância mais perto, ou na seguinte se o gesto foi rápido.
  */
 private suspend fun PointerInputScope.doisDedos(fileira: EstadoFileira, escopo: CoroutineScope, view: View) {
@@ -497,14 +513,14 @@ private suspend fun PointerInputScope.doisDedos(fileira: EstadoFileira, escopo: 
                 // um dedo que entra ou sai muda o centro sem que a mão ande
                 if (agora == dedos) {
                     deltas.trySend(antes - c)
-                    rastro.addPosition(e.changes.first { it.pressed }.uptimeMillis, Offset(c, 0f))
+                    rastro.addPosition(e.changes.first { it.pressed }.uptimeMillis, Offset(0f, c))
                 }
                 dedos = agora
                 antes = c
             }
         } finally {
             deltas.close()
-            val v = rastro.calculateVelocity().x
+            val v = rastro.calculateVelocity().y
             escopo.launch {
                 arrasto.join()
                 val pos = fileira.currentPage + fileira.currentPageOffsetFraction
@@ -521,7 +537,8 @@ private suspend fun PointerInputScope.doisDedos(fileira: EstadoFileira, escopo: 
 
 private fun pressionados(e: PointerEvent) = e.changes.filter { it.pressed }.map { it.id }.toSet()
 
-private fun centro(e: PointerEvent): Float = e.changes.filter { it.pressed }.let { v -> v.sumOf { it.position.x.toDouble() }.toFloat() / v.size }
+/** A altura média dos dedos na tela. */
+private fun centro(e: PointerEvent): Float = e.changes.filter { it.pressed }.let { v -> v.sumOf { it.position.y.toDouble() }.toFloat() / v.size }
 
 /** A roda: o orbe encolhe ao sair do centro e anda para perto dele, com a mesma folga em qualquer ponto da rolagem. */
 private fun GraphicsLayerScope.roda(desvio: Float, vertical: Boolean) {
@@ -534,30 +551,39 @@ private fun GraphicsLayerScope.roda(desvio: Float, vertical: Boolean) {
 
 /**
  * A sessão do Claude Code de uma instância, discreta e curvada na borda da
- * tela: uma linha no alto com o título da conversa, na cor da instância, e uma
- * no pé com a pasta em que ela foi aberta e se ouve o orbe. Com o raciocínio
- * na tela, o pé é dele.
+ * tela: uma linha no alto com o agente e o título da conversa, na cor da
+ * instância, e uma no pé com a pasta em que ela foi aberta e se ouve o orbe.
+ * Com o raciocínio na tela, o pé é dele.
  */
 @Composable
-private fun RotuloSessao(sessao: SessaoInfo?, abreClaude: Boolean, cor: Color, comPe: Boolean, modifier: Modifier = Modifier) {
+private fun RotuloSessao(sessao: SessaoInfo?, abreClaude: Boolean, agente: String, cor: Color, comPe: Boolean, modifier: Modifier = Modifier) {
     val titulo = sessao?.let { it.titulo.ifEmpty { it.rotulo } } ?: "livre"
+    val pasta = sessao?.pasta.orEmpty().let { if (it.isEmpty() || it.startsWith("/")) it else "/$it" }
     val pe = when {
         sessao == null -> if (abreClaude) "falar aqui abre uma sessão" else ""
-        sessao.canal || sessao.ouve -> listOf(sessao.pasta, "ouve o orbe").filter { it.isNotEmpty() }.joinToString(" · ")
-        else -> listOf(sessao.pasta, "não ouve o orbe").filter { it.isNotEmpty() }.joinToString(" · ")
+        sessao.canal || sessao.ouve -> listOf(pasta, "ouve o orbe").filter { it.isNotEmpty() }.joinToString(" · ")
+        else -> listOf(pasta, "não ouve o orbe").filter { it.isNotEmpty() }.joinToString(" · ")
     }
+    Rotulo(listOf(agente, titulo).filter { it.isNotEmpty() }.joinToString(" · "), if (comPe) pe else "", cor, modifier)
+}
+
+/** O rótulo curvado na borda: [alto] na [cor] do orbe, [pe] apagado embaixo. */
+@Composable
+private fun Rotulo(alto: String, pe: String, cor: Color, modifier: Modifier = Modifier) {
     val corTitulo = cor.alfa(0.75f)
     val corPe = Estilo.texto.alfa(0.45f)
     Box(modifier.padding(BORDA_ROTULO)) {
-        CurvedLayout(anchor = 270f) {
-            basicCurvedText(
-                titulo,
-                style = { CurvedTextStyle(color = corTitulo, fontSize = 10.sp) },
-                modifier = CurvedModifier.sizeIn(maxSweepDegrees = ARCO_ROTULO),
-                overflow = TextOverflow.Ellipsis,
-            )
+        if (alto.isNotEmpty()) {
+            CurvedLayout(anchor = 270f) {
+                basicCurvedText(
+                    alto,
+                    style = { CurvedTextStyle(color = corTitulo, fontSize = 10.sp) },
+                    modifier = CurvedModifier.sizeIn(maxSweepDegrees = ARCO_TITULO),
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
-        if (comPe && pe.isNotEmpty()) {
+        if (pe.isNotEmpty()) {
             // no pé a leitura é da esquerda para a direita: o sentido contrário ao do alto
             CurvedLayout(anchor = 90f, angularDirection = CurvedDirection.Angular.Reversed) {
                 basicCurvedText(

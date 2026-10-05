@@ -59,6 +59,28 @@ data class SessaoInfo(
     val ouve: Boolean = false,
 )
 
+/** Uma sessão passada de um agente, para retomar ("historico" da ponte). */
+@Serializable
+data class SessaoPassada(
+    val id: String = "",
+    val titulo: String = "",
+    /** a pasta em que ela rodou */
+    val pasta: String = "",
+    /** a última atividade, em segundos desde 1970; 0 = não se sabe */
+    val quando: Long = 0,
+)
+
+/** A resposta ao "historico": as sessões passadas do agente do orbe em tela, da mais nova para a mais velha. */
+@Serializable
+data class Historico(
+    val agente: String = "",
+    val sessoes: List<SessaoPassada> = emptyList(),
+    /** o agente não lista o histórico, ou a lista falhou */
+    val erro: String = "",
+    /** só no relógio: pedido, a resposta ainda não veio */
+    @kotlinx.serialization.Transient val carregando: Boolean = false,
+)
+
 /**
  * Os ajustes do app do relógio que o app do PC também edita ("ajustes" nos
  * dois sentidos, relogio.ajustes no config do PC): vale o [t] mais novo, em ms.
@@ -79,6 +101,20 @@ data class Sincronia(
     @SerialName("seguir_pc") val seguirPc: Boolean = true,
     /** a escala de cada orbe, pela skin; null (do PC): segue o [tamanho] */
     val tamanhos: Map<String, Float?> = emptyMap(),
+    // Os de baixo o PC só conhece depois de o relógio mandar os dele: null (do
+    // PC) é "não sei", e o relógio fica com o que tem.
+    /** a ação de 1, 2, 3 e 4 toques ([AcaoToque]) */
+    val toques: List<String>? = null,
+    val live: Boolean? = null,
+    val fundo: Boolean? = null,
+    /** a ordem dos orbes na lista, pelas skins */
+    val ordem: List<String>? = null,
+    val sacudida: Boolean? = null,
+    val sair: Boolean? = null,
+    /** as calibrações, em rad/s; 0 (do PC) volta ao padrão */
+    @SerialName("sacudida_fora") val sacudidaFora: Float? = null,
+    @SerialName("sacudida_dentro") val sacudidaDentro: Float? = null,
+    @SerialName("sair_fora") val sairFora: Float? = null,
 )
 
 object Protocolo {
@@ -103,6 +139,13 @@ object Protocolo {
     /** O "sessoes [...]" da ponte. */
     fun sessoes(texto: String): List<SessaoInfo>? = try {
         json.decodeFromString(ListSerializer(SessaoInfo.serializer()), texto)
+    } catch (e: Exception) {
+        null
+    }
+
+    /** O "historico {...}" da ponte. */
+    fun historico(texto: String): Historico? = try {
+        json.decodeFromString(Historico.serializer(), texto)
     } catch (e: Exception) {
         null
     }

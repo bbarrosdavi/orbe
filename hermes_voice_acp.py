@@ -24,6 +24,7 @@ import shlex
 import shutil
 import subprocess
 import threading
+from pathlib import Path
 import time
 
 LOG = logging.getLogger("hermes-voice.acp")
@@ -108,6 +109,22 @@ def comando(agente: dict, hermes_rt: list[str] | None = None) -> tuple[list[str]
     if not argv:
         raise ErroACP("comando ACP vazio")
     return argv, {}
+
+
+def _segundos(v) -> int:
+    """O updatedAt do session/list em segundos: ISO 8601 (a spec) ou número (o Hermes)."""
+    if v is None or v == "":
+        return 0
+    try:
+        n = float(v)
+        return int(n / 1000 if n > 1e11 else n)
+    except (TypeError, ValueError):
+        pass
+    from datetime import datetime
+    try:
+        return int(datetime.fromisoformat(str(v).replace("Z", "+00:00")).timestamp())
+    except ValueError:
+        return 0
 
 
 class AgenteACP:
@@ -201,6 +218,21 @@ class AgenteACP:
         self._ler_modelos(res)
         return self.sessao or ""
 
+    def listar_sessoes(self, limite: int = 25, teto: float = 20.0) -> list[dict]:
+        """As sessões passadas do agente (session/list), da mais recente: id,
+        título, pasta e quando (s; 0 sem data). ErroACP se ele não lista."""
+        res = self._pedir("session/list", {}, teto) or {}
+        lista = []
+        for x in res.get("sessions") or []:
+            sid = str(x.get("sessionId") or "")
+            if not sid:
+                continue
+            cwd = str(x.get("cwd") or "")
+            lista.append({"id": sid, "titulo": str(x.get("title") or ""),
+                          "pasta": Path(cwd).name or cwd, "quando": _segundos(x.get("updatedAt"))})
+        lista.sort(key=lambda d: d["quando"], reverse=True)
+        return lista[:limite]
+
     def _ler_modelos(self, res: dict) -> None:
         m = res.get("models")
         if isinstance(m, dict) and m.get("availableModels"):
@@ -235,7 +267,7 @@ class AgenteACP:
     # ── turno ──
 
     def perguntar(self, texto: str, ao_texto, ao_pensamento=None, a_ferramenta=None,
-                  parar=None, teto: float = 120.0) -> str:
+                  parar=None, teto: float = 120.0, a_etapa=None) -> str:
         """Manda o pedido e bloqueia até o fim do turno. Devolve o stopReason.
 
         ``parar`` (qualquer objeto com is_set()) verdadeiro no meio do turno

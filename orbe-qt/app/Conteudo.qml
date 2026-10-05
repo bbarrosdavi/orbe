@@ -143,12 +143,18 @@ Item {
             // ═══ Agente ═══
             Pagina {
                 Grupo {
-                    descricao: "Quem responde: um agente ACP ou o Claude aberto no terminal."
+                    descricao: "Quem responde: um agente ACP ou o Claude aberto no terminal. Cada orbe tem o seu, "
+                               + "o mesmo no PC e no relógio: trocar a skin na Aparência troca o agente do atalho e "
+                               + "da palavra de ativação. A lista com todos os orbes fica na aba Relógio."
                     LinhaCombo {
                         id: rAgente
-                        titulo: "Agente"
+                        titulo: "Agente do orbe em uso"
+                        subtitulo: ponte.nomesSkin[raiz.skin] || raiz.skin
                         itens: ponte.agentes
-                        onEscolhido: raiz.mudouAgente(false)
+                        onEscolhido: {
+                            raiz.empurrarAgenteDaSkin()
+                            raiz.mudouAgente(false)
+                        }
                     }
                     LinhaCombo {
                         id: rPerfil
@@ -578,8 +584,8 @@ Item {
                 }
                 Grupo {
                     titulo: "Agente de cada orbe"
-                    descricao: "Rolar a lista do relógio troca de orbe e, com ele, de agente. "
-                               + "O Claude abre num terminal no PC; os outros rodam em segundo plano."
+                    descricao: "Rolar a lista do relógio troca de orbe e, com ele, de agente; no PC vale o da skin "
+                               + "em uso. O Claude abre num terminal no PC; os outros rodam em segundo plano."
                     Repeater {
                         id: agentesOrbe
                         model: raiz.skinsRelogio
@@ -587,6 +593,7 @@ Item {
                             readonly property string skin: modelData
                             titulo: ponte.nomesSkin[modelData] || modelData
                             itens: ponte.agentesRelogio
+                            onEscolhido: if (skin === raiz.skin) raiz.puxarAgenteDaSkin()
                         }
                     }
                 }
@@ -636,6 +643,12 @@ Item {
                         subtitulo: "linhas de varredura, como num tubo"
                         visible: !rwSeguir.ligado
                     }
+                    LinhaSwitch {
+                        id: rwFundo
+                        titulo: "Fundo atrás do orbe"
+                        subtitulo: "o fundo do menu também atrás dos orbes"
+                        visible: raiz.relogioConhecido
+                    }
                     // cada orbe do relógio guarda o seu tamanho
                     Repeater {
                         id: rwTamanhos
@@ -645,6 +658,85 @@ Item {
                             titulo: "Tamanho: " + (ponte.nomesSkin[modelData] || modelData)
                             subtitulo: "1,00 enche o mostrador"
                             de: 0.6; ate: 1.3; passo: 0.05; casas: 2
+                        }
+                    }
+                }
+                // os de baixo só aparecem depois de o relógio mandar os dele
+                Grupo {
+                    titulo: "Toques no orbe"
+                    descricao: "O que cada número de toques curtos faz no relógio."
+                    visible: raiz.relogioConhecido
+                    Repeater {
+                        id: rwToques
+                        model: 4
+                        LinhaCombo {
+                            titulo: index === 0 ? "1 toque" : (index + 1) + " toques"
+                            subtitulo: raiz.descricaoToque[efetivo] || ""
+                            itens: raiz.acoesToque
+                        }
+                    }
+                    LinhaSwitch {
+                        id: rwLive
+                        titulo: "Abrir já no live"
+                        subtitulo: "o toque que abre o orbe fechado já entra no live"
+                    }
+                }
+                Grupo {
+                    titulo: "Gestos"
+                    descricao: "Sacudidas do pulso. A calibração se faz no relógio."
+                    visible: raiz.relogioConhecido
+                    LinhaSwitch {
+                        id: rwSacudida
+                        titulo: "Uma sacudida abre o orbe"
+                        subtitulo: "já ouvindo"
+                    }
+                    Linha {
+                        titulo: "Calibração do abrir"
+                        subtitulo: raiz.calibracao.sacudida_fora > 0
+                                   ? "fora " + raiz.um(raiz.calibracao.sacudida_fora) + " · dentro "
+                                     + raiz.um(raiz.calibracao.sacudida_dentro) + " rad/s"
+                                   : "padrão do relógio"
+                        visible: rwSacudida.ligado
+                        Botao {
+                            texto: "Padrão"
+                            visible: raiz.calibracao.sacudida_fora > 0
+                            onClicado: raiz.calibracao = Object.assign({}, raiz.calibracao, { sacudida_fora: 0, sacudida_dentro: 0 })
+                        }
+                    }
+                    LinhaSwitch {
+                        id: rwSair
+                        titulo: "Sacudida para fora sai do orbe"
+                    }
+                    Linha {
+                        titulo: "Calibração do sair"
+                        subtitulo: raiz.calibracao.sair_fora > 0 ? "fora " + raiz.um(raiz.calibracao.sair_fora) + " rad/s"
+                                                                : "padrão do relógio"
+                        visible: rwSair.ligado
+                        Botao {
+                            texto: "Padrão"
+                            visible: raiz.calibracao.sair_fora > 0
+                            onClicado: raiz.calibracao = Object.assign({}, raiz.calibracao, { sair_fora: 0 })
+                        }
+                    }
+                }
+                Grupo {
+                    titulo: "Ordem da lista"
+                    descricao: "A ordem dos orbes no relógio."
+                    visible: raiz.relogioConhecido
+                    Repeater {
+                        model: raiz.ordemRelogio
+                        Linha {
+                            titulo: (index + 1) + ". " + (ponte.nomesSkin[modelData] || modelData)
+                            BotaoIcone {
+                                icone: "go-up-symbolic"
+                                ativo: index > 0
+                                onClicado: raiz.moverOrbe(index, -1)
+                            }
+                            BotaoIcone {
+                                icone: "go-down-symbolic"
+                                ativo: index < raiz.ordemRelogio.length - 1
+                                onClicado: raiz.moverOrbe(index, 1)
+                            }
                         }
                     }
                 }
@@ -799,6 +891,34 @@ Item {
     property string skin: "ofanim"
     // os orbes do relógio, na ordem da lista de lá
     readonly property var skinsRelogio: ["anel", "serafim_gravura", "ofanim", "ofanim_alado"]
+    // o relógio já mandou os ajustes que só ele conhecia (os toques, a ordem, os gestos);
+    // antes disso, essas linhas não aparecem e nada delas vai para lá
+    property bool relogioConhecido: false
+    readonly property var camposDoRelogio: ["toques", "live", "fundo", "ordem", "sacudida", "sair",
+                                            "sacudida_fora", "sacudida_dentro", "sair_fora"]
+    property var ordemRelogio: []
+    // as calibrações das sacudidas, em rad/s; 0 volta ao padrão do relógio
+    property var calibracao: ({ sacudida_fora: 0, sacudida_dentro: 0, sair_fora: 0 })
+    readonly property var acoesToque: [
+        { id: "abrir", nome: "Abrir" }, { id: "live", nome: "Live" }, { id: "encerrar", nome: "Encerrar" },
+        { id: "historico", nome: "Histórico" }, { id: "nada", nome: "Nada" }
+    ]
+    readonly property var descricaoToque: ({
+        abrir: "fechado, abre; aberto, entra no live; no live, interrompe",
+        live: "liga o live, abrindo se precisar; ligado, fecha",
+        encerrar: "fecha a sessão e, com o Claude, a sessão dele no PC",
+        historico: "as sessões passadas do agente, para retomar uma"
+    })
+    function um(v) { return Number(v).toFixed(1).replace(".", ",") }
+    function moverOrbe(i, passo) {
+        var l = ordemRelogio.slice()
+        var j = i + passo
+        if (j < 0 || j >= l.length) return
+        var x = l[i]
+        l[i] = l[j]
+        l[j] = x
+        ordemRelogio = l
+    }
     // o tamanho de cada skin (orbe.tamanhos); a que não tem o seu usa o comum (orbe.tamanho).
     // O slider mostra o da skin escolhida; trocar de skin guarda o dela antes
     property var tamanhos: ({})
@@ -813,6 +933,31 @@ Item {
         guardarTamanho()
         skinDoTamanho = skin
         tamanho.definir(tamanhoDe(skin))
+        puxarAgenteDaSkin()
+    }
+    // O agente de cada skin mora na lista "Agente de cada orbe" (o mapa que o
+    // relógio também edita); a linha do agente na aba Agente é a da skin em
+    // uso. Sem escolha ("" = o padrão), o relógio usa o Claude, e o PC também
+    // quando o relógio está ligado; sem ele, o agente do config, como antes.
+    function linhaDaSkin(sk) {
+        for (var i = 0; i < agentesOrbe.count; i++)
+            if (agentesOrbe.itemAt(i).skin === sk) return agentesOrbe.itemAt(i)
+        return null
+    }
+    function agenteDaSkin(sk) {
+        var l = linhaDaSkin(sk)
+        if (l && l.efetivo) return l.efetivo
+        return rRelogio.ligado ? "claude" : ponte.cfg.agente.tipo
+    }
+    function puxarAgenteDaSkin() {
+        var tipo = agenteDaSkin(skin)
+        if (rAgente.efetivo === tipo) return
+        rAgente.valor = tipo
+        mudouAgente(false)
+    }
+    function empurrarAgenteDaSkin() {
+        var l = linhaDaSkin(skin)
+        if (l) l.valor = rAgente.efetivo === "claude" ? "" : rAgente.efetivo
     }
     // nasce na primeira vez que a ponte do relógio é aplicada ligada
     property string tokenRelogio: ponte.cfg.relogio.token
@@ -886,7 +1031,20 @@ Item {
             var l = agentesOrbe.itemAt(i)
             l.valor = (aj.agentes && aj.agentes[l.skin]) || ""
         }
+        // o relógio manda todos de uma vez: sem algum, nenhum aparece
+        relogioConhecido = camposDoRelogio.every(function (k) { return aj[k] !== null && aj[k] !== undefined })
+        if (relogioConhecido) {
+            for (var k = 0; k < rwToques.count; k++)
+                rwToques.itemAt(k).valor = aj.toques[k] || "nada"
+            rwLive.ligado = !!aj.live
+            rwFundo.ligado = !!aj.fundo
+            rwSacudida.ligado = !!aj.sacudida
+            rwSair.ligado = !!aj.sair
+            ordemRelogio = aj.ordem
+            calibracao = { sacudida_fora: aj.sacudida_fora, sacudida_dentro: aj.sacudida_dentro, sair_fora: aj.sair_fora }
+        }
         ajustesVistos = JSON.stringify(coletarAjustes(aj))
+        puxarAgenteDaSkin()
     }
     function coletarAjustes(base) {
         var aj = JSON.parse(JSON.stringify(base))
@@ -907,6 +1065,19 @@ Item {
         for (var i = 0; i < agentesOrbe.count; i++) {
             var l = agentesOrbe.itemAt(i)
             aj.agentes[l.skin] = l.efetivo
+        }
+        if (relogioConhecido) {
+            aj.toques = []
+            for (var k = 0; k < rwToques.count; k++)
+                aj.toques.push(rwToques.itemAt(k).efetivo)
+            aj.live = rwLive.ligado
+            aj.fundo = rwFundo.ligado
+            aj.sacudida = rwSacudida.ligado
+            aj.sair = rwSair.ligado
+            aj.ordem = ordemRelogio.slice()
+            aj.sacudida_fora = calibracao.sacudida_fora
+            aj.sacudida_dentro = calibracao.sacudida_dentro
+            aj.sair_fora = calibracao.sair_fora
         }
         return aj
     }

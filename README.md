@@ -122,7 +122,10 @@ Em outros compositores, ligue qualquer tecla a `orb_control.py toggle`.
 ### Claude Code
 
 Abra o Claude com `./claude-orbe` no lugar de `claude` e escolha "Claude Code"
-na aba Agente do app. O orbe passa a falar com aquela sessão. No Windows, o
+como agente do orbe em uso, na aba Agente do app (cada skin tem o seu agente,
+o mesmo no PC e no relógio). O orbe passa a falar com aquela sessão e, enquanto
+ela trabalha, fala as etapas: a descrição de cada ferramenta, a linha que o
+terminal mostra com o ponto. No Windows, o
 lançador é o `claude-orbe.cmd` (ver [Relógio](#relógio-wear-os)).
 
 As sessões abertas à mão, com `claude`, o relógio alcança por um hook do
@@ -130,7 +133,14 @@ usuário: `./hermes_voice_sessao.py --instalar` o põe no
 `~/.claude/settings.json`. No relógio, cada sessão aberta é uma instância dos
 orbes do Claude, que se passa com dois dedos, na sua cor e com a pasta e o
 estado embaixo, e o orbe fala só a resposta ao pedido de voz (ver [Sessões do
-Claude Code](docs/orbe-watch.md#sessões-do-claude-code)).
+Claude Code](docs/orbe-watch.md#sessões-do-claude-code)). Pelo hook, o pedido
+aparece no terminal só como "Pedido do orbe de voz"; pelo canal, o `claude-orbe`
+cola a fala inteira no prompt e dá Enter, como se fosse digitada, com o código
+do pedido no fim. Com algo já digitado no prompt ou um diálogo aberto, ele não
+cola, e o pedido vai como mensagem de canal, que o Claude Code mostra numa
+linha cortada em 60 caracteres (o Claude recebe o texto inteiro). Para o `claude`
+digitado à mão já abrir com o canal, há uma função para o `~/.bashrc` no mesmo
+trecho.
 
 ### Cancelamento de eco (opcional)
 

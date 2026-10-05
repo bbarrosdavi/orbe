@@ -64,6 +64,8 @@ class OrbeCena(entrar: Boolean = true) : Cena {
     @Volatile var toque = false                                       // dedo no orbe agora
     @Volatile var olharX = Double.NaN                                 // para onde os olhos olham
     @Volatile var olharY = Double.NaN
+    /** o orbe em tela não é o que abriu a sessão: ela segue, mas ele fica parado */
+    @Volatile var alheia = false
 
     /** Chamado quando muda o que a tela mostra em volta do orbe (de qualquer thread). */
     @Volatile var aoMudar: ((Retrato) -> Unit)? = null
@@ -193,12 +195,13 @@ class OrbeCena(entrar: Boolean = true) : Cena {
         val tn: Double
         val mc: Double
         val desperta: Boolean
+        val fora = alheia
         synchronized(this) {
-            e = if (visivel) estado else IDLE
-            nv = nivel
+            e = if (visivel && !fora) estado else IDLE
+            nv = if (fora) 0.0 else nivel
             tn = tom
-            mc = mic
-            desperta = visivel
+            mc = if (fora) 0.0 else mic
+            desperta = visivel && !fora
             if (recomecarAnel) {
                 recomecarAnel = false
                 anel.reiniciarQuadro()

@@ -24,6 +24,28 @@ class InstanciasTest {
     }
 
     @Test
+    fun asVagasSeAlternamEntreOsOrbesDoClaude() {
+        // dois orbes do Claude: o primeiro tem as vagas 0, 2, 4…; o segundo, 1, 3, 5…
+        assertEquals(0, Instancias.vaga(0, 0, 2))
+        assertEquals(1, Instancias.vaga(0, 1, 2))
+        assertEquals(2, Instancias.vaga(1, 0, 2))
+        assertEquals(5, Instancias.vaga(2, 1, 2))
+        // um só orbe do Claude: a instância é a vaga
+        assertEquals(3, Instancias.vaga(3, 0, 1))
+    }
+
+    @Test
+    fun cadaOrbeVeSoAsSessoesDasVagasDele() {
+        val vagas = listOf(0, 1, 3, 4)
+        assertEquals(listOf(0, 2), Instancias.doOrbe(vagas, 0, 2))
+        assertEquals(listOf(0, 1), Instancias.doOrbe(vagas, 1, 2))
+        // a mesma conversa não aparece em dois orbes
+        assertEquals(emptyList<Int>(), Instancias.doOrbe(listOf(1), 0, 2))
+        // a fileira do segundo orbe vai até a vaga 3 (a instância 1 dele) e ganha a livre
+        assertEquals(3, Instancias.contar(Instancias.doOrbe(vagas, 1, 2), abre = true))
+    }
+
+    @Test
     fun cadaInstanciaTemACorDela() {
         // a 0 (o orbe) na cor do tema; as seguintes no ciclo, que recomeça depois da última cor
         assertEquals(0, Instancias.cor(0))

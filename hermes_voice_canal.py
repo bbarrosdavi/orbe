@@ -6,7 +6,10 @@ Dois papéis no mesmo arquivo, só com a stdlib:
 - Rodado pelo Claude (MCP stdio, via `claude-orbe`): declara o canal
   `claude/channel`, abre um socket local por sessão e empurra cada pergunta do
   orbe como `notifications/claude/channel`. O Claude responde pela ferramenta
-  `reply`, que devolve o texto a quem perguntou.
+  `reply`, que devolve o texto a quem perguntou. Na sessão aberta pelo
+  `claude-orbe`, a pergunta vai antes colada no prompt pelo wrapper
+  (hermes_voice_aceite), para a fala aparecer inteira no chat; a mensagem de
+  canal o Claude Code mostra numa linha cortada em 60 caracteres.
 - Importado pelo daemon: `AgenteClaude` tem a mesma cara do `AgenteACP` e fala
   com o socket da sessão aberta mais recente.
 
@@ -39,7 +42,8 @@ UNIX = hasattr(socket, "AF_UNIX")
 NOME = "orbe"
 
 INSTRUCOES = (
-    'Mensagens do orbe de voz chegam como <channel source="orbe" pedido="...">. '
+    'Mensagens do orbe de voz chegam como <channel source="orbe" pedido="..."> ou como '
+    'mensagem do usuário terminada em "(pelo orbe: no fim, reply com pedido ...)". '
     "O conteúdo é a fala do usuário transcrita por reconhecimento de voz e pode trazer "
     "erros de transcrição. Faça o que ele pedir nesta sessão, como faria com um pedido "
     "digitado, e no fim chame a ferramenta reply uma vez, com o mesmo pedido, trazendo "
@@ -53,6 +57,10 @@ INSTRUCOES = (
 # respondia no terminal e não chamava o reply, e o orbe ficava sem resposta).
 LEMBRETE = ("Fala do usuario pelo orbe de voz. No fim, chame a ferramenta reply com este "
             "pedido e a resposta que sera dita em voz alta, sem markdown.")
+# O mesmo, no fim do pedido colado no prompt (o modelo lê o que o usuário vê).
+MARCA = "(pelo orbe: no fim, reply com pedido {})"
+# O wrapper do claude-orbe (hermes_voice_aceite) escuta aqui, pelo pid do Claude.
+TERMINAIS = vcfg.RUNTIME / "hermes-voice" / "terminais"
 
 
 def _vivo(pid: int) -> bool:
@@ -199,6 +207,25 @@ class Canal:
         elif mid is not None:
             self._responder(mid, erro={"code": -32601, "message": f"método desconhecido: {metodo}"})
 
+    def _colar(self, texto: str, pedido: str) -> bool:
+        """Cola o pedido no prompt pelo wrapper do claude-orbe. Falso sem ele
+        (outro jeito de abrir o Claude), com rascunho no prompt ou quando o texto
+        não aparece no prompt (um diálogo aberto): aí vai como mensagem de canal."""
+        if not UNIX:
+            return False
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            s.settimeout(8)
+            s.connect(str(TERMINAIS / f"{self.pid}.sock"))
+            marca = MARCA.format(pedido)
+            s.sendall((json.dumps({"tipo": "colar", "texto": " ".join(texto.split()) + "  " + marca,
+                                   "alvo": marca}, ensure_ascii=False) + "\n").encode())
+            return bool(json.loads(s.makefile("rb").readline() or b"{}").get("ok"))
+        except (OSError, ValueError):
+            return False
+        finally:
+            s.close()
+
     # socket local: o daemon do orbe pergunta aqui
     def _cliente(self, cli: socket.socket):
         buf = b""
@@ -223,11 +250,13 @@ class Canal:
                         continue
                     if m.get("tipo") == "pergunta":
                         pedido = uuid.uuid4().hex[:8]
+                        texto = str(m.get("texto") or "")
                         with self._trava:
                             self._pendentes[pedido] = cli
-                        self._escrever({"jsonrpc": "2.0", "method": "notifications/claude/channel",
-                                        "params": {"content": str(m.get("texto") or ""),
-                                                   "meta": {"pedido": pedido, "responder": LEMBRETE}}})
+                        if not self._colar(texto, pedido):
+                            self._escrever({"jsonrpc": "2.0", "method": "notifications/claude/channel",
+                                            "params": {"content": texto,
+                                                       "meta": {"pedido": pedido, "responder": LEMBRETE}}})
                         cli.sendall((json.dumps({"tipo": "aceito", "pedido": pedido}) + "\n").encode())
                     elif m.get("tipo") == "cancelar":
                         with self._trava:
@@ -355,9 +384,14 @@ class AgenteClaude:
         return ""
 
     def perguntar(self, texto, ao_texto, ao_pensamento=None, a_ferramenta=None,
-                  parar=None, teto: float = 600.0) -> str:
+                  parar=None, teto: float = 600.0, a_etapa=None) -> str:
         """Manda a fala e espera o reply. Interromper só para a espera: o
-        Claude segue o que estiver fazendo no terminal."""
+        Claude segue o que estiver fazendo no terminal. [a_etapa] recebe a
+        descrição de cada ferramenta que ele chama."""
+        etapas = None
+        if a_etapa:
+            import hermes_voice_sessao as sessao
+            etapas = sessao.Etapas(self.sessao)
         try:
             cli = _ligar(PASTA / f"{self.sessao}.sock")
         except (OSError, ValueError) as e:
@@ -377,6 +411,9 @@ class AgenteClaude:
                 if time.monotonic() > fim:
                     cli.sendall(b'{"tipo": "cancelar"}\n')
                     raise self._erro(f"sem resposta do Claude em {teto:.0f} s")
+                if etapas is not None and a_etapa:
+                    for e in etapas.novas():
+                        a_etapa(e)
                 try:
                     bloco = cli.recv(65536)
                 except socket.timeout:

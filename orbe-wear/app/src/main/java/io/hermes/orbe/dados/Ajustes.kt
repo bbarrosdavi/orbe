@@ -15,6 +15,25 @@ import io.hermes.orbe.gesto.Sacudida
 import io.hermes.orbe.orbe.Skin
 import kotlinx.coroutines.flow.map
 
+/** O que um número de toques curtos no orbe faz. */
+enum class AcaoToque(val id: String, val nome: String) {
+    /** fechado, abre (ou já no live, com a opção); aberto, entra no live; no live, interrompe, e só ouvindo, fecha */
+    ABRIR("abrir", "Abrir"),
+    /** o live liga (abrindo, se precisar) ou, ligado, fecha */
+    LIVE("live", "Live"),
+    /** fecha a sessão e, com o Claude no orbe, a sessão dele no PC */
+    ENCERRAR("encerrar", "Encerrar"),
+    /** as sessões passadas do agente do orbe, para retomar uma */
+    HISTORICO("historico", "Histórico"),
+    NADA("nada", "Nada");
+
+    companion object {
+        fun de(id: String?): AcaoToque? = entries.firstOrNull { it.id == id }
+        /** um, dois e três toques como sempre foram; quatro, nada */
+        val PADRAO = listOf(ABRIR, LIVE, ENCERRAR, NADA)
+    }
+}
+
 /** O que o relógio guarda. A config do daemon (agente, voz, conversa) fica no PC, no app do Orbe. */
 data class Ajustes(
     val servidor: String = "",
@@ -54,6 +73,8 @@ data class Ajustes(
     val sacudida: Boolean = true,
     /** um toque no orbe fechado abre já no modo live (os turnos seguem sem tocar); sem isto, o segundo toque entra */
     val live: Boolean = false,
+    /** o que 1, 2, 3 e 4 toques curtos no orbe fazem */
+    val toques: List<AcaoToque> = AcaoToque.PADRAO,
     /** limiares da sacudida em rad/s (fora e dentro); a calibração troca */
     val sacudidaFora: Float = Sacudida.FORA_MIN,
     val sacudidaDentro: Float = Sacudida.DENTRO_MIN,
@@ -64,6 +85,12 @@ data class Ajustes(
     /** o fora mínimo da sacudida de sair, em rad/s; 0 = sem calibrar, vale o padrão (o do HinaWatch, [Sacudida.FORA_MIN]) */
     val sairFora: Float = 0f,
 ) {
+    /** A ação de [n] toques (1 a 4). */
+    fun toque(n: Int): AcaoToque = toques.getOrNull(n - 1) ?: AcaoToque.NADA
+
+    /** O maior número de toques que faz algo: chegou nele, não precisa esperar outro. */
+    fun maisToques(): Int = (toques.size downTo 1).firstOrNull { toque(it) != AcaoToque.NADA } ?: 0
+
     /** A escala do orbe da [skin]. */
     fun tamanhoDe(skin: Skin): Float = tamanhos[skin.id] ?: tamanho
 
@@ -74,13 +101,27 @@ data class Ajustes(
     }
 
     /** O que vai e volta com o PC (a [Sincronia]). */
-    fun sincronia() = Sincronia(t, agentes, voz, vozPc, microfone, vibrar, texto, glitch, linhas, tamanho, seguirPc, tamanhos)
+    fun sincronia() = Sincronia(
+        t, agentes, voz, vozPc, microfone, vibrar, texto, glitch, linhas, tamanho, seguirPc, tamanhos,
+        toques = toques.map { it.id }, live = live, fundo = fundo, ordem = skins().map { it.id },
+        sacudida = sacudida, sair = sair, sacudidaFora = sacudidaFora, sacudidaDentro = sacudidaDentro, sairFora = sairFora,
+    )
 
     fun com(s: Sincronia) = copy(
         t = s.t, agentes = s.agentes, voz = s.voz, vozPc = s.vozPc, microfone = s.microfone, vibrar = s.vibrar,
         texto = s.texto, glitch = s.glitch, linhas = s.linhas, tamanho = s.tamanho.coerceIn(TAMANHO_MIN, TAMANHO_MAX), seguirPc = s.seguirPc,
         // o PC manda null no orbe que ainda segue o tamanho comum
         tamanhos = s.tamanhos.mapNotNull { (k, v) -> v?.let { k to it.coerceIn(TAMANHO_MIN, TAMANHO_MAX) } }.toMap(),
+        // o que o PC ainda não conhece (null) fica como está aqui
+        toques = s.toques?.let { l -> List(AcaoToque.PADRAO.size) { i -> AcaoToque.de(l.getOrNull(i)) ?: toques.getOrNull(i) ?: AcaoToque.NADA } } ?: toques,
+        live = s.live ?: live,
+        fundo = s.fundo ?: fundo,
+        ordem = s.ordem ?: ordem,
+        sacudida = s.sacudida ?: sacudida,
+        sair = s.sair ?: sair,
+        sacudidaFora = s.sacudidaFora?.let { if (it > 0f) it else Sacudida.FORA_MIN } ?: sacudidaFora,
+        sacudidaDentro = s.sacudidaDentro?.let { if (it > 0f) it else Sacudida.DENTRO_MIN } ?: sacudidaDentro,
+        sairFora = s.sairFora?.let { if (it > 0f) it else 0f } ?: sairFora,
     )
 
     companion object {
@@ -114,6 +155,8 @@ class Cofre(private val ctx: Context) {
         val t = longPreferencesKey("t")
         val sacudida = booleanPreferencesKey("sacudida")
         val live = booleanPreferencesKey("live")
+        val toques = stringPreferencesKey("toques")        // "abrir,live,encerrar,nada"
+        val historico = booleanPreferencesKey("historico")  // a chave antiga dos quatro toques
         val sacudidaFora = floatPreferencesKey("sacudida_fora")
         val sacudidaDentro = floatPreferencesKey("sacudida_dentro")
         val ordem = stringPreferencesKey("ordem")          // "anel,serafim_gravura,..."
@@ -125,6 +168,13 @@ class Cofre(private val ctx: Context) {
         s.orEmpty().split(';').mapNotNull { par ->
             par.split('=', limit = 2).takeIf { it.size == 2 && it[0].isNotEmpty() }?.let { it[0] to it[1] }
         }.toMap()
+
+    /** Sem a lista guardada, o padrão; com a chave antiga ligada, quatro toques abrem o histórico. */
+    private fun lerToques(s: String?, historico: Boolean): List<AcaoToque> {
+        if (s == null) return if (historico) AcaoToque.PADRAO.dropLast(1) + AcaoToque.HISTORICO else AcaoToque.PADRAO
+        val l = s.split(',')
+        return List(AcaoToque.PADRAO.size) { i -> AcaoToque.de(l.getOrNull(i)) ?: AcaoToque.PADRAO[i] }
+    }
 
     private fun lerTamanhos(s: String?): Map<String, Float> =
         s.orEmpty().split(';').mapNotNull { par ->
@@ -157,6 +207,7 @@ class Cofre(private val ctx: Context) {
             t = p[K.t] ?: d.t,
             sacudida = p[K.sacudida] ?: d.sacudida,
             live = p[K.live] ?: d.live,
+            toques = lerToques(p[K.toques], p[K.historico] == true),
             sacudidaFora = p[K.sacudidaFora] ?: d.sacudidaFora,
             sacudidaDentro = p[K.sacudidaDentro] ?: d.sacudidaDentro,
             ordem = p[K.ordem].orEmpty().split(',').filter { it.isNotEmpty() },
@@ -188,6 +239,8 @@ class Cofre(private val ctx: Context) {
             p[K.t] = a.t
             p[K.sacudida] = a.sacudida
             p[K.live] = a.live
+            p[K.toques] = a.toques.joinToString(",") { it.id }
+            p.remove(K.historico)
             p[K.sacudidaFora] = a.sacudidaFora
             p[K.sacudidaDentro] = a.sacudidaDentro
             p[K.ordem] = a.ordem.joinToString(",")
