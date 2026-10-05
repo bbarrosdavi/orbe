@@ -65,8 +65,10 @@ computador, estado por estado.
 A ponte pode ser servida de dois jeitos:
 
 - **Pelo daemon** (`hermes_voice_daemon.py`), no Linux com o desktop. O orbe do
-  relógio acompanha o do computador, e a resposta sai em voz no computador.
-  A ponte vem desligada por padrão.
+  relógio acompanha o do computador. A sessão aberta pelo relógio é dele: fala
+  com o Claude (veja [Sessão aberta pelo relógio](#sessão-aberta-pelo-relógio)),
+  ouve só o microfone do relógio e toca a resposta onde o relógio pediu. A
+  ponte vem desligada por padrão.
 - **Pelo orbe de pulso** (`hermes_voice_pulso.py`), sem o desktop e fora do
   Linux. Python puro, sem PipeWire nem Wayland, testado no Windows. O
   microfone e o alto-falante são os do relógio.
@@ -181,6 +183,7 @@ O toque vale como no orbe do desktop:
 | **Segurar** (mais de 350 ms) | Segurar para falar: a fala vai para o agente enquanto o dedo estiver na tela. Soltar encerra a fala. O relógio vibra ao segurar e ao soltar. |
 | **Toque curto** | Abre a sessão, ou interrompe a resposta e volta a ouvir. |
 | **Dois toques curtos** | Travam a sessão aberta (um ponto aparece acima da figura). |
+| **Arrastar para o lado** | Gira o orbe, como a face de um cubo, até a skin seguinte (ou a anterior). Depois da última skin, a primeira volta na cor seguinte: a do tema, ciano, verde, âmbar e violeta. Como escolher um avatar no menu, desliga o "Seguir o orbe do PC". |
 | **Arrastar para cima**, ou girar a coroa | Abre o menu. |
 
 O microfone já começa a guardar um segundo de áudio quando o dedo encosta,
@@ -243,7 +246,8 @@ tamanho escolhido.
 | **Texto do raciocínio** | Mostra as linhas do agente abaixo do orbe. |
 | **Seguir o orbe do PC** | O avatar e o glitch vêm do computador. Desligado, valem os escolhidos no relógio. |
 | **Microfone do relógio** | Segurando o orbe, a fala vem do relógio e não do computador. O app pede a permissão de microfone uma vez, quando a ponte aceita fala. |
-| **Voz no relógio** | A resposta em voz toca no relógio. Só aparece quando a ponte fala pelo relógio (orbe de pulso). Desligada, a resposta vem em texto. |
+| **Voz no relógio** | A resposta em voz toca no relógio. Desligada, ela sai no computador (pelo daemon) ou vem em texto (orbe de pulso). |
+| **Voz também no PC** | Com a ponte do daemon e a voz no relógio ligada, a resposta toca nos dois. |
 | **Vibrar** | Vibra ao segurar e ao soltar o orbe. |
 | **Pré-visualizar** | O orbe passa por todos os estados, sem ponte nem agente, para ver o avatar escolhido. |
 
@@ -304,6 +308,31 @@ Opções do orbe de pulso:
 | `--porta N` | Porta da ponte (padrão: a do `config.json`, 8777). |
 | `--debug` | Log detalhado. |
 
+## Sessão aberta pelo relógio
+
+Com a ponte servida pelo daemon, tocar ou segurar o orbe do relógio abre a
+sessão de voz do computador, e ela passa a ser do relógio até fechar:
+
+- **O agente é o Claude**, qualquer que seja o do `config.json` (que continua
+  valendo para o atalho e a palavra de ativação). Sem uma sessão do Claude
+  aberta com o canal do orbe, o daemon sobe uma escondida, sem terminal:
+  `claude-orbe --dangerously-skip-permissions` numa sessão do tmux chamada
+  `orbe-claude`, na pasta de `relogio.claude_pasta` (vazio = a pasta do
+  usuário). As ferramentas são aprovadas sozinhas, como o orbe faz por ACP.
+  Para ver o que ele faz: `tmux attach -t orbe-claude` (e Ctrl+B D para sair
+  sem fechar). Ela fecha junto com o agente, depois de
+  `agente.manter_carregado_min` sem sessão de voz.
+- **O orbe do computador abre junto**, com as íris dos olhos em vermelho
+  (Ophanim, Ophanim com asas e Shoggoth; as skins de imagem e o anel não têm
+  olho separado).
+- **O microfone do computador sai da conversa**: a fala vem só do relógio.
+- **A voz toca onde o relógio pediu**: no relógio, no computador ou nos dois
+  (chaves "Voz no relógio" e "Voz também no PC").
+
+Na primeira vez, o Claude pede uma confirmação do modo sem permissões, que só
+o dono da máquina pode dar: abra `tmux attach -t orbe-claude`, aceite e saia
+com Ctrl+B D.
+
 ## Rede
 
 O relógio precisa alcançar o computador. Três situações comuns:
@@ -351,14 +380,14 @@ Um WebSocket. Mensagens de texto são uma linha cada; as binárias são PCM
 | Sentido | Mensagem | Quando |
 |---|---|---|
 | ponte → relógio | `desafio <sal em hex>` | Ao conectar. |
-| relógio → ponte | `ola {"prova": "...", "nome": "...", "voz": true}` | A prova do token. `voz` pede a resposta em áudio no relógio. |
-| ponte → relógio | `ola {"v": 1, "orbe": {...}, "tema": {...}, "microfone": true, "voz": false}` | Pareado: a aparência e o que a ponte aceita. |
+| relógio → ponte | `ola {"prova": "...", "nome": "...", "voz": true, "voz_pc": false}` | A prova do token. `voz` pede a resposta em áudio no relógio; `voz_pc`, também no PC. |
+| ponte → relógio | `ola {"v": 1, "orbe": {...}, "tema": {...}, "microfone": true, "voz": true, "voz_pc": true}` | Pareado: a aparência e o que a ponte aceita (`voz_pc`: o PC também tem voz, só no daemon). |
 | ponte → relógio | `show idle`, `state thinking`, `level 0.42 0.60`, `mic 0.3`, `line <texto>`, `hold 1`, `hide`, `clear` | As linhas do orbe, as mesmas do desktop. |
 | ponte → relógio | `config {"orbe": {...}, "tema": {...}}` | O avatar, o glitch ou o tema mudaram no computador. |
 | relógio → ponte | `touch down`, `touch up` | O dedo no orbe. |
 | relógio → ponte | `toggle`, `trigger`, `dismiss`, `hold`, `release` | Os comandos do `orb_control`. |
 | relógio → ponte | *(binário)* | A fala, em quadros de 30 ms a 16 kHz, enquanto o dedo segura o orbe. |
-| ponte → relógio | `voz 24000`, *(binário)*, `voz fim`, `voz corta` | A resposta em voz (taxa do áudio, o áudio, o fim, calar já). Só no orbe de pulso. |
+| ponte → relógio | `voz 24000`, *(binário)*, `voz fim`, `voz corta` | A resposta em voz (taxa do áudio, o áudio, o fim, calar já). No orbe de pulso, e no daemon quando a sessão é do relógio. |
 | relógio → ponte | `voz acabou` | O relógio tocou até o fim. |
 
 Códigos de fechamento: `4401` token recusado, `4429` muitas tentativas,
@@ -529,9 +558,9 @@ nas opções do desenvolvedor e reconecte (`adb connect <ip>:<porta>`). O
 
 ## Limites conhecidos
 
-- A ponte servida pelo **daemon** (ganchos em `hermes_voice_daemon.py`) tem a
-  sintaxe conferida, mas só o orbe de pulso foi exercitado de ponta a ponta.
-  Por isso o caminho do daemon, no Linux, merece um teste seu.
+- A ponte servida pelo **daemon** foi testada com um relógio simulado (prova
+  do token, voz, `voz_pc`, origem da sessão) e com o worker de voz de verdade,
+  mas ainda não de ponta a ponta com o relógio e o Claude escondido.
 - A voz e o microfone com um agente de verdade foram testados no emulador. No
   TicWatch Pro 5 foram conferidos o desenho, o pareamento e o desempenho.
 - Por ACP, o agente tem as permissões aprovadas automaticamente.
