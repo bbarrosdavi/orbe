@@ -37,6 +37,11 @@ DEFAULTS = {
         # do jarvis ocupa 515 MB depois do primeiro turno; subir de novo custa
         # ~2 s de initialize mais a sessão, feito em paralelo à fala.
         "manter_carregado_min": 10,
+        # O Claude não roda em segundo plano: sem sessão com o canal do orbe,
+        # o daemon abre "<terminal> -e claude-orbe" no PC, na pasta dada
+        # (vazio = a pasta do usuário). Vale para o atalho e para o relógio.
+        "terminal": "ghostty",
+        "claude_pasta": "",
     },
     "ativacao": {
         # nenhum | openwakeword | sherpa | microwakeword
@@ -106,10 +111,23 @@ DEFAULTS = {
         "token": "",
         # com o dedo no orbe do relógio, a fala vem do microfone dele
         "microfone": True,
-        # o Claude que o relógio abre: o terminal da janela no PC (roda "<terminal> -e
-        # claude-orbe") e a pasta em que ele trabalha; vazio = a pasta do usuário
-        "terminal": "ghostty",
-        "claude_pasta": "",
+        # Os ajustes do app do relógio, nos dois sentidos: o relógio manda os
+        # dele ao conectar e a cada mudança, o app do PC muda aqui, e vale o
+        # lado de "t" mais novo (ms desde 1970 da última mudança).
+        "ajustes": {
+            "t": 0,
+            # o agente de cada orbe do carrossel, pela skin; "" = Claude Code
+            "agentes": {"ofanim": "", "ofanim_alado": "", "shoggoth": "",
+                        "serafim_gravura": "", "entidade": "", "anel": ""},
+            "voz": True,          # a resposta toca no relógio
+            "voz_pc": False,      # tocando lá, toca também no PC
+            "microfone": True,    # segurando o orbe, a fala vem do relógio
+            "vibrar": True,
+            "texto": True,        # as linhas do raciocínio abaixo do orbe
+            "glitch": True,
+            "tamanho": 1.0,
+            "seguir_pc": True,    # o avatar e o glitch vêm do orbe do PC
+        },
     },
 }
 

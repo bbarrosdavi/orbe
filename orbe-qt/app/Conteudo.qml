@@ -19,7 +19,8 @@ Item {
         { id: "ativacao", nome: "Ativação", icone: "audio-input-microphone-symbolic" },
         { id: "voz", nome: "Voz", icone: "audio-speakers-symbolic" },
         { id: "conversa", nome: "Conversa", icone: "user-available-symbolic" },
-        { id: "aparencia", nome: "Aparência", icone: "applications-graphics-symbolic" }
+        { id: "aparencia", nome: "Aparência", icone: "applications-graphics-symbolic" },
+        { id: "relogio", nome: "Relógio", icone: "preferences-system-time-symbolic" }
     ]
     property var olhar: null
 
@@ -100,7 +101,7 @@ Item {
                 model: raiz.paginas
                 Rectangle {
                     readonly property bool marcado: raiz.pagina === modelData.id
-                    width: rotulo.width + 12
+                    width: rotulo.width + 10
                     height: 32
                     radius: 10
                     color: marcado ? Estilo.alfa(Estilo.accent, 0.20)
@@ -110,7 +111,7 @@ Item {
                     Row {
                         id: rotulo
                         anchors.centerIn: parent
-                        spacing: 6
+                        spacing: 5
                         Icone {
                             anchors.verticalCenter: parent.verticalCenter
                             nome: modelData.icone
@@ -120,7 +121,8 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             text: modelData.nome
                             color: parent.parent.marcado ? Estilo.accent : Estilo.texto
-                            font.pointSize: 11
+                            // seis abas na largura da janela
+                            font.pointSize: 10
                             font.bold: true
                         }
                     }
@@ -181,6 +183,19 @@ Item {
                             icone: "view-refresh-symbolic"
                             onClicado: rClaude.subtitulo = ponte.sessoesClaude()
                         }
+                    }
+                }
+                Grupo {
+                    titulo: "Claude no terminal"
+                    descricao: "O Claude não roda em segundo plano: sem sessão aberta, o orbe abre uma num terminal "
+                               + "no PC, pelo atalho (com o Claude escolhido acima) ou por um orbe do relógio que use o Claude."
+                    LinhaEntrada {
+                        id: rTerminal
+                        titulo: "Terminal (roda <terminal> -e claude-orbe)"
+                    }
+                    LinhaEntrada {
+                        id: rClaudePasta
+                        titulo: "Pasta da sessão (vazio = a pasta do usuário)"
                     }
                 }
                 Grupo {
@@ -291,43 +306,6 @@ Item {
                         subtitulo: "quadros seguidos acima do limiar"
                         de: 1; ate: 10; passo: 1
                         visible: rWake.efetivo === "openwakeword" || rWake.efetivo === "microwakeword"
-                    }
-                }
-                Grupo {
-                    titulo: "Relógio"
-                    descricao: "O orbe no pulso (orbe-wear): o app do relógio fala com este computador pela rede local."
-                    LinhaSwitch {
-                        id: rRelogio
-                        titulo: "Ponte do relógio"
-                        subtitulo: "abre a porta " + ponte.cfg.relogio.porta + " para o app do relógio"
-                    }
-                    Linha {
-                        titulo: "Pareamento"
-                        subtitulo: "no relógio, o servidor é " + ponte.enderecoRelogio + " e o token é este"
-                        visible: rRelogio.ligado
-                        Rectangle {
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: lToken.width + 18
-                            height: lToken.height + 6
-                            radius: 7
-                            color: Estilo.alfa(Estilo.accent, 0.14)
-                            border.color: Estilo.alfa(Estilo.accent, 0.30)
-                            Text {
-                                id: lToken
-                                anchors.centerIn: parent
-                                text: raiz.tokenRelogio || "ao aplicar"
-                                color: Estilo.texto
-                                font.family: "monospace"
-                                font.bold: true
-                                font.pointSize: 10
-                            }
-                        }
-                    }
-                    LinhaSwitch {
-                        id: rRelogioMic
-                        titulo: "Microfone do relógio"
-                        subtitulo: "segurando o orbe no relógio, a fala vem de lá"
-                        visible: rRelogio.ligado
                     }
                 }
             }
@@ -510,6 +488,124 @@ Item {
                     }
                 }
             }
+
+            // ═══ Relógio ═══
+            Pagina {
+                Grupo {
+                    titulo: "Conexão"
+                    descricao: "O orbe no pulso (orbe-wear): o app do relógio fala com este computador pela rede local."
+                    LinhaSwitch {
+                        id: rRelogio
+                        titulo: "Ponte do relógio"
+                        subtitulo: "abre a porta " + ponte.cfg.relogio.porta + " para o app do relógio"
+                    }
+                    Linha {
+                        titulo: "Pareamento"
+                        subtitulo: "no relógio, o servidor é " + ponte.enderecoRelogio + " e o token é este"
+                        visible: rRelogio.ligado
+                        Rectangle {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: lToken.width + 18
+                            height: lToken.height + 6
+                            radius: 7
+                            color: Estilo.alfa(Estilo.accent, 0.14)
+                            border.color: Estilo.alfa(Estilo.accent, 0.30)
+                            Text {
+                                id: lToken
+                                anchors.centerIn: parent
+                                text: raiz.tokenRelogio || "ao aplicar"
+                                color: Estilo.texto
+                                font.family: "monospace"
+                                font.bold: true
+                                font.pointSize: 10
+                            }
+                        }
+                        BotaoIcone {
+                            // token novo: o relógio pareado com o velho para de entrar
+                            icone: "view-refresh-symbolic"
+                            visible: raiz.tokenRelogio !== ""
+                            onClicado: raiz.tokenRelogio = ponte.trocarTokenRelogio()
+                        }
+                    }
+                    Linha {
+                        id: rFirewall
+                        titulo: "Firewall"
+                        subtitulo: ponte.firewallRelogio()
+                        visible: rRelogio.ligado && subtitulo !== ""
+                        BotaoIcone {
+                            icone: "view-refresh-symbolic"
+                            onClicado: rFirewall.subtitulo = ponte.firewallRelogio()
+                        }
+                    }
+                    LinhaSwitch {
+                        id: rRelogioMic
+                        titulo: "Aceitar a fala do relógio"
+                        subtitulo: "segurando o orbe no relógio, a fala vem de lá e não do microfone do PC"
+                        visible: rRelogio.ligado
+                    }
+                }
+                Grupo {
+                    titulo: "Agente de cada orbe"
+                    descricao: "Rolar o carrossel do relógio troca de orbe e, com ele, de agente. "
+                               + "O Claude abre num terminal no PC; os outros rodam em segundo plano."
+                    Repeater {
+                        id: agentesOrbe
+                        model: ["ofanim", "ofanim_alado", "shoggoth", "serafim_gravura", "entidade", "anel"]
+                        LinhaCombo {
+                            readonly property string skin: modelData
+                            titulo: ponte.nomesSkin[modelData] || modelData
+                            itens: ponte.agentesRelogio
+                        }
+                    }
+                }
+                Grupo {
+                    titulo: "No relógio"
+                    descricao: "Os ajustes do app do relógio: valem lá e aqui, e o lado que mudou por último ganha."
+                    LinhaSwitch {
+                        id: rwVoz
+                        titulo: "Voz no relógio"
+                        subtitulo: "a resposta toca no relógio"
+                    }
+                    LinhaSwitch {
+                        id: rwVozPc
+                        titulo: "Voz também no PC"
+                        subtitulo: "tocando no relógio, a resposta toca aqui junto"
+                        visible: rwVoz.ligado
+                    }
+                    LinhaSwitch {
+                        id: rwMic
+                        titulo: "Microfone do relógio"
+                        subtitulo: "segurando o orbe no relógio, a fala vem dele"
+                    }
+                    LinhaSwitch {
+                        id: rwVibrar
+                        titulo: "Vibrar"
+                        subtitulo: "ao segurar e ao soltar o orbe"
+                    }
+                    LinhaSwitch {
+                        id: rwTexto
+                        titulo: "Texto do raciocínio"
+                        subtitulo: "as linhas do agente, abaixo do orbe"
+                    }
+                    LinhaSwitch {
+                        id: rwSeguir
+                        titulo: "Seguir o orbe do PC"
+                        subtitulo: "o avatar e o glitch vêm daqui; rolar o carrossel desliga"
+                    }
+                    LinhaSwitch {
+                        id: rwGlitch
+                        titulo: "Glitch"
+                        subtitulo: "aberração cromática e faixas arrancadas"
+                        visible: !rwSeguir.ligado
+                    }
+                    LinhaSpin {
+                        id: rwTamanho
+                        titulo: "Tamanho do orbe"
+                        subtitulo: "1,00 enche o mostrador"
+                        de: 0.6; ate: 1.3; passo: 0.05; casas: 2
+                    }
+                }
+            }
         }
 
         // ── rodapé ──
@@ -634,6 +730,11 @@ Item {
     }
     Connections {
         target: ponte
+        // o relógio mudou os ajustes dele: entram aqui se ninguém mexeu nesta aba
+        function onAjustesRelogioMudou(aj) {
+            if (JSON.stringify(raiz.coletarAjustes(raiz.ajustesBase)) === raiz.ajustesVistos)
+                raiz.carregarAjustes(aj)
+        }
         function onAtalhoCapturado(nome) {
             raiz.atalho = nome
             dlgAtalho.close()
@@ -702,6 +803,43 @@ Item {
         if (lim !== undefined) rLimiar.valor = lim
     }
 
+    // ── os ajustes do relógio: vêm do config e, com o app aberto, da ponte ──
+    property var ajustesBase: ({})
+    property string ajustesVistos: ""
+    function carregarAjustes(aj) {
+        ajustesBase = aj
+        rwVoz.ligado = !!aj.voz
+        rwVozPc.ligado = !!aj.voz_pc
+        rwMic.ligado = !!aj.microfone
+        rwVibrar.ligado = !!aj.vibrar
+        rwTexto.ligado = !!aj.texto
+        rwSeguir.ligado = !!aj.seguir_pc
+        rwGlitch.ligado = !!aj.glitch
+        rwTamanho.valor = aj.tamanho === undefined ? 1.0 : aj.tamanho
+        for (var i = 0; i < agentesOrbe.count; i++) {
+            var l = agentesOrbe.itemAt(i)
+            l.valor = (aj.agentes && aj.agentes[l.skin]) || ""
+        }
+        ajustesVistos = JSON.stringify(coletarAjustes(aj))
+    }
+    function coletarAjustes(base) {
+        var aj = JSON.parse(JSON.stringify(base))
+        aj.voz = rwVoz.ligado
+        aj.voz_pc = rwVozPc.ligado
+        aj.microfone = rwMic.ligado
+        aj.vibrar = rwVibrar.ligado
+        aj.texto = rwTexto.ligado
+        aj.seguir_pc = rwSeguir.ligado
+        aj.glitch = rwGlitch.ligado
+        aj.tamanho = Math.round(rwTamanho.valor * 100) / 100
+        aj.agentes = aj.agentes || {}
+        for (var i = 0; i < agentesOrbe.count; i++) {
+            var l = agentesOrbe.itemAt(i)
+            aj.agentes[l.skin] = l.efetivo
+        }
+        return aj
+    }
+
     // ── carregar / coletar ──
     function carregar() {
         var c = ponte.cfg
@@ -721,6 +859,9 @@ Item {
         rConfirma.valor = at.confirmacao
         rRelogio.ligado = !!c.relogio.ligado
         rRelogioMic.ligado = !!c.relogio.microfone
+        carregarAjustes(c.relogio.ajustes)
+        rTerminal.texto = a.terminal
+        rClaudePasta.texto = a.claude_pasta
 
         rStt.valor = v.stt_modelo
         rIdioma.texto = v.stt_idioma
@@ -772,6 +913,9 @@ Item {
         at.atalho = raiz.atalho
         cfg.relogio.ligado = rRelogio.ligado
         cfg.relogio.microfone = rRelogioMic.ligado
+        cfg.relogio.ajustes = coletarAjustes(raiz.ajustesBase)
+        a.terminal = rTerminal.texto.trim() || "ghostty"
+        a.claude_pasta = rClaudePasta.texto.trim()
         v.stt_modelo = rStt.efetivo
         v.stt_idioma = rIdioma.texto.trim() || "pt"
         v.tts_provedor = rTts.efetivo

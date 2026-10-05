@@ -12,13 +12,21 @@ Conversa (texto = uma linha por mensagem; binário = PCM s16le mono 16 kHz):
                                                     voz: toca a resposta no relógio;
                                                     voz_pc: toca também no PC
   ponte   → ola {"v": 1, "orbe": {...}, "tema": {...}, "microfone": true, "voz": false,
-                 "voz_pc": false}                   voz_pc: o PC pode tocar junto
+                 "voz_pc": false, "agentes": [{"id", "nome"}]}
+                                                    voz_pc: o PC pode tocar junto;
+                                                    agentes: os que cada orbe pode ter
   ponte   → show listening | state thinking | level 0.42 0.60 | mic 0.3
             line <texto> | hold 1 | hide | clear    as linhas que o orbe recebe
   ponte   → config {"orbe": {...}, "tema": {...}}   aparência ou tema mudaram
   relógio → touch down | touch up                   dedo no orbe
   relógio → toggle | trigger | dismiss | hold | release
-  relógio → (binário) a fala, enquanto o dedo segura o orbe
+  relógio → agente <id>                             o agente do orbe em tela (vazio = Claude)
+  relógio → (binário) a fala, enquanto o dedo segura o orbe (ou na sessão
+            aberta por "trigger", enquanto ela ouve)
+  os dois → ajustes {"t": ..., "agentes": {...}, "voz": true, ...}
+                                                    os ajustes do app do relógio; vale o
+                                                    "t" (ms) mais novo, guardado em
+                                                    relogio.ajustes no config do PC
 
 Quando quem serve a ponte fala pelo relógio (hermes_voice_pulso.py, ou o
 daemon numa sessão aberta pelo relógio), a resposta vai em PCM s16le mono,
@@ -119,6 +127,42 @@ def token_da_config(trocar: bool = False) -> str:
     return tok
 
 
+# o que o app do relógio guarda e o app do PC também edita (relogio.ajustes)
+CAMPOS_AJUSTES = {"voz": bool, "voz_pc": bool, "microfone": bool, "vibrar": bool,
+                  "texto": bool, "glitch": bool, "seguir_pc": bool, "tamanho": float}
+
+
+def ajustes_relogio() -> dict:
+    """Os ajustes do relógio que o PC conhece, com o "t" da última mudança."""
+    return vcfg.carregar()["relogio"]["ajustes"]
+
+
+def gravar_ajustes(novos: dict) -> bool:
+    """Guarda os ajustes vindos do relógio se forem mais novos que os do config."""
+    cfg = vcfg.carregar()
+    atual = cfg["relogio"]["ajustes"]
+    try:
+        t = int(novos.get("t") or 0)
+    except (TypeError, ValueError):
+        return False
+    if t <= int(atual.get("t") or 0):
+        return False
+    for k, tipo in CAMPOS_AJUSTES.items():
+        v = novos.get(k)
+        if tipo is bool and isinstance(v, bool):
+            atual[k] = v
+        elif tipo is float and isinstance(v, (int, float)) and not isinstance(v, bool):
+            atual[k] = round(min(1.3, max(0.6, float(v))), 3)
+    agentes = novos.get("agentes")
+    if isinstance(agentes, dict):
+        for skin in atual["agentes"]:
+            if isinstance(agentes.get(skin), str):
+                atual["agentes"][skin] = agentes[skin][:24]
+    atual["t"] = t
+    vcfg.salvar(cfg)
+    return True
+
+
 def enderecos() -> list:
     """IPs desta máquina na rede local (o que se digita no relógio)."""
     ips = []
@@ -154,7 +198,8 @@ class PonteRelogio:
     """
 
     def __init__(self, porta: int, token: str, ao_controle, ao_comando, ao_quadro=None,
-                 host: str = "0.0.0.0", ao_fala_fim=None, voz: bool = False, voz_pc: bool = False):
+                 host: str = "0.0.0.0", ao_fala_fim=None, voz: bool = False, voz_pc: bool = False,
+                 agentes=None):
         self.porta = int(porta)
         self.host = host
         self._token = token.strip().lower().encode()
@@ -164,6 +209,8 @@ class PonteRelogio:
         self._ao_fala_fim = ao_fala_fim
         self._voz = voz
         self._voz_pc = voz_pc
+        self._agentes = list(agentes or [])   # [{"id", "nome"}]: o relógio dá um a cada orbe
+        self._agente = ""             # o do orbe em tela no relógio ("agente <id>")
         self._com_voz = set()         # conexões que tocam a resposta
         self._pc_junto = set()        # das que tocam, as que querem o PC tocando também
         self._loop = None
@@ -225,6 +272,10 @@ class PonteRelogio:
             await servidor.wait_closed()
 
     # ── do daemon para o relógio ──
+
+    def agente(self) -> str:
+        """O agente do orbe em tela no relógio; vazio até ele dizer."""
+        return self._agente
 
     def mic_ativo(self) -> bool:
         """A fala está vindo do relógio agora: o microfone do PC não entra junto."""
@@ -325,6 +376,8 @@ class PonteRelogio:
             if ass != self._assinatura:
                 self._assinatura = ass
                 self._difundir("config " + json.dumps(aparencia(), ensure_ascii=False))
+                # quem já tem estes (ou mais novos) ignora: vale o "t" maior
+                self._difundir("ajustes " + json.dumps(ajustes_relogio(), ensure_ascii=False))
 
     # ── do relógio para o daemon ──
 
@@ -351,7 +404,7 @@ class PonteRelogio:
         nome = str(quem.get("nome") or "relógio")[:40]
         fila = asyncio.Queue(maxsize=1024)
         ola = dict(aparencia(), v=VERSAO, microfone=self._ao_quadro is not None, voz=self._voz,
-                   voz_pc=self._voz_pc)
+                   voz_pc=self._voz_pc, agentes=self._agentes)
         fila.put_nowait("ola " + json.dumps(ola, ensure_ascii=False))
         for l in self._reprise():
             fila.put_nowait(l)
@@ -401,6 +454,9 @@ class PonteRelogio:
             pass
 
     def _linha(self, ws, msg: str):
+        if msg.startswith("ajustes "):
+            self._ajustes(ws, msg[8:4096])
+            return
         linha = " ".join(msg.split())[:64]
         if linha in ("touch down", "touch up"):
             if linha == "touch up":
@@ -413,8 +469,25 @@ class PonteRelogio:
             self._ao_controle(linha)
         elif linha in COMANDOS:
             self._ao_comando(linha)
+        elif linha == "agente" or linha.startswith("agente "):
+            ag = linha[7:].strip()
+            if not ag or any(a.get("id") == ag for a in self._agentes):
+                self._agente = ag
         elif linha == "voz acabou" and self._ao_fala_fim is not None:
             self._ao_fala_fim()
+
+    def _ajustes(self, ws, texto: str):
+        """Os ajustes do relógio: os dele mais novos ficam; os do PC mais novos vão para ele."""
+        try:
+            d = json.loads(texto)
+        except ValueError:
+            return
+        if not isinstance(d, dict):
+            return
+        if not gravar_ajustes(d):
+            pc = ajustes_relogio()
+            if int(pc.get("t") or 0) > int(d.get("t") or 0) and ws in self._clientes:
+                self._clientes[ws].put_nowait("ajustes " + json.dumps(pc, ensure_ascii=False))
 
     def _audio(self, ws, pcm: bytes):
         if self._ao_quadro is None:

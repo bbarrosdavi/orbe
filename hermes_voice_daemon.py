@@ -757,20 +757,21 @@ COR_OLHOS_RELOGIO = "#ff2a2a"
 _CLAUDE_JANELA: subprocess.Popen | None = None
 
 
-def _abrir_claude(pasta: str, espera: float = 30.0) -> bool:
+def _abrir_claude(pasta: str, espera: float = 60.0) -> bool:
     """Garante uma sessão do Claude com o canal do orbe, abrindo um terminal no PC.
 
-    Sem sessão aberta, abre o terminal do config (relogio.terminal) com o
+    Sem sessão aberta, abre o terminal do config (agente.terminal) com o
     claude-orbe na pasta, com as ferramentas aprovadas sozinhas (como o orbe
-    faz por ACP). Fechar a janela encerra o Claude; o próximo uso do relógio
-    abre outra. Espera o canal se anunciar.
+    faz por ACP). Fechar a janela encerra o Claude; o próximo uso do orbe
+    abre outra. Espera o canal se anunciar (com folga para os avisos que o
+    Claude pede confirmar na janela).
     """
     global _CLAUDE_JANELA
     if canal.sessoes():
         return True
     if _CLAUDE_JANELA is None or _CLAUDE_JANELA.poll() is not None:
         claude = [str(Path(__file__).resolve().parent / "claude-orbe"), "--dangerously-skip-permissions"]
-        terminal = [VCFG["relogio"].get("terminal") or "ghostty", "-e", *claude]
+        terminal = [AGENTE_CFG.get("terminal") or "ghostty", "-e", *claude]
         # num escopo próprio: reiniciar o serviço do orbe não fecha a janela
         if shutil.which("systemd-run"):
             terminal = ["systemd-run", "--user", "--scope", "--quiet", "--collect", "--", *terminal]
@@ -1354,6 +1355,12 @@ class Daemon:
         self._mic_evento.set()
 
     def _end_session(self, reason: str = "idle"):
+        if self.state == "recording":
+            # Gravação que não fechou (a fala do relógio parou de chegar no
+            # meio): não sobrevive à sessão, senão o atalho só "encerra" para sempre.
+            self.rec = None
+            self.state = "listening"
+            self.speech_frames = 0
         if not (self.expecting_command or self.allow_interrupt):
             orb_cmd("hide")
             self._definir_origem("pc")
@@ -1450,12 +1457,15 @@ class Daemon:
             return
         try:
             import hermes_voice_relogio as relogio
+            # os agentes que o relógio pode dar a cada orbe: os instalados aqui
+            agentes = [{"id": t, "nome": acp.NOMES[t] + (f" ({AGENTE_CFG['perfil']})" if t == "hermes" else "")}
+                       for t in ("claude", "hermes", "opencode", "gemini") if acp.disponivel(t)]
             ponte = relogio.PonteRelogio(
                 int(rc["porta"]), relogio.token_da_config(),
                 ao_controle=lambda linha: self._ctl_q.put(linha + " relogio"),
                 ao_comando=self._relogio_comando,
                 ao_quadro=self._relogio_quadro if rc["microfone"] else None,
-                voz=True, voz_pc=True)
+                voz=True, voz_pc=True, agentes=agentes)
             if ponte.iniciar():
                 _RELOGIO = ponte
         except Exception as e:
@@ -1530,6 +1540,7 @@ class Daemon:
             except queue.Empty:
                 break
             op, _, arg = linha.partition(" ")
+            origem = "pc"
             if op in ("touch", "cmd"):
                 # "touch down relogio", "cmd toggle relogio"; sem origem, é o PC
                 arg, _, de = arg.partition(" ")
@@ -1729,7 +1740,8 @@ class Daemon:
             self._processing_thread is not None and self._processing_thread.is_alive()
         ):
             return True
-        if self.state == "recording" and self.rec is not None and self.rec.has_spoken:
+        if self.state == "recording" and self.rec is not None and (self.rec.has_spoken or self.rec.segurando):
+            # o dedo no orbe segura a sessão, mesmo antes da primeira palavra
             return True
         return False
 
@@ -2138,9 +2150,12 @@ class Daemon:
         return ouvido
 
     def _agente_cfg(self) -> dict:
-        """O agente da sessão: o do config, ou o Claude quando ela veio do relógio."""
+        """O agente da sessão: o do config, ou o do orbe em tela quando ela veio do relógio."""
         if self._origem == "relogio":
-            return dict(AGENTE_CFG, tipo="claude", modelo="")
+            tipo = (_RELOGIO.agente() if _RELOGIO is not None else "") or "claude"
+            # o modelo escolhido no PC só vale para o agente do PC
+            modelo = AGENTE_CFG["modelo"] if tipo == AGENTE_CFG["tipo"] else ""
+            return dict(AGENTE_CFG, tipo=tipo, modelo=modelo)
         return AGENTE_CFG
 
     def _agente_chave(self) -> str:
@@ -2169,11 +2184,11 @@ class Daemon:
                 self.agente = None
             t0 = time.monotonic()
             if cfg["tipo"] == "claude":
-                # Sessão do Claude aberta no terminal; o relógio abre uma se não houver.
-                if self._origem == "relogio":
-                    pasta = os.path.expanduser(VCFG["relogio"].get("claude_pasta") or "~")
-                    if not _abrir_claude(pasta):
-                        orb_cmd("line O Claude não abriu o canal: veja o terminal no PC")
+                # O Claude não roda em segundo plano: sem sessão com o canal,
+                # abre uma num terminal no PC, venha do atalho ou do relógio.
+                pasta = os.path.expanduser(AGENTE_CFG.get("claude_pasta") or "~")
+                if not _abrir_claude(pasta):
+                    orb_cmd("line O Claude não abriu o canal: veja o terminal no PC")
                 argv = ["claude"]
                 ag = canal.AgenteClaude()
             else:
@@ -2474,6 +2489,10 @@ class Daemon:
             try:
                 frame = self.audio_queue.get(timeout=0.5)
             except queue.Empty:
+                # Na sessão do relógio o microfone do PC não entra: depois do
+                # dedo solto não chega quadro nenhum para fechar a gravação.
+                if self.state == "recording" and self.rec is not None and self.rec.fim:
+                    self._fechar_gravacao()
                 if self.state == "processing" and self._processing_thread:
                     if not self._processing_thread.is_alive():
                         self._processing_thread = None
@@ -2613,19 +2632,7 @@ class Daemon:
                 self.rec.feed(frame, is_speech)
                 teto = RECORD_MAX_TOQUE_SEC if self.rec.por_toque else RECORD_MAX_SEC
                 if self.rec.seconds > teto or self.rec.is_done():
-                    LOG.info("□ Gravação: %.1fs", self.rec.seconds)
-                    # Inicia processamento em thread background
-                    self.state = "processing"
-                    self.speech_frames = 0
-                    self._int_frames = 0
-                    self.preroll_buffer.clear()
-                    self._interrupted.clear()
-                    rec = self.rec
-                    self.rec = None
-                    self._processing_thread = threading.Thread(
-                        target=self._handle, args=(rec,), daemon=True
-                    )
-                    self._processing_thread.start()
+                    self._fechar_gravacao()
 
             elif self.state == "processing":
                 # Fala durante o raciocínio vira continuação do pedido
@@ -2652,6 +2659,21 @@ class Daemon:
                     self.preroll_buffer.clear()
 
         LOG.info("Daemon encerrado")
+
+    def _fechar_gravacao(self):
+        """Fim da gravação: o processamento segue numa thread à parte."""
+        LOG.info("□ Gravação: %.1fs", self.rec.seconds)
+        self.state = "processing"
+        self.speech_frames = 0
+        self._int_frames = 0
+        self.preroll_buffer.clear()
+        self._interrupted.clear()
+        rec = self.rec
+        self.rec = None
+        self._processing_thread = threading.Thread(
+            target=self._handle, args=(rec,), daemon=True
+        )
+        self._processing_thread.start()
 
     def _handle(self, rec: Recorder):
         """Processa gravação: STT → comando. Wake já veio do microWakeWord."""

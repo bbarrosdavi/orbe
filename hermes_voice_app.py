@@ -273,6 +273,7 @@ class Ponte(QObject):
     atalhoCapturado = Signal(str)
     atalhoCancelado = Signal()
     estadoMudou = Signal()
+    ajustesRelogioMudou = Signal("QVariant")
     apresentar = Signal()
     previaMudou = Signal()
 
@@ -355,6 +356,57 @@ class Ponte(QObject):
     def nomesSkin(self):
         return NOMES_SKIN
 
+    @Property("QVariant", constant=True)
+    def agentesRelogio(self):
+        """O que cada orbe do relógio pode ter: o Claude (padrão) e os ACP instalados."""
+        perfil = self._cfg["agente"]["perfil"]
+        return [{"id": "", "nome": "Claude Code (padrão)"}] + [
+            {"id": t, "nome": acp.NOMES[t] + (f" ({perfil})" if t == "hermes" else "")}
+            for t in ("hermes", "opencode", "gemini") if acp.disponivel(t)]
+
+    @Slot(result=str)
+    def trocarTokenRelogio(self):
+        """Token novo: o relógio pareado com o velho para de entrar."""
+        tok = relogio.token_da_config(trocar=True)
+        self._cfg["relogio"]["token"] = tok
+        subprocess.Popen(["systemctl", "--user", "restart", SERVICO],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return tok
+
+    @Slot(result=str)
+    def firewallRelogio(self):
+        """Se o firewalld deixa o relógio chegar à porta da ponte; vazio sem firewalld.
+
+        Lê a zona padrão dos arquivos de /etc/firewalld (legíveis por todos):
+        o firewall-cmd, mesmo só para listar, pode pedir a senha pelo polkit.
+        """
+        porta = int(self._cfg["relogio"]["porta"])
+        try:
+            ativo = subprocess.run(["systemctl", "is-active", "firewalld"],
+                                   capture_output=True, text=True, timeout=2).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        if ativo != "active":
+            return ""
+        zona = "public"
+        try:
+            for linha in Path("/etc/firewalld/firewalld.conf").read_text().splitlines():
+                if linha.startswith("DefaultZone="):
+                    zona = linha.split("=", 1)[1].strip() or zona
+        except OSError:
+            pass
+        xml = ""
+        for base in ("/etc/firewalld/zones", "/usr/lib/firewalld/zones"):
+            try:
+                xml = (Path(base) / f"{zona}.xml").read_text()
+                break
+            except OSError:
+                continue
+        if f'port="{porta}"' in xml:
+            return "a porta está liberada no firewall"
+        return (f"o firewall bloqueia a porta {porta}: sudo firewall-cmd --zone={zona} --permanent "
+                f"--add-port={porta}/tcp && sudo firewall-cmd --reload")
+
     @Property(str, constant=True)
     def enderecoRelogio(self):
         """O que se digita no relógio para achar este computador."""
@@ -376,6 +428,11 @@ class Ponte(QObject):
         if txt != self._estado:
             self._estado = txt
             self.estadoMudou.emit()
+        # o relógio mudou os ajustes dele pela ponte: a aba do relógio acompanha
+        disco = relogio.ajustes_relogio()
+        if disco != self._cfg["relogio"]["ajustes"]:
+            self._cfg["relogio"]["ajustes"] = disco
+            self.ajustesRelogioMudou.emit(disco)
 
     # ── agente ──
 
@@ -409,7 +466,7 @@ class Ponte(QObject):
     def sessoesClaude(self):
         s = canal.sessoes()
         if not s:
-            return "nenhuma aberta com o canal; abra o Claude com claude-orbe"
+            return "nenhuma aberta com o canal: o orbe abre uma no terminal ao ser chamado"
         cwd = (s[0].get("cwd") or "?").replace(str(Path.home()), "~", 1)
         mais = f" (de {len(s)} abertas)" if len(s) > 1 else ""
         return f"fala com a mais recente{mais}: {cwd}"
@@ -588,6 +645,8 @@ class Ponte(QObject):
                 atalho = _atalho_atual()
         novo["ativacao"]["atalho"] = atalho
         self._atalho = atalho
+        # o token é daqui (o botão de trocar grava direto): a cópia da interface pode ser velha
+        novo["relogio"]["token"] = self._cfg["relogio"]["token"]
         # a ponte do relógio precisa de um token; nasce na primeira vez que ela é ligada
         if novo["relogio"]["ligado"] and not novo["relogio"]["token"]:
             novo["relogio"]["token"] = relogio.novo_token()
@@ -599,10 +658,26 @@ class Ponte(QObject):
             for k in chaves:
                 c.pop(k, None)
             return c
+        # Os ajustes do relógio vão e voltam pela ponte: mexidos aqui, ganham
+        # um "t" novo e a ponte os leva; intocados, fica o que o relógio mandou
+        # enquanto o app estava aberto.
+        aj, aj_antes = dict(novo["relogio"]["ajustes"]), dict(self._cfg["relogio"]["ajustes"])
+        aj.pop("t", None)
+        aj_antes.pop("t", None)
+        if aj != aj_antes:
+            novo["relogio"]["ajustes"]["t"] = int(time.time() * 1000)
+        else:
+            novo["relogio"]["ajustes"] = relogio.ajustes_relogio()
+
+        def sem_relogio(c, *chaves):
+            c = sem(c, *chaves)
+            c["relogio"].pop("ajustes", None)
+            return c
         mudou = sem(novo) != sem(self._cfg)
-        # O orbe em Quickshell segue o config.json ao vivo: mudar só a
-        # aparência dispensa reiniciar o daemon (e recarregar o agente).
-        so_orbe = mudou and sem(novo, "orbe") == sem(self._cfg, "orbe")
+        # O orbe em Quickshell segue o config.json ao vivo, e a ponte leva os
+        # ajustes do relógio: mudar só isso dispensa reiniciar o daemon (e
+        # recarregar o agente).
+        so_orbe = mudou and sem_relogio(novo, "orbe") == sem_relogio(self._cfg, "orbe")
         vcfg.salvar(novo)
         self._cfg = novo
         if erro:
