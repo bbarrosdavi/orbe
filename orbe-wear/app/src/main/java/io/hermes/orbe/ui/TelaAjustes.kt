@@ -160,7 +160,11 @@ fun TelaAjustes(
                     LinhaSwitch("Abrir já no live", ajustes.live, subtitulo = "um toque no orbe abre direto no live") { vm.live(it) }
                 }
 
-                grupo("Agente de cada orbe", "Rolar o carrossel troca de orbe e, com ele, de agente. Toque para trocar.")
+                grupo(
+                    "Agente de cada orbe",
+                    "Rolar a lista troca de orbe e, com ele, de agente. Toque para trocar. À direita de cada orbe do Claude, " +
+                        "com dois dedos, ficam as sessões abertas no PC, cada uma numa cor e com a pasta embaixo.",
+                )
                 Skin.entries.forEach { skin ->
                     linha {
                         val id = ajustes.agentes[skin.id].orEmpty()
@@ -187,7 +191,7 @@ fun TelaAjustes(
                     }
                 }
                 linha {
-                    SliderOrbe(ajustes.tamanho, Ajustes.TAMANHO_MIN, Ajustes.TAMANHO_MAX, cartao(aparencia.skin)) { vm.tamanho(it) }
+                    SliderOrbe(ajustes.tamanhoDe(aparencia.skin), Ajustes.TAMANHO_MIN, Ajustes.TAMANHO_MAX, cartao(aparencia.skin)) { vm.tamanho(it) }
                 }
                 linha {
                     LinhaSwitch("Glitch", aparencia.glitch, subtitulo = "aberração cromática e faixas arrancadas") { vm.glitch(it) }
@@ -196,7 +200,10 @@ fun TelaAjustes(
                     LinhaSwitch("Linhas de TV", aparencia.linhas, subtitulo = "linhas de varredura, como num tubo") { vm.linhas(it) }
                 }
                 linha {
-                    LinhaSwitch("Texto do raciocínio", ajustes.texto, subtitulo = "as linhas do agente, abaixo do orbe") { vm.texto(it) }
+                    LinhaSwitch("Fundo atrás do orbe", ajustes.fundo, subtitulo = "só aqui no relógio: o mesmo do menu, o papel de parede do PC") { vm.fundo(it) }
+                }
+                linha {
+                    LinhaSwitch("Texto do raciocínio", ajustes.texto, subtitulo = "só aqui no relógio: as linhas do agente, abaixo do orbe") { vm.texto(it) }
                 }
                 linha {
                     LinhaSwitch("Seguir o orbe do PC", ajustes.seguirPc, subtitulo = "o avatar e o glitch vêm do computador") { vm.seguirPc(it) }

@@ -72,8 +72,8 @@ class QuebraTest {
 
     @Test
     fun olaDaPonte() {
-        val ola = Protocolo.ola("""{"v": 1, "orbe": {"skin": "shoggoth", "glitch": false, "tamanho": 1.3}, "tema": {"accent_bg_color": "#f3b2e3", "anel": "#0087fc"}, "microfone": true, "novo": 1}""")!!
-        assertEquals("shoggoth", ola.orbe.skin)
+        val ola = Protocolo.ola("""{"v": 1, "orbe": {"skin": "ofanim_alado", "glitch": false, "tamanho": 1.3}, "tema": {"accent_bg_color": "#f3b2e3", "anel": "#0087fc"}, "microfone": true, "novo": 1}""")!!
+        assertEquals("ofanim_alado", ola.orbe.skin)
         assertEquals(false, ola.orbe.glitch)
         assertEquals("#f3b2e3", ola.tema["accent_bg_color"])
         assertTrue(ola.microfone)

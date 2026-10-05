@@ -53,6 +53,8 @@ class Ponte(
     private val querVozPc: () -> Boolean = { false },
     /** os ajustes que o app do PC também edita, vindos de lá */
     private val aoAjustes: (Sincronia) -> Unit = {},
+    /** as sessões do Claude Code abertas no PC mudaram */
+    private val aoSessoes: (List<SessaoInfo>) -> Unit = {},
 ) {
     private val cliente = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
@@ -129,6 +131,7 @@ class Ponte(
                         aoConfig(it, text.substring(7))
                     }
                     text.startsWith("ajustes ") -> if (conectou) Protocolo.sincronia(text.substring(8))?.let(aoAjustes)
+                    text.startsWith("sessoes ") -> if (conectou) Protocolo.sessoes(text.substring(8))?.let(aoSessoes)
                     conectou -> aoLinha(text)
                 }
             }

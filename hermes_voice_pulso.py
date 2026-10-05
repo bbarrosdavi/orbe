@@ -43,6 +43,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hermes_voice_acp as acp  # noqa: E402
 import hermes_voice_canal as canal  # noqa: E402
+import hermes_voice_sessao as sessao  # noqa: E402
 import hermes_voice_config as vcfg  # noqa: E402
 import hermes_voice_relogio as relogio  # noqa: E402
 import hermes_voice_tts as tts  # noqa: E402
@@ -485,8 +486,10 @@ class Pulso:
             self._ocupado = False
             self._sumir()
             if op == "encerrar" and self.cfg["agente"]["tipo"] == "claude":
-                # três toques: com o Claude, a sessão dele fecha também
-                pid = canal.encerrar()
+                # três toques: com o Claude, a sessão dele fecha também (a do
+                # orbe em tela; as abertas à mão, sem o canal, ficam)
+                alvo = self._alvo()
+                pid = canal.encerrar(max(alvo, 0)) if alvo != 0 else 0
                 LOG.info("encerrar: Claude %s", f"fechado (pid {pid})" if pid else "já não tinha sessão")
         elif op in ("hold", "release"):
             self._travado = op == "hold"
@@ -504,19 +507,29 @@ class Pulso:
         return "|".join(("pulso", a["tipo"], a["perfil"] if a["tipo"] == "hermes" else "",
                          a["comando"] if a["tipo"] == "comando" else "", self.pasta))
 
+    def _alvo(self) -> int:
+        """A sessão do Claude na vaga do orbe em tela no relógio: o pid, 0 com a
+        vaga livre, -1 sem vaga (relógio que não diz, ou orbe de outro agente)."""
+        vaga = self.ponte.vaga()
+        return self.ponte.sessao_da_vaga(vaga) if vaga >= 0 else -1
+
     def _agente_pronto(self):
         """Agente vivo e com sessão; sobe, ou reinicia retomando a conversa (como no daemon)."""
         with self._trava_agente:
             ag = self.agente
-            if ag is not None and ag.vivo() and ag.sessao:
+            a = self.cfg["agente"]
+            alvo = self._alvo() if a["tipo"] == "claude" else -1
+            if ag is not None and ag.vivo() and ag.sessao and getattr(ag, "alvo", 0) == max(alvo, 0):
                 return ag
             if ag is not None:
                 encerrar(ag)
                 self.agente = None
-            a = self.cfg["agente"]
             t0 = time.monotonic()
             if a["tipo"] == "claude":
-                ag = canal.AgenteClaude()         # sessão já aberta no terminal: nada a subir
+                # sessão já aberta no terminal: nada a subir (daqui não se abre uma)
+                if alvo == 0:
+                    raise acp.ErroACP("nenhuma sessão do Claude neste orbe: abra uma no computador")
+                ag = sessao.agente(max(alvo, 0))
             else:
                 argv, extra = acp.comando(a)
                 argv[0] = shutil.which(argv[0]) or argv[0]      # no Windows o npx é npx.cmd

@@ -84,7 +84,7 @@ GEMINI_VOZES = [
     "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Achird", "Zubenelgenubi",
     "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat",
 ]
-NOMES_SKIN = {"ofanim": "Ophanim", "ofanim_alado": "Ophanim com asas", "shoggoth": "Shoggoth", "serafim_gravura": "Seraphim (gravura)", "entidade": "Entidade",
+NOMES_SKIN = {"ofanim": "Ophanim", "ofanim_alado": "Ophanim com asas", "serafim_gravura": "Seraphim (gravura)",
               "anel": "Anel de energia"}
 
 

@@ -186,7 +186,7 @@ private fun Roda(escopo: TransformingLazyColumnItemScope, spec: TransformationSp
 
 /**
  * O menu: uma lista que rola em roda, com o indicador de rolagem do sistema.
- * A coroa é do OrbeApp (no orbe ela gira o carrossel), por isso a lista não
+ * A coroa é do OrbeApp (no orbe ela passa de orbe em orbe), por isso a lista não
  * pega a coroa sozinha.
  */
 @Composable

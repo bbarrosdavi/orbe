@@ -187,16 +187,18 @@ DEFAULTS = {
         "rastro_niveis": True,
     },
     "orbe": {
-        # ofanim | ofanim_alado | shoggoth (orbe-qt/comum/Figura.qml) |
-        # serafim_gravura | entidade (imagens recortadas, orbe-qt/arte) | anel (rotoscope)
+        # ofanim | ofanim_alado (orbe-qt/comum/Figura.qml) | serafim_gravura
+        # (imagem recortada, orbe-qt/arte) | anel (rotoscope)
         "skin": "ofanim",
         "glitch": True,
         # sombra radial atrás do orbe (pos.frag); a chave guarda o nome antigo
         "vidro": False,
         # opacidade da sombra no centro (0.1 a 1.0); 0.45 era o valor fixo
         "sombra": 0.45,
-        # escala do orbe na tela (0.6 a 1.6); 1.0 = célula de 148 px
+        # escala do orbe na tela (0.6 a 1.6); 1.0 = célula de 148 px. É a de
+        # cada skin que ainda não tem a sua em "tamanhos" (null)
         "tamanho": 1.0,
+        "tamanhos": {"anel": None, "serafim_gravura": None, "ofanim": None, "ofanim_alado": None},
         # onde aparece o texto do raciocínio: lado | abaixo
         "texto": "lado",
         # destravado, o orbe pode ser arrastado; a posição fica em
@@ -217,9 +219,8 @@ DEFAULTS = {
         # lado de "t" mais novo (ms desde 1970 da última mudança).
         "ajustes": {
             "t": 0,
-            # o agente de cada orbe do carrossel, pela skin; "" = Claude Code
-            "agentes": {"ofanim": "", "ofanim_alado": "", "shoggoth": "",
-                        "serafim_gravura": "", "entidade": "", "anel": ""},
+            # o agente de cada orbe da lista do relógio, pela skin; "" = Claude Code
+            "agentes": {"ofanim": "", "ofanim_alado": "", "serafim_gravura": "", "anel": ""},
             "voz": True,          # a resposta toca no relógio
             "voz_pc": False,      # tocando lá, toca também no PC
             "microfone": True,    # segurando o orbe, a fala vem do relógio
@@ -228,10 +229,17 @@ DEFAULTS = {
             "glitch": True,
             "linhas": True,       # as linhas de TV (só no relógio; no PC elas vêm com o glitch)
             "tamanho": 1.0,
+            # a escala de cada orbe do relógio; null = a de "tamanho"
+            "tamanhos": {"anel": None, "serafim_gravura": None, "ofanim": None, "ofanim_alado": None},
             "seguir_pc": True,    # o avatar e o glitch vêm do orbe do PC
         },
     },
 }
+
+
+# as skins do orbe, na ordem do app do desktop (o Seraphim desenhado, o Shoggoth
+# e a Entidade saíram); a lista do relógio tem a sua, em Skin.kt
+SKINS = ("ofanim", "ofanim_alado", "serafim_gravura", "anel")
 
 
 def _mesclar(base: dict, extra: dict) -> dict:
@@ -256,12 +264,20 @@ def _diferenca(cfg: dict, base: dict) -> dict:
     return out
 
 
+def skin_valida(skin) -> str:
+    """Skin que saiu vira a que a substitui, ou o Ophanim."""
+    skin = "serafim_gravura" if skin == "serafim" else skin
+    return skin if skin in SKINS else "ofanim"
+
+
 def carregar() -> dict:
     try:
         bruto = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         bruto = {}
-    return _mesclar(DEFAULTS, bruto if isinstance(bruto, dict) else {})
+    cfg = _mesclar(DEFAULTS, bruto if isinstance(bruto, dict) else {})
+    cfg["orbe"]["skin"] = skin_valida(cfg["orbe"]["skin"])
+    return cfg
 
 
 def salvar(cfg: dict) -> None:

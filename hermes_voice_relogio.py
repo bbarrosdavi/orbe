@@ -12,9 +12,12 @@ Conversa (texto = uma linha por mensagem; binário = PCM s16le mono 16 kHz):
                                                     voz: toca a resposta no relógio;
                                                     voz_pc: toca também no PC
   ponte   → ola {"v": 1, "orbe": {...}, "tema": {...}, "microfone": true, "voz": false,
-                 "voz_pc": false, "agentes": [{"id", "nome"}]}
+                 "voz_pc": false, "agentes": [{"id", "nome"}], "sessoes": [...],
+                 "abre_claude": false}
                                                     voz_pc: o PC pode tocar junto;
-                                                    agentes: os que cada orbe pode ter
+                                                    agentes: os que cada orbe pode ter;
+                                                    abre_claude: falar num orbe do Claude
+                                                    sem sessão abre uma no PC
   ponte   → show listening | state thinking | level 0.42 0.60 | mic 0.3
             line <texto> | hold 1 | hide | clear    as linhas que o orbe recebe
   ponte   → config {"orbe": {...}, "tema": {...}, "papel": [...]}   aparência, tema ou papel de parede mudaram
@@ -24,6 +27,11 @@ Conversa (texto = uma linha por mensagem; binário = PCM s16le mono 16 kHz):
                                                     encerrar: fecha a sessão e, com o Claude no
                                                     orbe, a sessão do Claude Code
   relógio → agente <id>                             o agente do orbe em tela (vazio = Claude)
+  ponte   → sessoes [{"vaga", "pid", "rotulo", "estado", "canal", "ouve"}]
+                                                    as sessões do Claude Code abertas no PC,
+                                                    cada uma na sua vaga (também no "ola")
+  relógio → vaga <k> | vaga                         o orbe em tela é o k-ésimo do Claude no
+                                                    carrossel (nada: não é orbe do Claude)
   relógio → (binário) a fala, enquanto o dedo segura o orbe (ou na sessão
             aberta por "trigger", enquanto ela ouve)
   os dois → ajustes {"t": ..., "agentes": {...}, "voz": true, ...}
@@ -66,6 +74,7 @@ import time
 from pathlib import Path
 
 import hermes_voice_config as vcfg
+import hermes_voice_sessao as sessao
 
 LOG = logging.getLogger("relogio")
 
@@ -156,7 +165,8 @@ def papel() -> list:
 def aparencia() -> dict:
     """O que o relógio precisa para desenhar o orbe igual ao do PC."""
     o = vcfg.carregar()["orbe"]
-    return {"orbe": {"skin": o["skin"], "glitch": bool(o["glitch"]), "tamanho": o["tamanho"]},
+    tam = (o.get("tamanhos") or {}).get(o["skin"])
+    return {"orbe": {"skin": o["skin"], "glitch": bool(o["glitch"]), "tamanho": o["tamanho"] if tam is None else tam},
             "tema": tema(), "papel": papel()}
 
 
@@ -206,6 +216,12 @@ def gravar_ajustes(novos: dict) -> bool:
             atual[k] = v
         elif tipo is float and isinstance(v, (int, float)) and not isinstance(v, bool):
             atual[k] = round(min(1.3, max(0.6, float(v))), 3)
+    tamanhos = novos.get("tamanhos")
+    if isinstance(tamanhos, dict):
+        for skin in atual["tamanhos"]:
+            v = tamanhos.get(skin)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                atual["tamanhos"][skin] = round(min(1.3, max(0.6, float(v))), 3)
     agentes = novos.get("agentes")
     if isinstance(agentes, dict):
         for skin in atual["agentes"]:
@@ -253,7 +269,7 @@ class PonteRelogio:
 
     def __init__(self, porta: int, token: str, ao_controle, ao_comando, ao_quadro=None,
                  host: str = "0.0.0.0", ao_fala_fim=None, voz: bool = False, voz_pc: bool = False,
-                 agentes=None):
+                 agentes=None, abre_claude: bool = False):
         self.porta = int(porta)
         self.host = host
         self._token = token.strip().lower().encode()
@@ -264,7 +280,14 @@ class PonteRelogio:
         self._voz = voz
         self._voz_pc = voz_pc
         self._agentes = list(agentes or [])   # [{"id", "nome"}]: o relógio dá um a cada orbe
+        self._abre_claude = abre_claude       # falar num orbe do Claude sem sessão abre uma (o daemon)
         self._agente = ""             # o do orbe em tela no relógio ("agente <id>")
+        # as sessões do Claude Code: cada uma numa vaga, que não muda enquanto ela vive
+        # (a vaga k é o k-ésimo orbe do Claude no carrossel do relógio)
+        self._vaga = -1               # a do orbe em tela ("vaga <k>"); -1 = não é orbe do Claude
+        self._vagas = {}              # pid → vaga
+        self._sessoes = []            # o último "sessoes" difundido
+        self._trava_vagas = threading.Lock()
         self._com_voz = set()         # conexões que tocam a resposta
         self._pc_junto = set()        # das que tocam, as que querem o PC tocando também
         self._loop = None
@@ -330,6 +353,55 @@ class PonteRelogio:
     def agente(self) -> str:
         """O agente do orbe em tela no relógio; vazio até ele dizer."""
         return self._agente
+
+    def vaga(self) -> int:
+        """O k do k-ésimo orbe do Claude em tela no relógio; -1 se não é um deles."""
+        return self._vaga
+
+    def sessao_da_vaga(self, vaga: int) -> int:
+        """O pid da sessão do Claude na [vaga]; 0 com ela livre."""
+        with self._trava_vagas:
+            return next((p for p, v in self._vagas.items() if v == vaga), 0)
+
+    def atribuir(self, pid: int, vaga: int) -> None:
+        """A sessão que o orbe acabou de abrir fica na vaga de onde foi pedida."""
+        with self._trava_vagas:
+            if vaga >= 0 and all(v != vaga for p, v in self._vagas.items() if p != pid):
+                self._vagas[pid] = vaga
+        loop = self._loop
+        if loop is not None:
+            try:
+                loop.call_soon_threadsafe(self._atualizar_sessoes)
+            except RuntimeError:
+                pass
+
+    def _lista_sessoes(self) -> list:
+        """Lê as sessões e acerta as vagas: a nova fica com a menor livre."""
+        try:
+            vivas = sessao.sessoes()
+        except Exception as e:
+            LOG.debug("sessões do Claude: %s", e)
+            vivas = []
+        with self._trava_vagas:
+            pids = {s["pid"] for s in vivas}
+            self._vagas = {p: v for p, v in self._vagas.items() if p in pids}
+            usadas = set(self._vagas.values())
+            for s in vivas:
+                if s["pid"] not in self._vagas:
+                    v = 0
+                    while v in usadas:
+                        v += 1
+                    self._vagas[s["pid"]] = v
+                    usadas.add(v)
+            return sorted(({"vaga": self._vagas[s["pid"]], "pid": s["pid"], "rotulo": sessao.rotulo(s),
+                            "estado": s["estado"], "canal": s["canal"], "ouve": s["ouve"]} for s in vivas),
+                          key=lambda s: s["vaga"])
+
+    def _atualizar_sessoes(self):
+        lista = self._lista_sessoes()
+        if lista != self._sessoes:
+            self._sessoes = lista
+            self._difundir("sessoes " + json.dumps(lista, ensure_ascii=False))
 
     def mic_ativo(self) -> bool:
         """A fala está vindo do relógio agora: o microfone do PC não entra junto."""
@@ -421,11 +493,12 @@ class PonteRelogio:
         return linhas
 
     async def _vigiar(self):
-        """Config do orbe e tema do sistema: mudou, o relógio fica sabendo."""
+        """Config do orbe, tema do sistema e sessões do Claude: mudou, o relógio fica sabendo."""
         while True:
             await asyncio.sleep(2.0)
             if not self._clientes:
                 continue
+            self._atualizar_sessoes()
             ass = _assinatura()
             if ass != self._assinatura:
                 self._assinatura = ass
@@ -457,8 +530,10 @@ class PonteRelogio:
         self._falhas.pop(ip, None)
         nome = str(quem.get("nome") or "relógio")[:40]
         fila = asyncio.Queue(maxsize=1024)
+        self._sessoes = self._lista_sessoes()
         ola = dict(aparencia(), v=VERSAO, microfone=self._ao_quadro is not None, voz=self._voz,
-                   voz_pc=self._voz_pc, agentes=self._agentes)
+                   voz_pc=self._voz_pc, agentes=self._agentes, sessoes=self._sessoes,
+                   abre_claude=self._abre_claude)
         fila.put_nowait("ola " + json.dumps(ola, ensure_ascii=False))
         for l in self._reprise():
             fila.put_nowait(l)
@@ -527,6 +602,9 @@ class PonteRelogio:
             ag = linha[7:].strip()
             if not ag or any(a.get("id") == ag for a in self._agentes):
                 self._agente = ag
+        elif linha == "vaga" or linha.startswith("vaga "):
+            k = linha[5:].strip()
+            self._vaga = int(k) if k.isdigit() and int(k) < 1000 else -1
         elif linha == "voz acabou" and self._ao_fala_fim is not None:
             self._ao_fala_fim()
 

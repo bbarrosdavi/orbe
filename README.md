@@ -38,9 +38,9 @@ e respondendo, gravado na área de trabalho.
 - **Conversa por voz**: falar por cima interrompe (opcional), "tchau"
   dispensa o orbe, "fica" trava a sessão aberta e "pode soltar" destrava.
   Dois toques (ou cliques) no orbe também travam.
-- **Avatares desenhados na GPU**: Ophanim, Ophanim com asas e anel de
-  energia, com glitch, sombra opcional e o texto do raciocínio ao lado ou
-  abaixo do orbe.
+- **Avatares desenhados na GPU**: Ophanim, Ophanim com asas, Seraphim
+  (gravura) e anel de energia, cada um com o seu tamanho, com glitch, sombra
+  opcional e o texto do raciocínio ao lado ou abaixo do orbe.
 - **App de configuração** com prévia ao vivo que passa por todos os estados.
 - **No pulso**: um app para Wear OS desenha o mesmo orbe no relógio, mostra o
   raciocínio e deixa tocar e segurar para falar pelo microfone dele. Sem o
@@ -124,6 +124,13 @@ Em outros compositores, ligue qualquer tecla a `orb_control.py toggle`.
 Abra o Claude com `./claude-orbe` no lugar de `claude` e escolha "Claude Code"
 na aba Agente do app. O orbe passa a falar com aquela sessão. No Windows, o
 lançador é o `claude-orbe.cmd` (ver [Relógio](#relógio-wear-os)).
+
+As sessões abertas à mão, com `claude`, o relógio alcança por um hook do
+usuário: `./hermes_voice_sessao.py --instalar` o põe no
+`~/.claude/settings.json`. No relógio, cada sessão aberta é uma instância dos
+orbes do Claude, que se passa com dois dedos, na sua cor e com a pasta e o
+estado embaixo, e o orbe fala só a resposta ao pedido de voz (ver [Sessões do
+Claude Code](docs/orbe-watch.md#sessões-do-claude-code)).
 
 ### Cancelamento de eco (opcional)
 
@@ -309,6 +316,7 @@ ativação própria a partir de gravações e de vozes do Piper.
 | `hermes_voice_daemon.py` | captura, ativação, VAD, transcrição e orquestração |
 | `hermes_voice_acp.py` | cliente ACP: fala com o agente escolhido |
 | `hermes_voice_canal.py`, `claude-orbe`, `claude-orbe.cmd` | canal MCP para o Claude Code |
+| `hermes_voice_sessao.py` | sessões do Claude Code abertas à mão: lista, hook que acorda a sessão e devolve a resposta |
 | `hermes_voice_tts.py` | worker de síntese e reprodução |
 | `orbe-qt/orbe.qml` | orbe em Quickshell (layer-shell), desenho em shaders |
 | `orbe-qt/orbe_mac.py`, `orbe_mac.qml` | o mesmo orbe no macOS (PySide6, Metal, atalho global) |

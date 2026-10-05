@@ -48,6 +48,7 @@ HERMES_PROFILE_DIR = Path.home() / ".hermes" / "profiles" / "jarvis"
 import hermes_voice_acp as acp  # noqa: E402
 import hermes_voice_config as vcfg  # noqa: E402
 import hermes_voice_canal as canal  # noqa: E402
+import hermes_voice_sessao as sessao  # noqa: E402
 
 VCFG = vcfg.carregar()
 _AT = VCFG["ativacao"]
@@ -835,19 +836,22 @@ COR_OLHOS_RELOGIO = "#ff2a2a"
 _CLAUDE_JANELA: subprocess.Popen | None = None
 
 
-def _abrir_claude(pasta: str, espera: float = 60.0) -> bool:
+def _abrir_claude(pasta: str, espera: float = 60.0, nova: bool = False) -> int:
     """Garante uma sessão do Claude com o canal do orbe, abrindo um terminal no PC.
 
-    Sem sessão aberta, abre o terminal do config (agente.terminal) com o
-    claude-orbe na pasta, com as ferramentas aprovadas sozinhas (como o orbe
-    faz por ACP). Fechar a janela encerra o Claude; o próximo uso do orbe
-    abre outra. Espera o canal se anunciar (com folga para os avisos que o
-    Claude pede confirmar na janela).
+    Sem sessão aberta (ou com [nova], pedida de um orbe livre no relógio),
+    abre o terminal do config (agente.terminal) com o claude-orbe na pasta,
+    com as ferramentas aprovadas sozinhas (como o orbe faz por ACP). Fechar a
+    janela encerra o Claude; o próximo uso do orbe abre outra. Espera o canal
+    se anunciar (com folga para os avisos que o Claude pede confirmar na
+    janela). Devolve o pid da sessão, ou 0.
     """
     global _CLAUDE_JANELA
-    if canal.sessoes():
-        return True
-    if _CLAUDE_JANELA is None or _CLAUDE_JANELA.poll() is not None:
+    vivas = canal.sessoes()
+    if vivas and not nova:
+        return int(vivas[0]["pid"])
+    antes = {int(s["pid"]) for s in vivas}
+    if nova or _CLAUDE_JANELA is None or _CLAUDE_JANELA.poll() is not None:
         claude = [str(Path(__file__).resolve().parent / "claude-orbe"), "--dangerously-skip-permissions"]
         terminal = [AGENTE_CFG.get("terminal") or "ghostty", "-e", *claude]
         # num escopo próprio: reiniciar o serviço do orbe não fecha a janela
@@ -858,15 +862,16 @@ def _abrir_claude(pasta: str, espera: float = 60.0) -> bool:
                                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError as e:
             LOG.warning("Claude: o terminal não abriu (%s)", e)
-            return False
+            return 0
         LOG.info("Claude: terminal aberto no PC (%s, em %s)", terminal[terminal.index("-e") - 1], pasta)
     fim = time.monotonic() + espera
     while time.monotonic() < fim:
-        if canal.sessoes():
-            return True
+        novas = [int(s["pid"]) for s in canal.sessoes() if int(s["pid"]) not in antes]
+        if novas:
+            return novas[0]
         time.sleep(0.25)
     LOG.warning("Claude: o canal não apareceu em %.0f s (o terminal no PC mostra o porquê)", espera)
-    return False
+    return 0
 
 
 def orb_cmd(line: str, relogio: bool = True) -> None:
@@ -1530,8 +1535,12 @@ class Daemon:
             self._kill_active(hide=True)
             self._end_session("encerrar")
             if tipo == "claude":
-                pid = canal.encerrar()
-                LOG.info("encerrar: Claude %s", f"fechado (pid {pid})" if pid else "já não tinha sessão")
+                # do relógio, a do orbe em tela; as abertas à mão (sem o canal) ficam
+                vaga = _RELOGIO.vaga() if origem == "relogio" and _RELOGIO is not None else -1
+                alvo = _RELOGIO.sessao_da_vaga(vaga) if vaga >= 0 else 0
+                pid = canal.encerrar(alvo) if vaga < 0 or alvo else 0
+                LOG.info("encerrar: Claude %s", f"fechado (pid {pid})" if pid
+                         else "sessão aberta à mão, fica" if alvo else "já não tinha sessão")
         elif "interromper" in low:
             # O toque curto do relógio, já contado lá (dois e três toques têm
             # outro sentido): corta a fala ou o raciocínio e deixa ouvindo, sem
@@ -1603,7 +1612,7 @@ class Daemon:
                 ao_controle=lambda linha: self._ctl_q.put(linha + " relogio"),
                 ao_comando=self._relogio_comando,
                 ao_quadro=self._relogio_quadro if rc["microfone"] else None,
-                voz=True, voz_pc=True, agentes=agentes)
+                voz=True, voz_pc=True, agentes=agentes, abre_claude=True)
             if ponte.iniciar():
                 _RELOGIO = ponte
         except Exception as e:
@@ -2293,18 +2302,27 @@ class Daemon:
         return ouvido
 
     def _agente_cfg(self) -> dict:
-        """O agente da sessão: o do config, ou o do orbe em tela quando ela veio do relógio."""
+        """O agente da sessão: o do config, ou o do orbe em tela quando ela veio do relógio.
+
+        Do relógio, um orbe do Claude é uma vaga: a sessão do Claude Code que
+        está nela (pid), ou nenhuma (pid 0: falar ali abre uma nova).
+        """
         if self._origem == "relogio":
             tipo = (_RELOGIO.agente() if _RELOGIO is not None else "") or "claude"
             # o modelo escolhido no PC só vale para o agente do PC
             modelo = AGENTE_CFG["modelo"] if tipo == AGENTE_CFG["tipo"] else ""
-            return dict(AGENTE_CFG, tipo=tipo, modelo=modelo)
+            vaga = _RELOGIO.vaga() if _RELOGIO is not None and tipo == "claude" else -1
+            pid = _RELOGIO.sessao_da_vaga(vaga) if vaga >= 0 else 0
+            return dict(AGENTE_CFG, tipo=tipo, modelo=modelo, vaga=vaga, pid=pid)
         return AGENTE_CFG
 
     def _agente_chave(self) -> str:
         a = self._agente_cfg()
+        alvo = ""
+        if a["tipo"] == "claude" and a.get("vaga", -1) >= 0:
+            alvo = f"pid {a['pid']}" if a["pid"] else f"vaga {a['vaga']}"
         return "|".join((a["tipo"], a["perfil"] if a["tipo"] == "hermes" else "",
-                         a["comando"] if a["tipo"] == "comando" else ""))
+                         a["comando"] if a["tipo"] == "comando" else "", alvo))
 
     def _agente_velho(self, ag: acp.AgenteACP) -> bool:
         if self._agente_cfg()["tipo"] != "hermes":
@@ -2329,11 +2347,23 @@ class Daemon:
             if cfg["tipo"] == "claude":
                 # O Claude não roda em segundo plano: sem sessão com o canal,
                 # abre uma num terminal no PC, venha do atalho ou do relógio.
+                # Do relógio, cada orbe do Claude é uma sessão: a que está na
+                # vaga dele (aberta à mão ou pelo orbe), ou uma nova.
                 pasta = os.path.expanduser(AGENTE_CFG.get("claude_pasta") or "~")
-                if not _abrir_claude(pasta):
-                    orb_cmd("line O Claude não abriu o canal: veja o terminal no PC")
+                fixo = cfg.get("vaga", -1) >= 0
+                pid = cfg.get("pid", 0)
+                if not pid:
+                    pid = _abrir_claude(pasta, nova=fixo)
+                    if not pid:
+                        orb_cmd("line O Claude não abriu o canal: veja o terminal no PC")
+                        if fixo:
+                            raise acp.ErroACP("o Claude não abriu o canal")
+                    elif fixo and _RELOGIO is not None:
+                        _RELOGIO.atribuir(pid, cfg["vaga"])
+                        chave = self._agente_chave()
                 argv = ["claude"]
-                ag = canal.AgenteClaude()
+                # fora da vaga (o atalho do PC), a mais recente com o canal, como antes
+                ag = sessao.agente(pid if fixo else 0)
             else:
                 hermes = cfg["tipo"] == "hermes"
                 argv, extra = acp.comando(cfg, self._hermes_rt if hermes else None)

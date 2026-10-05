@@ -4,6 +4,7 @@ import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 
 /** A aparência do orbe no PC (config.json → orbe), como a ponte manda. */
@@ -25,12 +26,34 @@ data class Ola(
     val voz: Boolean = false,
     /** o PC também tem voz (o daemon): o relógio escolhe se ela toca lá junto */
     @SerialName("voz_pc") val vozPc: Boolean = false,
-    /** os agentes instalados no PC, para cada orbe do carrossel ter o seu */
+    /** os agentes instalados no PC, para cada orbe da lista ter o seu */
     val agentes: List<AgenteInfo> = emptyList(),
+    /** as sessões do Claude Code abertas no PC; null: a ponte não as conta */
+    val sessoes: List<SessaoInfo>? = null,
+    /** falar num orbe do Claude sem sessão abre uma no PC (o daemon; o orbe de pulso não abre) */
+    @SerialName("abre_claude") val abreClaude: Boolean = false,
 )
 
 @Serializable
 data class AgenteInfo(val id: String = "", val nome: String = "")
+
+/**
+ * Uma sessão do Claude Code aberta no PC, na [vaga] dela: a vaga k é a
+ * k-ésima instância dos orbes do Claude (Instancias) e não muda enquanto ela vive.
+ */
+@Serializable
+data class SessaoInfo(
+    val vaga: Int = 0,
+    val pid: Int = 0,
+    /** a pasta e o nome da sessão */
+    val rotulo: String = "",
+    /** "parada" ou "trabalhando" */
+    val estado: String = "",
+    /** aberta pelo orbe (claude-orbe): o canal dele responde */
+    val canal: Boolean = false,
+    /** aberta à mão, ouve o orbe pelo hook (hermes_voice_sessao.py) */
+    val ouve: Boolean = false,
+)
 
 /**
  * Os ajustes do app do relógio que o app do PC também edita ("ajustes" nos
@@ -50,6 +73,8 @@ data class Sincronia(
     val linhas: Boolean = true,
     val tamanho: Float = 1f,
     @SerialName("seguir_pc") val seguirPc: Boolean = true,
+    /** a escala de cada orbe, pela skin; null (do PC): segue o [tamanho] */
+    val tamanhos: Map<String, Float?> = emptyMap(),
 )
 
 object Protocolo {
@@ -67,6 +92,13 @@ object Protocolo {
 
     fun sincronia(texto: String): Sincronia? = try {
         inteiro.decodeFromString(Sincronia.serializer(), texto)
+    } catch (e: Exception) {
+        null
+    }
+
+    /** O "sessoes [...]" da ponte. */
+    fun sessoes(texto: String): List<SessaoInfo>? = try {
+        json.decodeFromString(ListSerializer(SessaoInfo.serializer()), texto)
     } catch (e: Exception) {
         null
     }

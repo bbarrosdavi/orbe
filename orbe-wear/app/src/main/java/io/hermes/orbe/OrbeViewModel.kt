@@ -16,12 +16,13 @@ import io.hermes.orbe.dados.Ola
 import io.hermes.orbe.dados.Ponte
 import io.hermes.orbe.dados.Protocolo
 import io.hermes.orbe.dados.RedeLocal
+import io.hermes.orbe.dados.SessaoInfo
 import io.hermes.orbe.dados.Sincronia
 import io.hermes.orbe.gesto.Picos
 import io.hermes.orbe.gesto.Sacudida
 import io.hermes.orbe.gesto.ServicoSacudida
-import io.hermes.orbe.orbe.Ciclo
 import io.hermes.orbe.orbe.Estado
+import io.hermes.orbe.orbe.Instancias
 import io.hermes.orbe.orbe.OrbeCena
 import io.hermes.orbe.orbe.Retrato
 import io.hermes.orbe.orbe.Skin
@@ -48,12 +49,16 @@ data class Aparencia(
     val glitch: Boolean = true,
     val linhas: Boolean = true,
     val tema: Tema = Tema.Padrao,
-    /** a cor do ciclo do carrossel (Ciclo.cores); 0 = a do tema */
-    val cor: Int = 0,
+    /** a instância em tela, num orbe do Claude (Instancias); 0 nos outros */
+    val instancia: Int = 0,
+    /** o fundo do menu também atrás dos orbes */
+    val fundo: Boolean = true,
 ) {
-    /** A cor da figura e a do anel: a do ciclo, ou as do tema. */
-    fun corFigura(): FloatArray = Ciclo.cores.getOrNull(cor) ?: tema.accent.rgb()
-    fun corAnel(): FloatArray = Ciclo.cores.getOrNull(cor) ?: tema.anel.rgb()
+    /** A cor da figura e a do anel: a da instância, ou as do tema. */
+    fun corFigura(): FloatArray = Instancias.cores[Instancias.cor(instancia)] ?: tema.accent.rgb()
+    fun corAnel(): FloatArray = Instancias.cores[Instancias.cor(instancia)] ?: tema.anel.rgb()
+    /** O tom da massa escura da figura: o fundo do tema sobre o vidro, como nas miniaturas do menu; preto sem ele. */
+    fun corFundo(): FloatArray = if (fundo) tema.fundo.rgb() else floatArrayOf(0f, 0f, 0f)
 }
 
 class OrbeViewModel(app: Application) : AndroidViewModel(app) {
@@ -72,6 +77,16 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     private val _previa = MutableStateFlow<String?>(null)
     val previa: StateFlow<String?> = _previa
 
+    /**
+     * as sessões do Claude Code abertas no PC, cada uma na vaga dela: a
+     * instância de mesmo número dos orbes do Claude; null sem ponte, ou com uma que não as conta
+     */
+    private val _sessoes = MutableStateFlow<List<SessaoInfo>?>(null)
+    val sessoes: StateFlow<List<SessaoInfo>?> = _sessoes
+    /** falar num orbe do Claude sem sessão abre uma no PC */
+    private val _abreClaude = MutableStateFlow(false)
+    val abreClaude: StateFlow<Boolean> = _abreClaude
+
     /** o relógio tem alto-falante (ou fone pareado) para tocar a resposta */
     val temSaidaDeSom = AltoFalante.temSaida(app)
     private val altoFalante = AltoFalante(
@@ -84,13 +99,14 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         querVoz = { temSaidaDeSom && _ajustes.value.voz },
         querVozPc = { _ajustes.value.vozPc },
         aoAjustes = ::ajustesDaPonte,
+        aoSessoes = { _sessoes.value = it },
     )
     val ligacao: StateFlow<Ligacao> = ponte.estado
     /** a ponte em casa vai pelo Wi-Fi do relógio, não pelo celular */
     private val rede = RedeLocal(app) { wifi -> viewModelScope.launch { redeMudou(wifi) } }
     private var esperaWifi: Job? = null
 
-    /** os agentes instalados no PC (vêm no "ola"): cada orbe do carrossel tem um deles */
+    /** os agentes instalados no PC (vêm no "ola"): cada orbe da lista tem um deles */
     private val _agentesPc = MutableStateFlow<List<AgenteInfo>>(emptyList())
     val agentesPc: StateFlow<List<AgenteInfo>> = _agentesPc
 
@@ -122,6 +138,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
             // sem a ponte ninguém avisa que a sessão fechou: o orbe volta a esperar
             ligacao.collect {
                 if (it !is Ligacao.Conectada) {
+                    _sessoes.value = null
                     altoFalante.cortar()
                     pararEscuta()
                     if (_previa.value == null) adormecer()
@@ -135,8 +152,10 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     private fun aparenciaDe(a: Ajustes): Aparencia {
         val pc = a.pc.takeIf { it.isNotEmpty() }?.let(Protocolo::ola)
         val tema = pc?.let { Tema.de(it.tema, it.papel) } ?: Tema.Padrao
-        return if (a.seguirPc && pc != null) Aparencia(Skin.de(pc.orbe.skin), pc.orbe.glitch, pc.orbe.glitch, tema)   // no PC as linhas vêm com o glitch
-        else Aparencia(Skin.de(a.skin), a.glitch, a.linhas, tema, a.cor.mod(Ciclo.cores.size))
+        val skin = Skin.de(if (a.seguirPc && pc != null) pc.orbe.skin else a.skin)
+        val instancia = if (skin in skinsClaude(a)) a.instancia.coerceAtLeast(0) else 0
+        return if (a.seguirPc && pc != null) Aparencia(skin, pc.orbe.glitch, pc.orbe.glitch, tema, instancia, a.fundo)   // no PC as linhas vêm com o glitch
+        else Aparencia(skin, a.glitch, a.linhas, tema, instancia, a.fundo)
     }
 
     /** Leva os ajustes para a cena (quem desenha lê dela). */
@@ -145,7 +164,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         cena.skin = ap.skin
         cena.glitch = ap.glitch
         cena.varredura = ap.linhas
-        cena.tamanho = a.tamanho.toDouble()
+        cena.tamanho = a.tamanhoDe(ap.skin).toDouble()
         cena.corTema = ap.corFigura()
         cena.accent = ap.corAnel()
     }
@@ -176,16 +195,22 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         if (s.t > _ajustes.value.t) mudar { it.com(s) }
     }
 
-    // o último "agente" que a ponte desta conexão recebeu; null = mandar de novo
+    // o último "agente" e a última "vaga" que a ponte desta conexão recebeu; null = mandar de novo
     private var agenteEnviado: String? = null
+    private var vagaEnviada: Int? = null
 
-    /** A ponte fica sabendo do agente do orbe em tela (a sessão aberta daqui usa ele). */
+    /**
+     * A ponte fica sabendo do agente do orbe em tela (a sessão aberta daqui usa
+     * ele) e, num orbe do Claude, da vaga dele: a sessão do Claude Code que ele mostra.
+     */
     private fun enviarAgente() {
         if (ligacao.value !is Ligacao.Conectada) return
         val a = _ajustes.value
-        val id = a.agentes[aparenciaDe(a).skin.id].orEmpty()
-        if (id == agenteEnviado) return
-        if (ponte.enviar("agente $id".trim())) agenteEnviado = id
+        val ap = aparenciaDe(a)
+        val id = a.agentes[ap.skin.id].orEmpty()
+        if (id != agenteEnviado && ponte.enviar("agente $id".trim())) agenteEnviado = id
+        val vaga = if (ap.skin in skinsClaude(a)) ap.instancia else -1
+        if (vaga != vagaEnviada && ponte.enviar(if (vaga < 0) "vaga" else "vaga $vaga")) vagaEnviada = vaga
     }
 
     private fun adormecer() {
@@ -206,7 +231,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Escolher o avatar no relógio solta o orbe do PC: fica o que o relógio escolheu. */
-    fun skin(s: Skin) = mudarSinc { it.copy(seguirPc = false, skin = s.id, glitch = aparencia.value.glitch, linhas = aparencia.value.linhas) }
+    fun skin(s: Skin) = mudarSinc { it.copy(seguirPc = false, skin = s.id, instancia = 0, glitch = aparencia.value.glitch, linhas = aparencia.value.linhas) }
 
     fun glitch(v: Boolean) = mudarSinc { it.copy(seguirPc = false, glitch = v, linhas = aparencia.value.linhas, skin = aparencia.value.skin.id) }
 
@@ -214,14 +239,24 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
 
     fun seguirPc(v: Boolean) = mudarSinc { it.copy(seguirPc = v) }
 
-    /** Rolou o carrossel para outra skin (e cor): como escolher no menu, solta o orbe do PC. */
-    fun girar(s: Skin, cor: Int) {
+    /** Rolou a lista para outra skin: como escolher no menu, solta o orbe do PC; o orbe novo entra pela instância 0. */
+    fun girar(s: Skin) {
         val a = _ajustes.value
-        if (a.seguirPc) mudarSinc { it.copy(seguirPc = false, skin = s.id, cor = cor, glitch = aparencia.value.glitch, linhas = aparencia.value.linhas) }
-        else mudar { it.copy(skin = s.id, cor = cor) }        // a skin em tela não vai ao PC, só o agente dela
+        if (a.seguirPc) mudarSinc { it.copy(seguirPc = false, skin = s.id, instancia = 0, glitch = aparencia.value.glitch, linhas = aparencia.value.linhas) }
+        else mudar { it.copy(skin = s.id, instancia = 0) }        // a skin em tela não vai ao PC, só o agente dela
     }
 
-    fun tamanho(v: Float) = mudarSinc { it.copy(tamanho = v.coerceIn(Ajustes.TAMANHO_MIN, Ajustes.TAMANHO_MAX)) }
+    /** Dois dedos levaram a outra instância do orbe do Claude: a sessão do PC que ele mostra. */
+    fun instancia(k: Int) = mudar { it.copy(instancia = k.coerceAtLeast(0)) }
+
+    /** O fundo do menu atrás dos orbes; só aqui no relógio. */
+    fun fundo(v: Boolean) = mudar { it.copy(fundo = v) }
+
+    /** O tamanho do orbe em tela: cada skin guarda o seu. */
+    fun tamanho(v: Float) {
+        val skin = aparencia.value.skin.id
+        mudarSinc { it.copy(tamanhos = it.tamanhos + (skin to v.coerceIn(Ajustes.TAMANHO_MIN, Ajustes.TAMANHO_MAX))) }
+    }
 
     fun texto(v: Boolean) = mudarSinc { it.copy(texto = v) }
 
@@ -241,6 +276,10 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun vibrar(v: Boolean) = mudarSinc { it.copy(vibrar = v) }
+
+    /** As skins cujos orbes são do Claude (o agente padrão), na ordem da lista. */
+    fun skinsClaude(a: Ajustes = _ajustes.value): List<Skin> =
+        Skin.entries.filter { a.agentes[it.id].orEmpty().let { id -> id.isEmpty() || id == "claude" } }
 
     /** O agente seguinte para o orbe da [skin], em roda: o padrão (Claude) e os do PC. */
     fun proximoAgente(skin: Skin) {
@@ -316,7 +355,10 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         // a ponte repete em seguida o que o orbe do PC está mostrando
         if (_previa.value == null) adormecer()
         _agentesPc.value = ola.agentes
+        _sessoes.value = ola.sessoes
+        _abreClaude.value = ola.abreClaude
         agenteEnviado = null
+        vagaEnviada = null
         mudar { it.copy(pc = bruto) }
         // os ajustes daqui vão ao PC; se os de lá forem mais novos, a ponte devolve os dela
         ponte.enviar(Protocolo.ajustes(_ajustes.value.sincronia()))

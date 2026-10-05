@@ -24,15 +24,17 @@ resposta volta em voz. Quem pensa e responde é o agente.
 5. [O menu](#o-menu)
 6. [Avatares](#avatares)
 7. [Conversando com um agente](#conversando-com-um-agente)
-8. [Rede](#rede)
-9. [Segurança](#segurança)
-10. [Protocolo da ponte](#protocolo-da-ponte)
-11. [Por dentro do app](#por-dentro-do-app)
-12. [No TicWatch Pro 5](#no-ticwatch-pro-5)
-13. [Compilar, testar e depurar](#compilar-testar-e-depurar)
-14. [Problemas comuns](#problemas-comuns)
-15. [Limites conhecidos](#limites-conhecidos)
-16. [Créditos](#créditos)
+8. [Sessão aberta pelo relógio](#sessão-aberta-pelo-relógio)
+9. [Sessões do Claude Code](#sessões-do-claude-code)
+10. [Rede](#rede)
+11. [Segurança](#segurança)
+12. [Protocolo da ponte](#protocolo-da-ponte)
+13. [Por dentro do app](#por-dentro-do-app)
+14. [No TicWatch Pro 5](#no-ticwatch-pro-5)
+15. [Compilar, testar e depurar](#compilar-testar-e-depurar)
+16. [Problemas comuns](#problemas-comuns)
+17. [Limites conhecidos](#limites-conhecidos)
+18. [Créditos](#créditos)
 
 ---
 
@@ -164,8 +166,9 @@ Para ver o relógio funcionando sem agente nenhum, `./hermes_voice_relogio.py
 ## A tela do orbe
 
 A tela inicial é o orbe no mostrador inteiro, com as linhas do raciocínio
-abaixo dele. A pequena alça no pé da tela é a do menu, que fica embaixo. O
-orbe fica sempre no mostrador, e a sessão aberta mantém a tela acesa.
+abaixo dele. Os pontos na borda direita mostram o lugar do orbe na lista, e
+o menu fica ao lado. O orbe fica sempre no mostrador, e a sessão aberta
+mantém a tela acesa.
 
 | Estado | O que o orbe mostra |
 |---|---|
@@ -183,8 +186,9 @@ O toque vale como no orbe do desktop:
 | **Segurar** (mais de 350 ms) | Segurar para falar: a fala vai para o agente enquanto o dedo estiver na tela. Soltar encerra a fala. O relógio vibra ao segurar e ao soltar. |
 | **Toque curto** | Abre a sessão, ou interrompe a resposta e volta a ouvir. |
 | **Dois toques curtos** | Travam a sessão aberta (um ponto aparece acima da figura). |
-| **Arrastar para cima ou para baixo**, ou girar a coroa (nos relógios que têm) | Gira o orbe, como a face de um cubo, até a skin seguinte (ou a anterior). Depois da última skin, a primeira volta na cor seguinte: a do tema, ciano, verde, âmbar e violeta. Cada skin tem o seu agente (veja [Sessão aberta pelo relógio](#sessão-aberta-pelo-relógio)). Desliga o "Seguir o orbe do PC". |
-| **Arrastar para a esquerda** | Abre o menu, que fica ao lado do orbe (a alça na borda direita). |
+| **Arrastar para cima ou para baixo**, ou girar a coroa (nos relógios que têm) | Rola a lista dos orbes, com inércia: um arremesso passa por vários antes de parar num deles. Os pontos na borda direita mostram em que lugar da lista você está, e depois do último orbe vem o primeiro. A ordem é Anel de energia, Seraphim, Ophanim e Ophanim com asas. Cada skin tem o seu agente (veja [Sessão aberta pelo relógio](#sessão-aberta-pelo-relógio)). Desliga o "Seguir o orbe do PC". |
+| **Dois dedos para a esquerda ou para a direita**, num orbe do Claude | Passa pelas sessões do Claude Code abertas no computador, cada uma ao lado da outra e na sua cor (veja [Sessões do Claude Code](#sessões-do-claude-code)). |
+| **Arrastar para a esquerda** | Abre o menu, que fica ao lado do orbe. |
 
 O microfone já começa a guardar um segundo de áudio quando o dedo encosta,
 para a primeira sílaba não se perder entre o toque e o "segurar". Com a
@@ -232,9 +236,9 @@ computador.
 
 ![Avatares e tamanho](img/ajustes-avatar.png)
 
-Seis avatares, em miniaturas vivas. Escolher um troca o orbe do relógio. O
-controle **Tamanho** vai de 60% a 130% do mostrador e mostra a figura no
-tamanho escolhido.
+Quatro avatares, em miniaturas vivas. Escolher um troca o orbe do relógio. O
+controle **Tamanho** vai de 60% a 130% do mostrador, mostra a figura no
+tamanho escolhido e vale só para o orbe em tela: cada um guarda o seu.
 
 ### Aparência, voz e prévia
 
@@ -243,7 +247,8 @@ tamanho escolhido.
 | Opção | O que faz |
 |---|---|
 | **Glitch** | Aberração cromática, faixas arrancadas e linhas de varredura. |
-| **Texto do raciocínio** | Mostra as linhas do agente abaixo do orbe. |
+| **Fundo atrás do orbe** | O mesmo fundo do menu (o papel de parede do computador, em vidro escuro) atrás dos orbes. Desligado, o fundo é preto. Vale só no relógio. |
+| **Texto do raciocínio** | Mostra as linhas do agente abaixo do orbe do relógio. Vale só no relógio: o orbe do computador segue o ajuste "Texto do raciocínio" da Aparência do app do Orbe. |
 | **Seguir o orbe do PC** | O avatar e o glitch vêm do computador. Desligado, valem os escolhidos no relógio. |
 | **Microfone do relógio** | Segurando o orbe, a fala vem do relógio e não do computador. O app pede a permissão de microfone uma vez, quando a ponte aceita fala. |
 | **Voz no relógio** | A resposta em voz toca no relógio. Desligada, ela sai no computador (pelo daemon) ou vem em texto (orbe de pulso). |
@@ -253,22 +258,25 @@ tamanho escolhido.
 
 ## Avatares
 
-Os mesmos seis do Orbe do computador, desenhados pelos mesmos shaders:
+Os mesmos quatro do Orbe do computador, desenhados pelos mesmos shaders:
 
-![Os seis avatares](img/skins.png)
+![Os quatro avatares](img/skins.png)
 
 Falando, com as linhas do agente embaixo:
 
-![Os seis avatares falando](img/skins-falando.png)
+![Os quatro avatares falando](img/skins-falando.png)
+
+Na ordem da lista do relógio:
 
 | Avatar | Como é feito |
 |---|---|
+| **Anel de energia** | Atlas de quadros animado por `anel.frag`. |
+| **Seraphim (gravura)** | Imagem de gravura animada por `imagem.frag`. |
 | **Ophanim** | Anéis de olhos, desenhados por `figura.frag`. |
 | **Ophanim com asas** | O mesmo, com asas. |
-| **Shoggoth** | Tentáculos e olhos, também por `figura.frag`. |
-| **Seraphim (gravura)** | Imagem de gravura animada por `imagem.frag`. |
-| **Entidade** | Imagem animada por `imagem.frag`. |
-| **Anel de energia** | Atlas de quadros animado por `anel.frag`. |
+
+O Shoggoth e a Entidade saíram em 2026-10-05. Quem os tinha escolhido, no
+computador ou no relógio, passa ao Ophanim.
 
 ## Conversando com um agente
 
@@ -313,7 +321,7 @@ Opções do orbe de pulso:
 Com a ponte servida pelo daemon, tocar ou segurar o orbe do relógio abre a
 sessão de voz do computador, e ela passa a ser do relógio até fechar:
 
-- **O agente é o do orbe em tela**: cada skin do carrossel tem o seu (menu
+- **O agente é o do orbe em tela**: cada skin da lista tem o seu (menu
   "Agente de cada orbe", ou a aba Relógio do app do computador), e o padrão é
   o Claude Code. O agente do `config.json` continua valendo para o atalho e a
   palavra de ativação. Os agentes ACP (Hermes, OpenCode, Gemini CLI) rodam em
@@ -328,8 +336,8 @@ sessão de voz do computador, e ela passa a ser do relógio até fechar:
   systemd, então reiniciar o serviço do orbe não a fecha; fechar a janela
   encerra o Claude, e o próximo uso abre outra.
 - **O orbe do computador abre junto**, com as íris dos olhos em vermelho
-  (Ophanim, Ophanim com asas e Shoggoth; as skins de imagem e o anel não têm
-  olho separado).
+  (Ophanim e Ophanim com asas; a skin de imagem e o anel não têm olho
+  separado).
 - **O microfone do computador sai da conversa**: a fala vem só do relógio.
 - **A voz toca onde o relógio pediu**: no relógio, no computador ou nos dois
   (chaves "Voz no relógio" e "Voz também no PC").
@@ -346,11 +354,84 @@ da fala é o silêncio, como no atalho do teclado. O microfone acompanha o
 orbe: ouvindo, transmite; pensando ou falando, descansa.
 
 **Ajustes nos dois sentidos.** Os ajustes do app do relógio (o agente de
-cada orbe, voz, microfone, vibrar, texto, glitch, tamanho, seguir o PC)
+cada orbe, voz, microfone, vibrar, texto, glitch, tamanho de cada orbe,
+seguir o PC)
 também ficam no `config.json` do computador, em `relogio.ajustes`, e a aba
 Relógio do app do Orbe os edita. Cada lado guarda a hora da última mudança e
 vale a mais nova: o relógio manda os dele ao conectar e a cada mudança; a
 ponte vigia o config e manda os do computador quando mudam.
+
+## Sessões do Claude Code
+
+O relógio não fala só com o Claude que o orbe abriu: cada sessão do Claude
+Code aberta no computador, inclusive as abertas à mão num terminal, é uma
+instância dos orbes do Claude, ao lado das outras.
+
+**Vagas.** A ponte lê o registro do próprio Claude Code (`~/.claude/sessions`)
+a cada 2 s e põe cada sessão viva numa vaga: a mais antiga na 0, e cada nova
+na menor vaga livre. A vaga de uma sessão não muda enquanto ela vive; a de
+uma sessão que fecha fica livre. Contam as sessões de terminal e as de segundo
+plano (`claude --bg`); o `claude -p` e o SDK ficam de fora.
+
+**As instâncias.** Os orbes do Claude são as skins cujo agente é o Claude
+Code (o padrão). Num deles, arrastar com dois dedos para a esquerda traz a
+instância seguinte, que fica à direita do orbe; para a direita, volta. A
+instância k é a sessão da vaga k, e cada uma tem a sua cor:
+
+| Instância | Cor |
+|---|---|
+| 0 | a do tema |
+| 1 | ciano |
+| 2 | verde |
+| 3 | âmbar |
+| 4 | violeta |
+| 5 em diante | as mesmas, de novo |
+
+Há uma instância para cada vaga até a mais alta ocupada e, quando a ponte
+pode abrir sessão, mais uma livre no fim. A skin é só o visual: as quatro
+mostram as mesmas instâncias, e trocar de skin volta à primeira. Uma skin
+dada a outro agente (Hermes, por exemplo) não tem instâncias.
+
+**O rótulo.** No pé de cada instância, na cor dela, aparece a sessão: o
+nome (o que o Claude Code deriva da pasta, como `orbe-relogio-2c`, ou a pasta
+e o nome dado com `/rename`) e, embaixo, `parada` ou `trabalhando`. Uma vaga
+sem sessão mostra `livre`, e falar nela abre uma sessão nova no computador,
+que fica nessa vaga (só com a ponte do daemon; o orbe de pulso não abre
+terminal). Uma sessão que não ouve o orbe mostra `não ouve o orbe`. No orbe
+em tela, as linhas do raciocínio ocupam o mesmo lugar e têm a vez.
+
+**Como o pedido chega.** As sessões abertas pelo orbe (`claude-orbe`)
+respondem pelo canal, como antes. As abertas à mão ouvem o orbe por um hook do
+usuário, instalado uma vez:
+
+```sh
+~/.hermes/scripts/hermes_voice_sessao.py --instalar   # põe o hook no ~/.claude/settings.json
+~/.hermes/scripts/hermes_voice_sessao.py              # lista as sessões e como cada uma ouve
+~/.hermes/scripts/hermes_voice_sessao.py --remover    # tira o hook
+```
+
+O hook (`--hook`, em SessionStart e Stop, com `asyncRewake`) fica em segundo
+plano esperando num socket da sessão, em `$XDG_RUNTIME_DIR/hermes-voice/sessoes`.
+A fala do relógio o faz sair com o código 2, e o Claude daquela sessão acorda
+com o pedido, mesmo parado. A mensagem diz de onde ele vem: um pedido de voz do
+usuário, transcrito pelo orbe, por um hook que ele instalou. Sem isso, o
+Claude recusa uma mensagem que não veio do usuário. As sessões já abertas
+passam a ouvir no fim do próximo turno delas. A instalação guarda a cópia
+anterior em `settings.json.orbe-bak`.
+
+**O que o orbe fala.** Só a resposta ao pedido de voz: o Stop do turno que o
+pedido abriu deixa a última resposta para o orbe, e a resposta a algo
+digitado no terminal não vai para ele. Com a sessão no meio de um turno, o
+pedido espera ela parar (o relógio mostra a linha "a sessão está trabalhando;
+o pedido entra quando ela parar"). Interromper no relógio só para a espera: o
+Claude segue o que estiver fazendo no terminal.
+
+**Encerrar.** Três toques fecham a sessão do orbe em tela só se ela foi aberta
+pelo orbe (tem o canal). Uma sessão aberta à mão nunca é fechada pelo relógio.
+
+**Limites.** A escuta dura um dia com a sessão parada (o `timeout` do hook);
+depois disso a sessão volta a ouvir no fim do próximo turno. Cada sessão
+aberta à mão mantém um processo Python pequeno com a escuta.
 
 ## Rede
 
@@ -400,13 +481,15 @@ Um WebSocket. Mensagens de texto são uma linha cada; as binárias são PCM
 |---|---|---|
 | ponte → relógio | `desafio <sal em hex>` | Ao conectar. |
 | relógio → ponte | `ola {"prova": "...", "nome": "...", "voz": true, "voz_pc": false}` | A prova do token. `voz` pede a resposta em áudio no relógio; `voz_pc`, também no PC. |
-| ponte → relógio | `ola {"v": 1, "orbe": {...}, "tema": {...}, "microfone": true, "voz": true, "voz_pc": true, "agentes": [{"id", "nome"}]}` | Pareado: a aparência e o que a ponte aceita (`voz_pc`: o PC também tem voz, só no daemon; `agentes`: os instalados no PC). |
+| ponte → relógio | `ola {"v": 1, "orbe": {...}, "tema": {...}, "microfone": true, "voz": true, "voz_pc": true, "agentes": [{"id", "nome"}], "sessoes": [...], "abre_claude": true}` | Pareado: a aparência e o que a ponte aceita (`voz_pc`: o PC também tem voz, só no daemon; `agentes`: os instalados no PC; `sessoes`: como no `sessoes` abaixo; `abre_claude`: falar numa vaga livre abre uma sessão, só no daemon). |
+| ponte → relógio | `sessoes [{"vaga", "pid", "rotulo", "estado", "canal", "ouve"}]` | As sessões do Claude Code abertas no computador mudaram. `canal`: aberta pelo orbe; `ouve`: tem o hook armado. |
 | ponte → relógio | `show idle`, `state thinking`, `level 0.42 0.60`, `mic 0.3`, `line <texto>`, `hold 1`, `hide`, `clear` | As linhas do orbe, as mesmas do desktop. |
 | ponte → relógio | `config {"orbe": {...}, "tema": {...}}` | O avatar, o glitch ou o tema mudaram no computador. |
 | relógio → ponte | `touch down`, `touch up` | O dedo no orbe. |
 | relógio → ponte | `toggle`, `trigger`, `dismiss`, `hold`, `release` | Os comandos do `orb_control`. |
 | relógio → ponte | `agente <id>` | O agente do orbe em tela (vazio = Claude Code): a sessão aberta pelo relógio usa ele. |
-| os dois | `ajustes {"t": ..., "agentes": {...}, "voz": true, ...}` | Os ajustes do app do relógio; vale o `t` (ms) mais novo. |
+| relógio → ponte | `vaga <k>`, `vaga` | O orbe em tela mostra a instância k do Claude (sem número: não é orbe do Claude). A sessão aberta pelo relógio fala com a sessão dessa vaga. |
+| os dois | `ajustes {"t": ..., "agentes": {...}, "voz": true, "tamanhos": {"anel": 0.9, ...}, ...}` | Os ajustes do app do relógio; vale o `t` (ms) mais novo. `tamanhos`: o de cada skin (sem a skin, vale o `tamanho` comum). |
 | relógio → ponte | *(binário)* | A fala, em quadros de 30 ms a 16 kHz, enquanto o dedo segura o orbe (ou, na sessão aberta por `trigger`, enquanto ela ouve). |
 | ponte → relógio | `voz 24000`, *(binário)*, `voz fim`, `voz corta` | A resposta em voz (taxa do áudio, o áudio, o fim, calar já). No orbe de pulso, e no daemon quando a sessão é do relógio. |
 | relógio → ponte | `voz acabou` | O relógio tocou até o fim. |
@@ -439,7 +522,7 @@ orbe-wear/app/src/main/java/io/hermes/orbe/
 ├── orbe/
 │   ├── Figura.kt  Anel.kt   portes de Figura.qml e Anel.qml
 │   ├── Cena.kt              o estado do orbe (OrbeConteudo.qml), mini-cenas
-│   ├── Skin.kt              os seis avatares
+│   ├── Skin.kt              os quatro avatares
 │   └── Quebra.kt            quebra de linha do raciocínio
 └── ui/                      Compose: tema, componentes, tela do orbe, menu
 ```

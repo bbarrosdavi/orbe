@@ -455,8 +455,13 @@ internal object Motor {
         zerarJanela()
     }
 
-    // desenhado por elemento, o custo é outro: a qualidade aprendida por pixel não vale
-    private fun chave(skin: Skin?) = "qualidade_${skin?.id}" + if (skin?.primitivas == true) "_prim" else ""
+    // desenhado por elemento, o custo é outro: a qualidade aprendida por pixel não vale.
+    // As de imagem passaram a pular as camadas sem desenho no pixel: a aprendida antes também não
+    private fun chave(skin: Skin?) = "qualidade_${skin?.id}" + when {
+        skin?.primitivas == true -> "_prim"
+        skin?.imagem == true -> "_caixas"
+        else -> ""
+    }
 
     private fun zerarJanela() {
         naJanela = 0

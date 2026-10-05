@@ -22,12 +22,10 @@ enum class Skin(
     /** o atlas é lido com esta redução: a figura no relógio é bem menor que o recorte */
     val reducao: Int = 1,
 ) {
-    OFANIM("ofanim", "Ophanim", "figura.frag", mapOf("SKIN" to 0), null, floatArrayOf(1.55f, 1.55f, 1.25f), 0.39f, 0.345f),
-    OFANIM_ALADO("ofanim_alado", "Ophanim com asas", "figura.frag", mapOf("SKIN" to 1), null, floatArrayOf(2.1f, 1.55f, 2.08f), 0.29f, 0.277f),
-    SHOGGOTH("shoggoth", "Shoggoth", "figura.frag", mapOf("SKIN" to 3), null, floatArrayOf(1.6f, 1.6f, 1.4f), 0.42f, 0.365f),
+    ANEL("anel", "Anel de energia", "anel.frag", emptyMap(), "anel_atlas.png", floatArrayOf(1f, 1f, 1f), 0.35f, 0.412f),
     SERAFIM_GRAVURA("serafim_gravura", "Seraphim (gravura)", "imagem.frag", mapOf("IMG" to 1), "serafim_gravura.png", floatArrayOf(1.15f, 1.3f, 1.4f), 0.38f, 0.355f),
-    ENTIDADE("entidade", "Entidade", "imagem.frag", mapOf("IMG" to 2), "entidade.png", floatArrayOf(0.85f, 1.03f, 1.12f), 0.47f, 0.486f, reducao = 2),
-    ANEL("anel", "Anel de energia", "anel.frag", emptyMap(), "anel_atlas.png", floatArrayOf(1f, 1f, 1f), 0.35f, 0.412f);
+    OFANIM("ofanim", "Ophanim", "figura.frag", mapOf("SKIN" to 0), null, floatArrayOf(1.55f, 1.55f, 1.25f), 0.39f, 0.345f),
+    OFANIM_ALADO("ofanim_alado", "Ophanim com asas", "figura.frag", mapOf("SKIN" to 1), null, floatArrayOf(2.1f, 1.55f, 2.08f), 0.29f, 0.277f);
 
     /**
      * No mostrador redondo a figura cabe no disco, e algumas saem menores que
@@ -43,10 +41,13 @@ enum class Skin(
     val avatar: Boolean get() = this != ANEL
     /** No relógio, desenhada por elemento (as primitivas do figura.frag), não por pixel. */
     val primitivas: Boolean get() = this == OFANIM || this == OFANIM_ALADO
-    val imagem: Boolean get() = this == SERAFIM_GRAVURA || this == ENTIDADE
+    val imagem: Boolean get() = this == SERAFIM_GRAVURA
 
     companion object {
-        /** O Seraphim desenhado saiu; quem o tinha fica com o da gravura, como no orbe.qml. */
+        /**
+         * O Seraphim desenhado saiu; quem o tinha fica com o da gravura, como no
+         * orbe.qml. O Shoggoth e a Entidade também saíram: Ophanim.
+         */
         fun de(id: String?): Skin = when (id) {
             "serafim" -> SERAFIM_GRAVURA
             else -> entries.firstOrNull { it.id == id } ?: OFANIM
@@ -67,30 +68,22 @@ object Estado {
 }
 
 /**
- * O carrossel do orbe: rolar para o lado passa à skin seguinte e, depois da
- * última, volta à primeira na cor seguinte. Cada página é uma combinação
- * (skin, cor) e o pager tem páginas de sobra para girar sem fim nos dois sentidos.
+ * As instâncias de um orbe do Claude: à direita dele, com dois dedos, as
+ * sessões do Claude Code abertas no PC. A instância k mostra a sessão da vaga
+ * k (a 0 é o próprio orbe, que pega a primeira sessão) e tem a cor k do ciclo,
+ * para uma não se confundir com a outra.
  */
-object Ciclo {
+object Instancias {
     /** a do tema (null) e mais quatro: ciano, verde, âmbar e violeta */
     val cores: List<FloatArray?> = listOf(null, rgb(0x4DD0E1), rgb(0x81C784), rgb(0xFFB74D), rgb(0xB39DDB))
 
-    private val skins = Skin.entries
-    private val volta = skins.size * cores.size
-    const val PAGINAS = 30_000
+    fun cor(instancia: Int): Int = instancia.mod(cores.size)
 
-    fun skin(pagina: Int): Skin = skins[pagina.mod(skins.size)]
-
-    fun cor(pagina: Int): Int = (pagina / skins.size).mod(cores.size)
-
-    /** A página de (skin, cor) mais perto de [perto]; no meio do pager quando não há onde estar. */
-    fun pagina(skin: Skin, cor: Int, perto: Int = PAGINAS / 2): Int {
-        val dentro = cor.mod(cores.size) * skins.size + skin.ordinal
-        val base = perto - perto.mod(volta)
-        return listOf(base - volta, base, base + volta).map { it + dentro }
-            .filter { it in 0 until PAGINAS }
-            .minBy { kotlin.math.abs(it - perto) }
-    }
+    /**
+     * Quantas instâncias a fileira tem: até a última vaga ocupada e, quando
+     * falar numa livre abre uma sessão no PC ([abre]), mais uma livre no fim.
+     */
+    fun contar(vagas: List<Int>, abre: Boolean): Int = maxOf(1, (vagas.maxOrNull() ?: -1) + 1 + if (abre) 1 else 0)
 
     private fun rgb(c: Int) = floatArrayOf((c shr 16 and 0xFF) / 255f, (c shr 8 and 0xFF) / 255f, (c and 0xFF) / 255f)
 }

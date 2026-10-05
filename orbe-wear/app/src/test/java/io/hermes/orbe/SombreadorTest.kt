@@ -30,7 +30,8 @@ class SombreadorTest {
     /** Os shaders como vão para a GPU do relógio, para passar num validador de GLSL ES. */
     @Test
     fun despejaOsConvertidos() {
-        val pasta = File(System.getProperty("orbe.despejo") ?: return).apply { mkdirs() }
+        // limpa antes: um shader de skin que saiu não pode sobrar na conta
+        val pasta = File(System.getProperty("orbe.despejo") ?: return).apply { deleteRecursively(); mkdirs() }
         File(pasta, "quadrado.vert").writeText(Sombreador.VERTICE)
         File(pasta, "pos.frag").writeText(Sombreador.paraEs(ler("pos.frag")))
         for (skin in Skin.entries) File(pasta, "${skin.id}.frag").writeText(Sombreador.paraEs(ler(skin.shader), skin.definicoes))
@@ -43,7 +44,7 @@ class SombreadorTest {
         // várias declarações na mesma linha, com comentário no fim
         for (u in listOf("qt_Matrix", "qt_Opacity", "tam", "centro", "olhar", "nucleoDir", "geo", "est", "est2",
             "a0u", "a0v", "a3u", "a3v", "ondas0", "ondas3", "rel0", "rel1", "relInfo", "w0a", "w5b",
-            "sho", "sho4", "lacos")) assertTrue(u, u in figura)
+            "lacos")) assertTrue(u, u in figura)
         assertEquals(figura.size, figura.toSet().size)
 
         val anel = Sombreador.uniformes(Sombreador.paraEs(ler("anel.frag")))
@@ -54,8 +55,8 @@ class SombreadorTest {
         for (u in listOf("cor", "corA", "corB", "glt", "geo2", "sombra", "corSombra", "modo", "banda0", "banda3", "source"))
             assertTrue(u, u in pos)
 
-        val imagem = Sombreador.uniformes(Sombreador.paraEs(ler("imagem.frag"), mapOf("IMG" to 2)))
-        for (u in listOf("img", "img2", "img3", "arte")) assertTrue(u, u in imagem)
+        val imagem = Sombreador.uniformes(Sombreador.paraEs(ler("imagem.frag"), mapOf("IMG" to 1)))
+        for (u in listOf("tam", "centro", "olhar", "geo", "img", "arte")) assertTrue(u, u in imagem)
     }
 
     @Test

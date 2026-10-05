@@ -19,9 +19,6 @@ layout(std140, binding = 0) uniform buf {
     vec2 olhar;      // para onde os olhos olham
     vec4 geo;        // R (já com o desdobrar), lim, t, peso
     vec4 img;        // gravura: abertura das asas (1 = como desenhadas), batida (fração da dobra), escala extra, —
-                     // entidade: brilho do halo, posição e força da onda no crescente, escala extra
-    vec4 img2;       // entidade: fase e força da luz nos filetes, fase e força do redemoinho
-    vec4 img3;       // entidade: força da cintilação, —, —, —
 };
 layout(binding = 1) uniform sampler2D arte;
 
@@ -32,19 +29,16 @@ const float CELULA = 408.0;
 const vec2 ATLAS = vec2(2856.0, 444.0);
 const vec2 OLHO = vec2(192.0, 220.0);    // vai no centro do item
 const float RIMG = 222.0;                // R da figura, em px da imagem
-#elif IMG == 2
-// Entidade: recorte de 1179 x 1440 px. Célula 0 = traço e silhueta; célula 1 =
-// peso do halo, filetes de luz e as estrelas grandes (as que ainda aparecem no
-// tamanho do orbe, cada uma um disco de 5 px)
-const vec2 TAM = vec2(1179.0, 1440.0);
-const float CELULA = 1195.0;
-const vec2 ATLAS = vec2(2390.0, 1440.0);
-const vec2 OLHO = vec2(590.0, 720.0);
-const float RIMG = 720.0;
-const vec2 ANEL = vec2(597.0, 323.0);       // centro do halo
-const vec2 VORT = vec2(578.0, 1178.0);      // a boca na barriga: elipse com o
-const vec2 VORT_R = vec2(150.0, 105.0);     //   eixo maior inclinado 56°
-const float VORT_A = 0.977;
+#ifdef RELOGIO
+// onde cada camada tem desenho no recorte (x0, y0, x1, y1, em px da imagem),
+// com 6 px de folga para o filtro: fora da caixa a leitura dá zero e a camada
+// não muda o pixel
+const vec4 CAIXA[7] = vec4[7](
+    vec4(-6.0, -5.0, 197.0, 206.0), vec4(196.0, -5.0, 392.0, 206.0),
+    vec4(-6.0, 90.0, 151.0, 449.0), vec4(240.0, 119.0, 388.0, 396.0),
+    vec4(58.0, 231.0, 197.0, 441.0), vec4(196.0, 230.0, 317.0, 446.0),
+    vec4(99.0, 48.0, 291.0, 401.0));
+#endif
 #endif
 
 const float TAU = 6.283185307179586;
@@ -61,6 +55,9 @@ float sat01(float v) { return clamp(v, 0.0, 1.0); }
 float accB = 0.0;   // traço acumulado (pré-multiplicado)
 float accA = 0.0;   // cobertura acumulada
 float kRed = 0.0;   // quanto a figura está reduzida (0 a 1:1, 1 no tamanho do orbe)
+#ifdef RELOGIO
+float lod0 = 0.0;   // o nível do mipmap da figura, o mesmo em todo pixel (ver main)
+#endif
 
 // leitura do atlas. Reduzida: 4 amostras dentro do pixel, cada uma com metade
 // da pegada (filtro mais justo que o trilinear do mipmap, perto de uma redução
@@ -74,10 +71,11 @@ vec4 ler(vec2 uv, float realce) {
     // No relógio, uma leitura trilinear um pouco mais fina que a pegada (viés
     // -0,5), com o mesmo realce: as 4 com textureGrad custavam mais que o
     // Ophanim na GPU dele, e a máscara descia de resolução, o que borra mais
-    // que o filtro.
-    vec4 v = texture(arte, uv, -0.5);
+    // que o filtro. O nível vem de lod0, não das derivadas, para a camada
+    // que não cobre o pixel poder ser pulada (camada).
+    vec4 v = textureLod(arte, uv, lod0 - 0.5);
     if (realce > 0.0) {
-        float vb = texture(arte, uv, 1.5).r;
+        float vb = textureLod(arte, uv, lod0 + 1.5).r;
         v.r = sat01(v.r + REALCE * realce * kRed * (v.r - vb));
     }
     return v;
@@ -104,8 +102,13 @@ vec2 iris(vec2 q, vec2 e, vec2 raio, vec2 desl) {
 }
 
 // uma camada por cima das anteriores; a amostra é sempre lida (fora de
-// desvio), para as derivadas do ler() valerem
+// desvio), para as derivadas do ler() valerem. No relógio a leitura não usa
+// derivadas (lod0), e a camada sem desenho no pixel é pulada
 void camada(float cel, vec2 q) {
+#ifdef RELOGIO
+    vec4 cx = CAIXA[int(cel)];
+    if (q.x < cx.x || q.y < cx.y || q.x > cx.z || q.y > cx.w) return;
+#endif
     vec2 qc = clamp(q, vec2(0.5), TAM - 0.5);
     vec2 rg = ler((qc + vec2(cel * CELULA, 0.0)) / ATLAS, 1.0).rg;
     rg *= step(0.0, q.x) * step(0.0, q.y) * step(q.x, TAM.x) * step(q.y, TAM.y);
@@ -129,13 +132,14 @@ void asa(float cel, vec2 q, vec2 raiz, float ang, vec2 olho, vec2 raio, vec2 des
 
 void main() {
     vec2 p = qt_TexCoord0 * tam;
-#if IMG == 1
     float s = geo.x / RIMG * (1.0 + img.z);
-#else
-    float s = geo.x / RIMG * (1.0 + img.w);
-#endif
     vec2 q = (p - centro) / s + OLHO;
     kRed = 1.0 - smoothstep(0.35, 0.8, s);
+#ifdef RELOGIO
+    // a pegada de um pixel no atlas é a mesma na figura toda (o giro das asas
+    // não a muda): o nível que o trilinear acharia pelas derivadas, uma vez só
+    lod0 = log2(max(length(dFdx(q)), length(dFdy(q))) * float(textureSize(arte, 0).x) / ATLAS.x);
+#endif
     // direção do olhar, saturada: longe, a íris vai até a borda
     vec2 g = olhar - centro;
     vec2 dg = g / (length(g) + geo.x * 0.6);
@@ -151,35 +155,6 @@ void main() {
     asa(4.0, q, vec2(175.0, 254.0), -0.35 * dobra, vec2(157.0, 313.0), vec2(8.0, 9.0), dg * 2.5);
     asa(5.0, q, vec2(216.0, 254.0), 0.35 * dobra, vec2(225.0, 313.0), vec2(8.0, 9.0), dg * 2.5);
     camada(6.0, iris(q, vec2(192.5, 220.5), vec2(32.0, 17.5), dg * vec2(9.0, 1.5)));
-#elif IMG == 2
-    // a boca na barriga gira como redemoinho: dois giros defasados que se
-    // revezam (a torção não acumula), parados na borda da elipse
-    vec2 eLoc = girar(q - VORT, -VORT_A) / VORT_R;
-    float wv = (1.0 - smoothstep(0.35, 1.0, length(eLoc))) * img2.w;
-    float f1 = fract(img2.z), f2 = fract(img2.z + 0.5);
-    // parado, o ponto fica exatamente em q (girar 56° e voltar não é exato em float)
-    float anda = step(1e-5, wv);
-    vec2 q1 = q + (VORT + girar(girar(eLoc, -1.2 * f1 * wv) * VORT_R, VORT_A) - q) * anda;
-    vec2 q2 = q + (VORT + girar(girar(eLoc, -1.2 * f2 * wv) * VORT_R, VORT_A) - q) * anda;
-    vec2 rg = mix(celula(0.0, q2).rg, celula(0.0, q1).rg, 1.0 - abs(2.0 * f1 - 1.0));
-    vec3 m = celula(1.0, q).rgb;               // halo, filetes, estrelas grandes
-    float r = rg.r, gg = rg.g;
-    // halo: brilho pelo estado e uma onda de luz correndo pelo crescente
-    vec2 da = q - ANEL;
-    float dist = length(da);
-    float dif = mod(atan(da.y, da.x) - img.y + PI, TAU) - PI;
-    float onda = exp(-dif * dif / 0.18) * smoothstep(180.0, 220.0, dist) * (1.0 - smoothstep(330.0, 360.0, dist));
-    r *= mix(1.0, img.x, m.r);
-    r += (1.0 - r) * onda * img.z * 0.55 * m.r * gg;   // só no anel e no rosto, não no céu do vão
-    // luz escorrendo pelos filetes
-    r *= 1.0 - m.g * img2.y * (0.5 + 0.5 * sin((q.y - img2.x) * TAU / 70.0));
-    // estrelas cintilando; pequenas, as grandes viram um ponto de 1 px
-    float h = hash2(floor(q / 14.0));
-    float cint = 1.0 - img3.x * 0.6 * (0.5 + 0.5 * sin(geo.z * (1.5 + 2.0 * h) + h * TAU));
-    r *= mix(1.0, cint, sat01(m.b * 4.0));
-    r = max(r, m.b * cint * (1.0 - smoothstep(0.2, 0.5, s)));
-    accB = r;
-    accA = max(gg, r);
 #endif
 
     float A = min(accB, accA);

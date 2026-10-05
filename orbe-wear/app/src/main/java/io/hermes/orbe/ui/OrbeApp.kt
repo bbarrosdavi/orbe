@@ -33,7 +33,7 @@ import kotlinx.coroutines.launch
 
 /**
  * As duas páginas do relógio, lado a lado: o orbe e, arrastando para a
- * esquerda, o menu. Na vertical (dedo ou coroa) o orbe gira o carrossel; no
+ * esquerda, o menu. Na vertical (dedo ou coroa) a lista passa de orbe em orbe; no
  * menu, a coroa rola a lista. Voltar do menu cai no orbe.
  */
 @Composable
@@ -53,7 +53,7 @@ fun OrbeApp(
     val lista = rememberTransformingLazyColumnState()
     val escopo = rememberCoroutineScope()
     val foco = remember { FocusRequester() }
-    // a coroa no orbe: um passo do carrossel a cada tanto de giro
+    // a coroa no orbe: um orbe da lista a cada tanto de giro
     val coroa = remember { MutableSharedFlow<Int>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST) }
     val giro = remember { floatArrayOf(0f) }
     // a calibração da sacudida cobre o menu até salvar ou voltar
@@ -132,5 +132,5 @@ fun OrbeApp(
     LaunchedEffect(paginas.settledPage) { if (paginas.settledPage == 0) lista.scrollToItem(0) }
 }
 
-/** Pixels de giro da coroa por orbe do carrossel. */
+/** Pixels de giro da coroa por orbe da lista. */
 private const val GIRO_POR_PASSO = 90f

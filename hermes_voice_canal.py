@@ -96,10 +96,11 @@ def sessoes() -> list[dict]:
     return sorted(achadas, key=lambda i: i["desde"], reverse=True)
 
 
-def encerrar() -> int:
-    """Fecha a sessão com o canal que o orbe usa (a mais recente), como fechar a
-    janela: SIGTERM no processo do Claude. Devolve o pid, ou 0 sem sessão."""
-    s = sessoes()
+def encerrar(pid: int = 0) -> int:
+    """Fecha a sessão com o canal que o orbe usa (a de [pid], ou a mais
+    recente), como fechar a janela: SIGTERM no processo do Claude. Devolve o
+    pid, ou 0 sem sessão. Só sessão com o canal: as abertas à mão ficam."""
+    s = [i for i in sessoes() if not pid or int(i["pid"]) == pid]
     if not s:
         return 0
     pid = int(s[0]["pid"])
@@ -308,11 +309,12 @@ def _ligar(caminho: Path) -> socket.socket:
 
 
 class AgenteClaude:
-    """Fala com a sessão aberta mais recente; não sobe processo nenhum."""
+    """Fala com a sessão aberta mais recente, ou com a de [pid]; não sobe processo nenhum."""
 
-    def __init__(self):
+    def __init__(self, pid: int = 0):
         import hermes_voice_acp as acp
         self._erro = acp.ErroACP
+        self.alvo = int(pid or 0)
         self.iniciado_em = time.time()
         self.sessao = ""
         self.info: dict = {"agentInfo": {"name": "Claude Code", "title": "Claude Code"}}
@@ -324,15 +326,18 @@ class AgenteClaude:
         pass
 
     def abrir_sessao(self, retomar=None, teto: float = 0):
-        s = sessoes()
+        s = [i for i in sessoes() if not self.alvo or int(i["pid"]) == self.alvo]
         if not s:
-            raise self._erro("nenhuma sessão do Claude aberta com o canal do orbe (use claude-orbe)")
+            raise self._erro(f"a sessão {self.alvo} do Claude fechou" if self.alvo else
+                             "nenhuma sessão do Claude aberta com o canal do orbe (use claude-orbe)")
         self.sessao, self.cwd = str(s[0]["pid"]), s[0].get("cwd", "")
         return self.sessao
 
     def vivo(self) -> bool:
         if not self.sessao or not _vivo(int(self.sessao)):
             return False
+        if self.alvo:
+            return True
         s = sessoes()
         # Uma sessão aberta depois passa a ser a escolhida.
         return bool(s) and str(s[0]["pid"]) == self.sessao

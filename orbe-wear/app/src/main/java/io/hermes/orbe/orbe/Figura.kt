@@ -14,7 +14,7 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * Ophanim, Ophanim com asas, Shoggoth e as skins de imagem: o lado com memória
+ * Ophanim, Ophanim com asas e a skin de imagem: o lado com memória
  * do orbe-qt/comum/Figura.qml, portado linha a linha. Giro das rodas, travas em
  * quarto de volta, ondas da voz, relâmpagos, batida das asas e rajadas de
  * glitch andam aqui; o desenho é do figura.frag e do imagem.frag, e a cor e o
@@ -35,7 +35,7 @@ class Figura(skinInicial: Skin) : Arte {
     var varredura = true
     var peso = 1.0                       // traço mais grosso e opaco (o orbe usa mais)
     val cor = floatArrayOf(1f, 1f, 1f)
-    /** tom do fundo: a massa escura por baixo do traço (Shoggoth e skins de imagem) */
+    /** tom do fundo: a massa escura por baixo do traço (skins de imagem) */
     val corFundo = floatArrayOf(0.07f, 0.078f, 0.078f)
     var raioFixo = -1.0                  // R explícito; -1 = o maior que cabe
     var disco = -1.0                     // > 0: cabe também num disco desse raio
@@ -75,22 +75,8 @@ class Figura(skinInicial: Skin) : Arte {
         var pupila = 1.0
         var clarao = 0.0
         var faseAsa = 0.0
-        var faseT = 0.0
-        var alcance = 1.0
-        var boca = 0.0
-        var deslize = 0.0
-        var inclina = 0.0
-        val mascSalto = DoubleArray(2)
-        var goela = 0.1
         var abreAsa = 0.2
         var ampAsa = 0.0
-        var brilho = 0.8
-        var faseRunas = 0.0
-        var forcaRunas = 0.0
-        var faseFil = 0.0
-        var forcaFil = 0.3
-        var faseVort = 0.0
-        var forcaVort = 0.3
     }
 
     fun raioQueCabe(w: Double, h: Double, d: Double): Double {
@@ -127,9 +113,7 @@ class Figura(skinInicial: Skin) : Arte {
         }
         s.ondas.removeAll { s.t - it[0] >= 1.3 }
         when (skin) {
-            Skin.SHOGGOTH -> evoluirShoggoth(dt)
             Skin.SERAFIM_GRAVURA -> evoluirGravura(dt)
-            Skin.ENTIDADE -> evoluirEntidade(dt)
             else -> {
                 evoluirOfanim(dt)
                 if (skin == Skin.OFANIM_ALADO) {
@@ -170,31 +154,6 @@ class Figura(skinInicial: Skin) : Arte {
         s.pupila += (alvoP - s.pupila) * min(1.0, dt * 8)
     }
 
-    private fun evoluirShoggoth(dt: Double) {
-        val s = st
-        val ouvir = p(LISTENING)
-        val pensar = p(THINKING)
-        val falar = p(SPEAKING) * voz
-        // ouvindo, quase parado; pensando, os tentáculos se reviram
-        s.faseT += dt * (mistura(0.7, 0.35, 2.4, 1.7, 1.0) + 1.4 * falar + (1 - desperto) * 3.0)
-        val alc = mistura(1.0, 0.9, 1.06, 1.15, 1.03)
-        s.alcance += (alc - s.alcance) * min(1.0, dt * 4)
-        val boca = lim01(falar * 1.6)
-        s.boca += (boca - s.boca) * min(1.0, dt * (if (boca > s.boca) 18 else 8))
-        // a fachada escorrega quando ele pensa
-        val desl = mistura(0.0, 0.0, 1.0, 0.55, 0.0)
-        s.deslize += (desl - s.deslize) * min(1.0, dt * 2.5)
-        s.inclina += (ouvir - s.inclina) * min(1.0, dt * 4)
-        // as bocas de dentes: entreabertas paradas, escancaradas pensando, batem com a voz
-        val goela = mistura(0.1, 0.05, 0.75, 0.55, 0.2) + 0.6 * falar
-        s.goela += (goela - s.goela) * min(1.0, dt * (if (goela > s.goela) 14 else 6))
-        val q = max(0.0, 1 - dt * 6)
-        s.mascSalto[0] *= q
-        s.mascSalto[1] *= q
-        val alvoP = 1.0 + 0.25 * ouvir + 0.6 * ouvir * mic - 0.25 * pensar
-        s.pupila += (alvoP - s.pupila) * min(1.0, dt * 8)
-    }
-
     private fun evoluirGravura(dt: Double) {
         val s = st
         val falar = p(SPEAKING) * voz
@@ -204,27 +163,6 @@ class Figura(skinInicial: Skin) : Arte {
         val amp = mistura(0.06, 0.0, 0.35, 0.22, 0.12) + 0.3 * falar
         s.ampAsa += (amp - s.ampAsa) * min(1.0, dt * 3)
         s.faseAsa += dt * TAU * (mistura(0.2, 0.1, 0.9, 1.6, 0.6) + 0.8 * falar)
-    }
-
-    private fun evoluirEntidade(dt: Double) {
-        val s = st
-        val falar = p(SPEAKING) * voz
-        val aprox = min(1.0, dt * 3)
-        // o halo: esmorecido parado, inteiro ouvindo, pulsando com a voz
-        val br = min(1.0, mistura(0.78, 1.0, 0.92, 0.95, 0.86) + 0.14 * falar)
-        s.brilho += (br - s.brilho) * min(1.0, dt * (if (br > s.brilho) 14 else 4))
-        // a onda de luz pelo crescente, pensando
-        s.faseRunas += dt * mistura(0.3, 0.2, 1.4, 2.6, 0.6)
-        val fr = mistura(0.1, 0.0, 0.85, 1.0, 0.3)
-        s.forcaRunas += (fr - s.forcaRunas) * aprox
-        // a luz que escorre das lâminas (px da imagem por segundo)
-        s.faseFil += dt * (mistura(30.0, 45.0, 70.0, 95.0, 60.0) + 90 * falar)
-        val ff = mistura(0.25, 0.35, 0.5, 0.55, 0.45) + 0.3 * falar
-        s.forcaFil += (ff - s.forcaFil) * aprox
-        // a boca da barriga (voltas do redemoinho por segundo)
-        s.faseVort += dt * (mistura(0.06, 0.08, 0.4, 0.55, 0.2) + 0.25 * falar)
-        val fv = mistura(0.4, 0.5, 1.0, 1.0, 0.7)
-        s.forcaVort += (fv - s.forcaVort) * aprox
     }
 
     // base (u, v) do plano do anel i, girando em eixos diferentes
@@ -330,18 +268,12 @@ class Figura(skinInicial: Skin) : Arte {
                 val ag = agitacao()
                 s.glitchAte = t + (if (ag > 0.25) uni(0.05, 0.20) else uni(0.08, 0.28))
                 s.proxGlitch = s.glitchAte + (if (ag > 0.25) uni(0.06, 0.75) / (0.4 + ag) else uni(0.9, 3.6))
-                if (skin == Skin.SHOGGOTH) {
-                    s.mascSalto[0] = uni(-0.18, 0.18) * rb      // a máscara pula
-                    s.mascSalto[1] = uni(-0.08, 0.08) * rb
-                } else if (Random.nextDouble() < 0.5) {
+                if (Random.nextDouble() < 0.5) {
                     s.salto[sorteia(4)] += (if (Random.nextDouble() < 0.5) -1 else 1) * uni(0.4, 1.4)
                 }
             }
             rajada = t < s.glitchAte
-            // na entidade a rajada não abre a aberração: a hachura densa dobrada a
-            // 4-11 px parece desfoque; as faixas arrancadas e os cacos continuam
-            val abreAb = rajada && skin != Skin.ENTIDADE
-            sep = (if (abreAb) uni(4.0, 11.0) else 0.8 + 0.5 * abs(ruido(t, 1.0))) * max(0.6, k)
+            sep = (if (rajada) uni(4.0, 11.0) else 0.8 + 0.5 * abs(ruido(t, 1.0))) * max(0.6, k)
         }
 
         val temOlhar = !olharX.isNaN()
@@ -362,32 +294,6 @@ class Figura(skinInicial: Skin) : Arte {
                     gy = gy * (1 - pensar) + vy * pensar
                 }
                 fx.v4("img", s.abreAsa * dG, s.ampAsa * sin(s.faseAsa), 0.025 * falar, 0.0)
-            }
-            Skin.ENTIDADE -> {
-                val dE = suave(desperto)
-                r = rb * (0.3 + 0.7 * dE)
-                gx = cx
-                gy = cy
-                fx.v4("img", s.brilho * (0.4 + 0.6 * dE), s.faseRunas, s.forcaRunas, 0.02 * falar)
-                fx.v4("img2", s.faseFil, s.forcaFil, s.faseVort, s.forcaVort)
-                fx.v4("img3", 1.0, 0.0, 0.0, 0.0)
-            }
-            Skin.SHOGGOTH -> {
-                val dS = suave(desperto)
-                r = rb * (0.25 + 0.75 * dS)
-                gx = if (temOlhar) olharX else cx + ruido(t * 0.6, 3.0) * r * 1.4
-                gy = if (temOlhar) olharY else cy + ruido(t * 0.5, 9.0) * r * 0.8
-                // a máscara na ponta da cabeça (o shader acha a ponta): inclina para
-                // quem fala, escorrega pensando e balança com as sílabas
-                val sl = s.deslize
-                val mx = sl * 0.22 * r * ruido(t * 0.9, 31.0) + s.mascSalto[0]
-                val my = sl * 0.10 * r * ruido(t * 0.7, 37.0) + s.mascSalto[1] - 0.03 * r * falar
-                val inc = s.inclina * max(-0.28, min(0.28, (gx - cx) / r * 0.18)) + sl * 0.35 * ruido(t * 0.8, 41.0)
-                fx.v4("sho", s.faseT, s.alcance, s.boca, falar)
-                fx.v4("sho2", mx, my, inc, suave((desperto - 0.55) / 0.35))
-                fx.v4("sho3", s.inclina, 0.0, 0.0, suave((desperto - 0.2) / 0.6))
-                fx.v4("sho4", 0.0, 0.0, s.goela, 0.0)
-                fx.v4("ofa", 1.0, s.pupila, 0.0, 1.0)
             }
             else -> {
                 val d = desperto
@@ -484,17 +390,15 @@ class Figura(skinInicial: Skin) : Arte {
 
         fx.v4("geo", r, lim, t, peso)
         fx.v4("est", ouvir, pensar, ferr, falar)
-        fx.v4("est2", voz, mic, desperto, when (skin) { Skin.OFANIM_ALADO -> 1.0; Skin.SHOGGOTH -> 3.0; else -> 0.0 })
-        // no Shoggoth: massas do monte, —, tentáculos (o primeiro é a cabeça)
-        if (skin == Skin.SHOGGOTH) fx.v4("lacos", 7.0, 0.0, 14.0, 0.0)
-        else fx.v4("lacos", 30.0, 24.0, 10.0, if (skin == Skin.OFANIM_ALADO) 4.0 else 0.0)
+        fx.v4("est2", voz, mic, desperto, if (skin == Skin.OFANIM_ALADO) 1.0 else 0.0)
+        fx.v4("lacos", 30.0, 24.0, 10.0, if (skin == Skin.OFANIM_ALADO) 4.0 else 0.0)
 
         // segundo passe
         pos.v2("tam", w, h)
         pos.v2("centro", cx, cy)
         pos.v4("cor", cor[0].toDouble(), cor[1].toDouble(), cor[2].toDouble(), alfa)
         // ciano e magenta do anel; na rajada, tão opacos quanto os dele
-        val alfaGl = if (!glitch) 0.0 else if (rajada && skin != Skin.ENTIDADE) 0.60 else 0.40
+        val alfaGl = if (!glitch) 0.0 else if (rajada) 0.60 else 0.40
         pos.v4("corA", 0.00, 0.95, 0.95, alfaGl)
         pos.v4("corB", 1.00, 0.08, 0.55, alfaGl)
         pos.v4("glt", sep, if (rajada) 1.0 else 0.0, if (rajada) Random.nextDouble() * 1000 else 0.0, k)

@@ -1,0 +1,497 @@
+#!/usr/bin/env python3
+"""Sessões do Claude Code que o orbe não abriu: ver, mandar a fala, ouvir a resposta.
+
+O canal (hermes_voice_canal.py) só existe nas sessões abertas com o
+claude-orbe. As abertas à mão o orbe alcança por um hook do usuário, posto no
+~/.claude/settings.json com --instalar. Só a stdlib:
+
+- `--hook`, em SessionStart e Stop, com asyncRewake: roda em segundo plano e
+  espera num socket local da sessão (a escuta). Chegou uma fala do orbe, a
+  escuta sai com código 2 e o Claude daquela sessão acorda com o pedido, mesmo
+  parado. No Stop desse turno a mesma entrada deixa a última resposta para o
+  orbe (só quando o turno foi um pedido dele) e arma a escuta de novo.
+- Importado pelo daemon e pelo pulso: `sessoes()` lista as sessões vivas, pelo
+  registro do próprio Claude Code (~/.claude/sessions), e `agente(pid)` dá o
+  agente de uma delas, com a cara do AgenteClaude.
+
+O Claude atende porque o hook diz de onde o pedido vem (ORIGEM, abaixo): sem
+isso ele recusa uma mensagem que não veio do usuário.
+
+  hermes_voice_sessao.py               lista as sessões abertas
+  hermes_voice_sessao.py --instalar    põe o hook no settings.json do usuário
+  hermes_voice_sessao.py --remover     tira o hook e solta as escutas
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import socket
+import sys
+import time
+from pathlib import Path
+
+CLAUDE_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+REGISTRO = CLAUDE_DIR / "sessions"
+SETTINGS = CLAUDE_DIR / "settings.json"
+# Sem AF_UNIX (o Python do Windows) a escuta fica no laço local e o .sock é um
+# arquivo com a porta e a chave, como no canal.
+UNIX = hasattr(socket, "AF_UNIX")
+# Quanto a escuta espera com a sessão parada (o timeout do hook, que o Claude
+# aplica também em segundo plano). Passou disso, a sessão volta a ouvir no fim
+# do próximo turno dela.
+VIDA_S = 86400
+ORIGEM = ("Pedido de voz do usuário desta sessão, transcrito pelo orbe de voz (hook do orbe "
+          "que ele instalou no próprio settings.json; a resposta final é lida em voz alta para ele):")
+RESUMO = "Pedido do orbe de voz"
+MARCA = "hermes_voice_sessao.py"
+
+
+def _pasta() -> Path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import hermes_voice_config as vcfg
+    return vcfg.RUNTIME / "hermes-voice" / "sessoes"
+
+
+def _vivo(pid: int) -> bool:
+    if os.name == "nt":
+        import hermes_voice_canal as canal      # o teste do Windows (ctypes) mora lá
+        return canal._vivo(pid)
+    # sem importar o canal: a escuta fica parada a sessão inteira, e ele pesa uns 4 MB
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _alcancavel(d: dict) -> bool:
+    """Sessão de terminal ou de segundo plano. O claude -p também se registra
+    como interactive, mas com a entrada do SDK: essa não tem a quem acordar."""
+    kind = d.get("kind")
+    return kind == "bg" or (kind == "interactive" and d.get("entrypoint") == "cli")
+
+
+def _registros() -> list[dict]:
+    achados = []
+    for p in REGISTRO.glob("*.json"):
+        try:
+            d = json.loads(p.read_text())
+            d["pid"] = int(d["pid"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        achados.append(d)
+    return achados
+
+
+def sessoes() -> list[dict]:
+    """As sessões do Claude Code vivas, da mais antiga para a mais nova.
+
+    canal: aberta com o claude-orbe (o canal do orbe responde por ela);
+    ouve: tem a escuta do hook armada; estado: "parada" ou "trabalhando".
+    """
+    import hermes_voice_canal as canal
+    pasta = _pasta()
+    vivas = []
+    for d in _registros():
+        if not _alcancavel(d) or not _vivo(d["pid"]):
+            continue
+        pid = d["pid"]
+        cwd = str(d.get("cwd") or "")
+        vivas.append({
+            "pid": pid,
+            "nome": str(d.get("name") or ""),
+            # o nome derivado já é a pasta com o começo do id (orbe-relogio-2c)
+            "nome_derivado": d.get("nameSource") == "derived",
+            "pasta": Path(cwd).name or cwd,
+            "cwd": cwd,
+            "estado": "parada" if d.get("status") == "idle" else "trabalhando",
+            "desde": d.get("startedAt") or 0,
+            "canal": (canal.PASTA / f"{pid}.sock").exists(),
+            "ouve": (pasta / f"{pid}.sock").exists(),
+        })
+    return sorted(vivas, key=lambda s: (s["desde"], s["pid"]))
+
+
+def rotulo(s: dict) -> str:
+    """O nome que o relógio mostra: o derivado já diz a pasta; o dado à mão vem com ela."""
+    if s.get("nome_derivado") or not s.get("nome"):
+        return s.get("nome") or s.get("pasta") or str(s.get("pid"))
+    return f"{s['pasta']} · {s['nome']}" if s.get("pasta") else s["nome"]
+
+
+def _gravar(caminho: Path, dados: dict):
+    tmp = caminho.with_name(caminho.name + ".tmp")
+    tmp.write_text(json.dumps(dados, ensure_ascii=False))
+    os.replace(tmp, caminho)
+
+
+def _ligar(caminho: Path, timeout: float = 3.0) -> socket.socket:
+    if UNIX:
+        cli = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        cli.settimeout(timeout)
+        try:
+            cli.connect(str(caminho))
+        except OSError:
+            cli.close()
+            raise
+        return cli
+    porta, chave = caminho.read_text().split()
+    cli = socket.create_connection(("127.0.0.1", int(porta)), timeout=timeout)
+    cli.sendall((json.dumps({"tipo": "chave", "chave": chave}) + "\n").encode())
+    return cli
+
+
+def _ler_linha(cli: socket.socket, limite: int = 1 << 20) -> dict | None:
+    buf = b""
+    while b"\n" not in buf and len(buf) < limite:
+        bloco = cli.recv(65536)
+        if not bloco:
+            break
+        buf += bloco
+    try:
+        return json.loads(buf.split(b"\n", 1)[0])
+    except ValueError:
+        return None
+
+
+def _falar(caminho: Path, msg: dict, timeout: float = 3.0) -> dict | None:
+    """Uma mensagem à escuta de uma sessão e a resposta dela."""
+    cli = _ligar(caminho, timeout)
+    try:
+        cli.sendall((json.dumps(msg, ensure_ascii=False) + "\n").encode())
+        return _ler_linha(cli)
+    finally:
+        cli.close()
+
+
+# ── o hook: roda dentro de cada sessão do Claude Code ──────────────────────
+
+def _registro_de(sessao: str, espera: float) -> dict | None:
+    """O registro da sessão do hook. No SessionStart ele pode ainda não existir."""
+    fim = time.monotonic() + espera
+    while True:
+        for d in _registros():
+            if d.get("sessionId") == sessao:
+                return d
+        if time.monotonic() >= fim:
+            return None
+        time.sleep(0.25)
+
+
+def _entregar(pasta: Path, pid: int, texto: str):
+    """Stop de um turno pedido pelo orbe: a última resposta fica para ele."""
+    pedido = pasta / f"{pid}.pedido"
+    try:
+        d = json.loads(pedido.read_text())
+    except (OSError, ValueError):
+        return
+    try:
+        pedido.unlink()
+    except OSError:
+        pass
+    _gravar(pasta / f"{pid}.resposta", {"pedido": d.get("pedido", ""), "texto": texto})
+
+
+def _escutar(pasta: Path, pid: int) -> int:
+    """Espera a fala do orbe; com ela, sai com 2 e o Claude acorda com o pedido."""
+    sock = pasta / f"{pid}.sock"
+    try:
+        _falar(sock, {"tipo": "ping"}, 1.0)
+        return 0                    # outra escuta já serve esta sessão
+    except (OSError, ValueError):
+        pass
+    try:
+        sock.unlink()
+    except OSError:
+        pass
+    chave = ""
+    if UNIX:
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        srv.bind(str(sock))
+        os.chmod(sock, 0o600)
+    else:
+        import secrets
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.bind(("127.0.0.1", 0))
+        chave = secrets.token_hex(16)
+        sock.write_text(f"{srv.getsockname()[1]} {chave}")
+    srv.listen(4)
+    srv.settimeout(2.0)
+    try:
+        while _vivo(pid):
+            try:
+                cli, _ = srv.accept()
+            except socket.timeout:
+                continue
+            try:
+                cli.settimeout(3.0)
+                m = _ler_linha(cli)
+                if m is not None and chave:
+                    if m.get("tipo") != "chave" or m.get("chave") != chave:
+                        continue
+                    m = _ler_linha(cli)
+                if m is None:
+                    continue
+                tipo = m.get("tipo")
+                if tipo == "ping":
+                    cli.sendall(b'{"tipo": "ok"}\n')
+                elif tipo == "fim":
+                    cli.sendall(b'{"tipo": "ok"}\n')
+                    return 0
+                elif tipo == "pergunta":
+                    # com a sessão no meio de um turno, o pedido entraria na fila
+                    # e o Stop desse turno levaria a resposta errada: o orbe espera
+                    reg = next((d for d in _registros() if d["pid"] == pid), {})
+                    if reg.get("status") not in (None, "idle"):
+                        cli.sendall(b'{"tipo": "ocupada"}\n')
+                        continue
+                    _gravar(pasta / f"{pid}.pedido", {"pedido": str(m.get("pedido") or ""), "t": time.time()})
+                    cli.sendall(b'{"tipo": "aceito"}\n')
+                    sys.stderr.write(str(m.get("texto") or "").strip() + "\n")
+                    sys.stderr.flush()
+                    return 2
+            except OSError:
+                continue
+            finally:
+                cli.close()
+        return 0
+    finally:
+        srv.close()
+        try:
+            sock.unlink()
+        except OSError:
+            pass
+
+
+def _hook() -> int:
+    """A entrada do settings.json (SessionStart e Stop, com asyncRewake)."""
+    # Fora do terminal (claude -p, SDK) o hook roda dentro do turno e o Claude
+    # espera por ele no fim: lá não há o que fazer, sai já.
+    entrada = os.environ.get("CLAUDE_CODE_ENTRYPOINT", "")
+    bg = os.environ.get("CLAUDE_CODE_SESSION_KIND") == "bg"
+    if entrada and entrada != "cli" and not bg:
+        return 0
+    try:
+        ent = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
+        return 0
+    reg = _registro_de(str(ent.get("session_id") or ""), 5.0 if entrada == "cli" or bg else 0.0)
+    if reg is None or not _alcancavel(reg):
+        return 0
+    pasta = _pasta()
+    pasta.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if ent.get("hook_event_name") == "Stop":
+        _entregar(pasta, reg["pid"], str(ent.get("last_assistant_message") or ""))
+    return _escutar(pasta, reg["pid"])
+
+
+# ── instalação no settings.json do usuário ─────────────────────────────────
+
+def _comando() -> str:
+    """O comando do hook. O código 2 acorda a sessão, e é com ele que o Python
+    sai quando não acha o script: sem o arquivo, o test sai com 1 e nada acorda."""
+    script = str(Path(__file__).resolve())
+    if os.name == "nt":
+        import subprocess
+        return subprocess.list2cmdline([sys.executable, script, "--hook"])
+    import shlex
+    return f"test -f {shlex.quote(script)} && exec {shlex.quote(sys.executable)} {shlex.quote(script)} --hook"
+
+
+def _sem_o_orbe(grupos: list) -> list:
+    """Os grupos do evento sem as entradas deste hook (e sem grupo que ficou vazio)."""
+    limpos = []
+    for g in grupos:
+        if not isinstance(g, dict):
+            limpos.append(g)
+            continue
+        hooks = [h for h in g.get("hooks") or [] if MARCA not in str((h or {}).get("command") or "")]
+        if hooks or not g.get("hooks"):
+            limpos.append(dict(g, hooks=hooks))
+    return limpos
+
+
+def _ler_settings() -> dict:
+    try:
+        return json.loads(SETTINGS.read_text())
+    except FileNotFoundError:
+        return {}
+
+
+def _gravar_settings(d: dict):
+    if SETTINGS.exists():
+        reserva = SETTINGS.with_name(SETTINGS.name + ".orbe-bak")
+        reserva.write_bytes(SETTINGS.read_bytes())
+    SETTINGS.parent.mkdir(parents=True, exist_ok=True)
+    tmp = SETTINGS.with_name(SETTINGS.name + ".orbe-tmp")
+    tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n")
+    os.replace(tmp, SETTINGS)
+
+
+def instalar():
+    d = _ler_settings()
+    hooks = d.setdefault("hooks", {})
+    entrada = {"type": "command", "command": _comando(), "asyncRewake": True, "timeout": VIDA_S,
+               "rewakeMessage": ORIGEM, "rewakeSummary": RESUMO}
+    for ev in ("SessionStart", "Stop"):
+        hooks[ev] = _sem_o_orbe(hooks.get(ev) or []) + [{"hooks": [entrada]}]
+    _gravar_settings(d)
+    print(f"hook do orbe instalado em {SETTINGS} (cópia anterior em {SETTINGS.name}.orbe-bak)")
+    print("as sessões abertas passam a ouvir o orbe no fim do próximo turno delas")
+
+
+def remover():
+    d = _ler_settings()
+    hooks = d.get("hooks") or {}
+    for ev in list(hooks):
+        if isinstance(hooks[ev], list):
+            hooks[ev] = _sem_o_orbe(hooks[ev])
+            if not hooks[ev]:
+                del hooks[ev]
+    if not hooks:
+        d.pop("hooks", None)
+    _gravar_settings(d)
+    soltas = 0
+    for s in _pasta().glob("*.sock"):
+        try:
+            _falar(s, {"tipo": "fim"}, 1.0)
+            soltas += 1
+        except (OSError, ValueError):
+            pass
+    print(f"hook do orbe removido de {SETTINGS}; {soltas} escuta(s) solta(s)")
+
+
+# ── o agente: usado pelo daemon e pelo pulso ───────────────────────────────
+
+class AgenteSessao:
+    """Fala com uma sessão aberta à mão, pela escuta do hook."""
+
+    def __init__(self, pid: int):
+        import hermes_voice_acp as acp
+        self._erro = acp.ErroACP
+        self.alvo = int(pid)
+        self.iniciado_em = time.time()
+        self.sessao = ""
+        self.info: dict = {"agentInfo": {"name": "Claude Code", "title": "Claude Code"}}
+        self.modelos: list = []
+        self.modelo_atual = ""
+        self.cwd = ""
+        self._pasta = _pasta()
+
+    def iniciar(self, teto: float = 0):
+        pass
+
+    def abrir_sessao(self, retomar=None, teto: float = 0):
+        s = next((s for s in sessoes() if s["pid"] == self.alvo), None)
+        if s is None:
+            raise self._erro(f"a sessão {self.alvo} do Claude fechou")
+        self.sessao, self.cwd = str(self.alvo), s["cwd"]
+        return self.sessao
+
+    def vivo(self) -> bool:
+        return bool(self.sessao) and _vivo(self.alvo)
+
+    def definir_modelo(self, modelo: str):
+        raise self._erro("o modelo é o da sessão aberta do Claude")
+
+    def fechar(self):
+        pass
+
+    def cancelar(self):
+        pass
+
+    def erro_recente(self) -> str:
+        return ""
+
+    def perguntar(self, texto, ao_texto, ao_pensamento=None, a_ferramenta=None,
+                  parar=None, teto: float = 600.0) -> str:
+        """Acorda a sessão com a fala e espera o Stop do turno dela. Interromper
+        só para a espera: o Claude segue o que estiver fazendo no terminal."""
+        import uuid
+        pedido = uuid.uuid4().hex[:8]
+        sock = self._pasta / f"{self.alvo}.sock"
+        resposta = self._pasta / f"{self.alvo}.resposta"
+        fim = time.monotonic() + teto
+        avisou = False
+        while True:
+            if parar is not None and parar.is_set():
+                return "cancelled"
+            if time.monotonic() > fim:
+                raise self._erro(f"a sessão {self.alvo} não parou em {teto:.0f} s")
+            try:
+                r = _falar(sock, {"tipo": "pergunta", "texto": texto, "pedido": pedido})
+            except (OSError, ValueError):
+                raise self._erro(f"a sessão {self.alvo} não ouve o orbe (falta o hook: "
+                                 "hermes_voice_sessao.py --instalar, ou ela ainda não terminou um turno)")
+            tipo = (r or {}).get("tipo")
+            if tipo == "aceito":
+                break
+            if tipo != "ocupada":
+                raise self._erro(f"a sessão {self.alvo} recusou o pedido ({tipo or 'sem resposta'})")
+            if not avisou and ao_pensamento is not None:
+                ao_pensamento("a sessão está trabalhando; o pedido entra quando ela parar\n")
+                avisou = True
+            time.sleep(0.5)
+        if a_ferramenta:
+            a_ferramenta("claude", "pending")
+        while True:
+            if (parar is not None and parar.is_set()) or time.monotonic() > fim:
+                self._desistir(pedido)
+                if parar is not None and parar.is_set():
+                    return "cancelled"
+                raise self._erro(f"sem resposta da sessão {self.alvo} em {teto:.0f} s")
+            try:
+                d = json.loads(resposta.read_text())
+            except (OSError, ValueError):
+                d = None
+            if d is not None and d.get("pedido") == pedido:
+                try:
+                    resposta.unlink()
+                except OSError:
+                    pass
+                ao_texto(str(d.get("texto") or ""))
+                return "end_turn"
+            if not _vivo(self.alvo):
+                raise self._erro(f"a sessão {self.alvo} do Claude fechou")
+            time.sleep(0.2)
+
+    def _desistir(self, pedido: str):
+        """O orbe não espera mais: o Stop desse turno não deixa resposta."""
+        p = self._pasta / f"{self.alvo}.pedido"
+        try:
+            if json.loads(p.read_text()).get("pedido") == pedido:
+                p.unlink()
+        except (OSError, ValueError):
+            pass
+
+
+def agente(pid: int = 0):
+    """O agente de uma sessão: pelo canal, se ela foi aberta com o claude-orbe
+    (ou sem pid: a mais recente com ele); pela escuta do hook, se não."""
+    import hermes_voice_canal as canal
+    if not pid or (canal.PASTA / f"{pid}.sock").exists():
+        return canal.AgenteClaude(pid)
+    return AgenteSessao(pid)
+
+
+def main():
+    if "--hook" in sys.argv:
+        sys.exit(_hook())
+    if "--instalar" in sys.argv:
+        instalar()
+    elif "--remover" in sys.argv:
+        remover()
+    else:
+        vivas = sessoes()
+        if not vivas:
+            print("nenhuma sessão do Claude Code aberta")
+        for s in vivas:
+            via = "canal do orbe" if s["canal"] else "hook" if s["ouve"] else "sem o hook"
+            print(f"{s['pid']:>8}  {rotulo(s):<32} {s['estado']:<12} {via:<14} {s['cwd']}")
+
+
+if __name__ == "__main__":
+    main()

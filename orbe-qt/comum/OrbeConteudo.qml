@@ -23,10 +23,10 @@ Item {
     property color corFundo: "#121414"     // @window_bg_color: sombra e contorno do texto
     property color corOlhos: "transparent" // "olhos <cor>": íris em cor própria (a sessão do relógio)
 
-    readonly property bool avatar: skin === "ofanim" || skin === "ofanim_alado" || skin === "shoggoth" || skin === "serafim_gravura" || skin === "entidade"
+    readonly property bool avatar: skin === "ofanim" || skin === "ofanim_alado" || skin === "serafim_gravura"
     // as skins de imagem saem 5/3 maiores: o 60% do slider delas é o 100% das
     // outras (reduzida demais, a gravura perde a hachura)
-    readonly property real escala: tamanho * (skin === "serafim_gravura" || skin === "entidade" ? 5 / 3 : 1)
+    readonly property real escala: tamanho * (skin === "serafim_gravura" ? 5 / 3 : 1)
     // ART_BOX é o tamanho visual da arte; ORB_BOX, a célula reservada para ela
     readonly property int orbBox: Math.round(148 * escala)
     readonly property int artBox: Math.round(120 * escala)
@@ -36,12 +36,12 @@ Item {
     readonly property bool textoAbaixo: textoPos === "abaixo"
     // abaixo, o texto começa onde a figura termina (medido nos renders, em
     // fração da célula a partir do centro): a linha mais antiga some ali
-    readonly property var pes: ({ ofanim: 0.39, ofanim_alado: 0.29, shoggoth: 0.42, serafim_gravura: 0.38, entidade: 0.47, anel: 0.35 })
+    readonly property var pes: ({ ofanim: 0.39, ofanim_alado: 0.29, serafim_gravura: 0.38, anel: 0.35 })
     readonly property real yTexto: Math.round(cy + orbBox * (pes[skin] || 0.35))
     // topo da figura acima do centro, em fração da célula (medido nos renders,
     // na coluna do meio, ouvindo e parada): o ponto da sessão travada fica
     // logo acima dele, perto da figura e longe da borda de cima da tela
-    readonly property var topo: ({ ofanim: 0.345, ofanim_alado: 0.277, shoggoth: 0.365, serafim_gravura: 0.355, entidade: 0.486, anel: 0.412 })
+    readonly property var topo: ({ ofanim: 0.345, ofanim_alado: 0.277, serafim_gravura: 0.355, anel: 0.412 })
     // abaixo, o orbe fica no mesmo lugar e a janela desce até a 5ª linha
     width: painel + orbBox
     height: textoAbaixo ? Math.max(orbBox, yTexto + 5 * 17 + 4) : orbBox
@@ -274,7 +274,7 @@ Item {
         readonly property real pulso: 0.62 + 0.38 * (0.5 + 0.5 * Math.sin(orbe.t * 2.0))
         readonly property color cor: orbe.avatar ? orbe.corTema : (arte.item ? arte.item.corAnel : orbe.accent)
         x: orbe.cx
-        // a entidade enche a célula: o ponto não passa da borda de cima
+        // o ponto não passa da borda de cima
         y: Math.max(5, orbe.cy - orbe.orbBox * (orbe.topo[orbe.skin] || 0.35) - 8)
         Rectangle {
             x: -6; y: -6; width: 12; height: 12; radius: 6

@@ -467,7 +467,7 @@ Item {
                         spacing: 10
                         Repeater {
                             id: cartoes
-                            model: ["ofanim", "ofanim_alado", "shoggoth", "serafim_gravura", "entidade", "anel"]
+                            model: ["ofanim", "ofanim_alado", "serafim_gravura", "anel"]
                             Cartao {
                                 width: (parent.width - 10) / 2
                                 skin: modelData
@@ -482,6 +482,7 @@ Item {
                 Grupo {
                     SliderOrbe {
                         id: tamanho
+                        subtitulo: "a deste orbe: cada um guarda a sua"
                         skin: raiz.skin
                         glitch: rGlitch.ligado
                     }
@@ -502,23 +503,9 @@ Item {
                         subtitulo: "opacidade no centro"
                         de: 0.1; ate: 1.0; passo: 0.05
                         marca: 0.45
-                        // o botão é o orbe sobre a própria sombra, no degradê do pos.frag
-                        botao: Component {
-                            Item {
-                                function avancar(dt) { mini.avancar(dt) }
-                                DiscoSombra {
-                                    anchors.fill: parent
-                                    alfa: rSombra.valor
-                                }
-                                Miniatura {
-                                    id: mini
-                                    anchors.fill: parent
-                                    skin: raiz.skin
-                                    glitch: rGlitch.ligado
-                                    peso: 0.9
-                                }
-                            }
-                        }
+                        // o mesmo botão do tamanho: só o orbe
+                        skin: raiz.skin
+                        glitch: rGlitch.ligado
                     }
                     LinhaCombo {
                         id: rTexto
@@ -591,11 +578,11 @@ Item {
                 }
                 Grupo {
                     titulo: "Agente de cada orbe"
-                    descricao: "Rolar o carrossel do relógio troca de orbe e, com ele, de agente. "
+                    descricao: "Rolar a lista do relógio troca de orbe e, com ele, de agente. "
                                + "O Claude abre num terminal no PC; os outros rodam em segundo plano."
                     Repeater {
                         id: agentesOrbe
-                        model: ["ofanim", "ofanim_alado", "shoggoth", "serafim_gravura", "entidade", "anel"]
+                        model: raiz.skinsRelogio
                         LinhaCombo {
                             readonly property string skin: modelData
                             titulo: ponte.nomesSkin[modelData] || modelData
@@ -630,7 +617,7 @@ Item {
                     LinhaSwitch {
                         id: rwTexto
                         titulo: "Texto do raciocínio"
-                        subtitulo: "as linhas do agente, abaixo do orbe"
+                        subtitulo: "só no relógio: as linhas do agente abaixo do orbe de lá (o daqui segue o ajuste da Aparência)"
                     }
                     LinhaSwitch {
                         id: rwSeguir
@@ -649,11 +636,16 @@ Item {
                         subtitulo: "linhas de varredura, como num tubo"
                         visible: !rwSeguir.ligado
                     }
-                    LinhaSpin {
-                        id: rwTamanho
-                        titulo: "Tamanho do orbe"
-                        subtitulo: "1,00 enche o mostrador"
-                        de: 0.6; ate: 1.3; passo: 0.05; casas: 2
+                    // cada orbe do relógio guarda o seu tamanho
+                    Repeater {
+                        id: rwTamanhos
+                        model: raiz.skinsRelogio
+                        LinhaSpin {
+                            readonly property string skin: modelData
+                            titulo: "Tamanho: " + (ponte.nomesSkin[modelData] || modelData)
+                            subtitulo: "1,00 enche o mostrador"
+                            de: 0.6; ate: 1.3; passo: 0.05; casas: 2
+                        }
                     }
                 }
             }
@@ -805,6 +797,23 @@ Item {
 
     // ── estado que outras linhas leem ──
     property string skin: "ofanim"
+    // os orbes do relógio, na ordem da lista de lá
+    readonly property var skinsRelogio: ["anel", "serafim_gravura", "ofanim", "ofanim_alado"]
+    // o tamanho de cada skin (orbe.tamanhos); a que não tem o seu usa o comum (orbe.tamanho).
+    // O slider mostra o da skin escolhida; trocar de skin guarda o dela antes
+    property var tamanhos: ({})
+    property real tamanhoComum: 1.0
+    property string skinDoTamanho: ""
+    function tamanhoDe(s) { var t = tamanhos[s]; return t === undefined || t === null ? tamanhoComum : t }
+    function guardarTamanho() {
+        if (skinDoTamanho && Math.abs(tamanho.valor - tamanhoDe(skinDoTamanho)) > 0.001)
+            tamanhos[skinDoTamanho] = tamanho.valor
+    }
+    onSkinChanged: {
+        guardarTamanho()
+        skinDoTamanho = skin
+        tamanho.definir(tamanhoDe(skin))
+    }
     // nasce na primeira vez que a ponte do relógio é aplicada ligada
     property string tokenRelogio: ponte.cfg.relogio.token
     // aparência ainda não aplicada; a prévia do orbe acompanha cada mudança
@@ -868,7 +877,11 @@ Item {
         rwSeguir.ligado = !!aj.seguir_pc
         rwGlitch.ligado = !!aj.glitch
         rwLinhas.ligado = aj.linhas === undefined ? true : !!aj.linhas
-        rwTamanho.valor = aj.tamanho === undefined ? 1.0 : aj.tamanho
+        for (var j = 0; j < rwTamanhos.count; j++) {
+            var t = rwTamanhos.itemAt(j)
+            var proprio = (aj.tamanhos || {})[t.skin]
+            t.valor = proprio === undefined || proprio === null ? (aj.tamanho === undefined ? 1.0 : aj.tamanho) : proprio
+        }
         for (var i = 0; i < agentesOrbe.count; i++) {
             var l = agentesOrbe.itemAt(i)
             l.valor = (aj.agentes && aj.agentes[l.skin]) || ""
@@ -885,7 +898,11 @@ Item {
         aj.seguir_pc = rwSeguir.ligado
         aj.glitch = rwGlitch.ligado
         aj.linhas = rwLinhas.ligado
-        aj.tamanho = Math.round(rwTamanho.valor * 100) / 100
+        aj.tamanhos = aj.tamanhos || {}
+        for (var j = 0; j < rwTamanhos.count; j++) {
+            var t = rwTamanhos.itemAt(j)
+            aj.tamanhos[t.skin] = Math.round(t.valor * 100) / 100
+        }
         aj.agentes = aj.agentes || {}
         for (var i = 0; i < agentesOrbe.count; i++) {
             var l = agentesOrbe.itemAt(i)
@@ -938,15 +955,21 @@ Item {
         rRastro.ligado = !!c.diagnostico.rastro_niveis
 
         var o = c.orbe
-        // o Seraphim desenhado saiu; quem o tinha fica com o da gravura
+        // antes da skin: trocá-la já põe o tamanho dela no slider
+        skinDoTamanho = ""
+        tamanhoComum = o.tamanho === undefined ? 1.0 : o.tamanho
+        tamanhos = JSON.parse(JSON.stringify(o.tamanhos || {}))
+        // o Seraphim desenhado saiu; quem o tinha fica com o da gravura (o
+        // Shoggoth e a Entidade também saíram: Ophanim)
         var sk = o.skin === "serafim" ? "serafim_gravura" : o.skin
-        skin = ["ofanim", "ofanim_alado", "shoggoth", "serafim_gravura", "entidade", "anel"].indexOf(sk) >= 0 ? sk : "ofanim"
+        skin = ["ofanim", "ofanim_alado", "serafim_gravura", "anel"].indexOf(sk) >= 0 ? sk : "ofanim"
         rGlitch.ligado = !!o.glitch
         rVidro.ligado = !!o.vidro
         rSombra.definir(o.sombra === undefined ? 0.45 : o.sombra)
         rTexto.valor = o.texto || "lado"
         rMover.ligado = !!o.mover
-        tamanho.definir(o.tamanho === undefined ? 1.0 : o.tamanho)
+        skinDoTamanho = skin
+        tamanho.definir(tamanhoDe(skin))
         mudouAgente(true)
         mudouWake()
     }
@@ -994,7 +1017,12 @@ Item {
         cfg.orbe.glitch = rGlitch.ligado
         cfg.orbe.vidro = rVidro.ligado
         cfg.orbe.sombra = rSombra.valor
-        cfg.orbe.tamanho = tamanho.valor
+        guardarTamanho()
+        cfg.orbe.tamanhos = cfg.orbe.tamanhos || {}
+        for (var s in raiz.tamanhos) {
+            if (raiz.tamanhos[s] !== null && raiz.tamanhos[s] !== undefined)
+                cfg.orbe.tamanhos[s] = Math.round(raiz.tamanhos[s] * 100) / 100
+        }
         cfg.orbe.texto = rTexto.efetivo
         cfg.orbe.mover = rMover.ligado
         // vão à parte, para o chaves.env (o config.json não guarda chave)

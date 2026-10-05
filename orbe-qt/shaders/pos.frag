@@ -5,8 +5,8 @@
 // e nunca do fundo. Atrás de tudo, a sombra opcional: degradê radial que
 // some até zero na borda, sem degrau (o blur do niri é binário).
 //
-// Máscara dos avatares: canal r = cobertura do traço; g = massa escura (só o
-// Shoggoth), pintada no tom do fundo do tema por baixo do traço; b = a parte
+// Máscara dos avatares: canal r = cobertura do traço; g = massa escura (as
+// skins de imagem), pintada no tom do fundo do tema por baixo do traço; b = a parte
 // do traço que é íris, pintada na cor dos olhos quando ela vem (olhos.w > 0). Máscara do anel: r = alfa,
 // g = intensidade / 2 (ADD sobre área opaca passa de 1), b = só o quadro.
 

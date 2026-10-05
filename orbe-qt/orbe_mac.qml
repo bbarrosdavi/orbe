@@ -24,13 +24,17 @@ Window {
     function lerConfig(texto) {
         var o = {}
         try { o = (JSON.parse(texto) || {}).orbe || {} } catch (e) { o = {} }
-        // o Seraphim desenhado saiu; quem o tinha fica com o da gravura
-        conteudo.skin = o.skin === "serafim" ? "serafim_gravura" : String(o.skin || "ofanim")
+        // o Seraphim desenhado saiu; quem o tinha fica com o da gravura (o
+        // Shoggoth e a Entidade também saíram: Ophanim)
+        var sk = o.skin === "serafim" ? "serafim_gravura" : String(o.skin || "ofanim")
+        conteudo.skin = ["ofanim", "ofanim_alado", "serafim_gravura", "anel"].indexOf(sk) >= 0 ? sk : "ofanim"
         conteudo.glitch = o.glitch === undefined ? true : !!o.glitch
         conteudo.vidro = !!o.vidro
         var som = parseFloat(o.sombra)
         conteudo.sombra = isNaN(som) ? 0.45 : Math.min(1.0, Math.max(0.1, som))
-        var tam = parseFloat(o.tamanho)
+        // cada skin guarda o seu tamanho; sem o dela, vale o comum
+        var proprio = (o.tamanhos || {})[conteudo.skin]
+        var tam = parseFloat(proprio === undefined || proprio === null ? o.tamanho : proprio)
         conteudo.tamanho = isNaN(tam) ? 1.0 : Math.min(1.6, Math.max(0.6, tam))
         conteudo.textoPos = o.texto === "abaixo" ? "abaixo" : "lado"
     }
