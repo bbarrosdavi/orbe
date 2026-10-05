@@ -228,6 +228,15 @@ ShellRoot {
                 // além do tempo de segurar, segurar para falar
                 property point inicio
                 property bool arrastando: false
+                // a margem nova só vale no próximo commit da superfície; até lá
+                // os eventos ainda vêm na posição velha e somariam o mesmo
+                // deslocamento de novo (1 cm de dedo mandava o orbe ao outro lado)
+                property bool assentando: false
+                Timer {
+                    id: assentar
+                    interval: 50
+                    onTriggered: area.assentando = false
+                }
                 Timer {
                     id: segurar
                     interval: 350
@@ -237,6 +246,7 @@ ShellRoot {
                     if (!raiz.mover) { raiz.tocar(true); return }
                     inicio = Qt.point(mouse.x, mouse.y)
                     arrastando = false
+                    assentando = false
                     segurar.restart()
                 }
                 onReleased: {
@@ -267,10 +277,14 @@ ShellRoot {
                         }
                         if (arrastando) {
                             // a janela anda com o dedo, e o ponto tocado volta
-                            // para baixo dele: o delta é sempre desde o início
+                            // para baixo dele: o delta é sempre desde o início,
+                            // contado depois que a janela assentou na margem
+                            if (assentando) return
                             raiz.margemX -= dx
                             raiz.margemY += dy
                             raiz.limitar()
+                            assentando = true
+                            assentar.restart()
                             return
                         }
                     }
