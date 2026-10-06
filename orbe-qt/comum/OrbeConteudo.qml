@@ -16,7 +16,16 @@ Item {
     property bool glitch: true
     property bool vidro: false             // sombra atrás do orbe (chave antiga do config)
     property real sombra: 0.45             // opacidade da sombra no centro
-    property real tamanho: 1.0
+    property real tamanho: 1.0             // o comum (orbe.tamanho)
+    // o de cada skin (orbe.tamanhos): vale o do orbe em uso, que pode ser o do
+    // relógio (espelho) ou o novo da rodinha; antes valia sempre o do orbe do
+    // PC, e o Seraphim vindo do relógio aparecia no tamanho de outro
+    property var tamanhos: ({})
+    readonly property real tamanhoEmUso: {
+        var t = tamanhos ? tamanhos[skinEmUso] : undefined
+        t = t === undefined || t === null ? tamanho : parseFloat(t)
+        return isNaN(t) ? 1.0 : Math.min(1.6, Math.max(0.6, t))
+    }
     property string textoPos: "lado"       // lado | abaixo: onde fica o raciocínio
     property bool textoSombra: true        // a nuvem no tom do fundo atrás do texto
     property real textoSombraForca: 0.7    // a opacidade dela no meio (0.1 a 1.0)
@@ -41,7 +50,7 @@ Item {
     readonly property bool avatar: skinEmUso !== "anel"
     // as skins de imagem saem 5/3 maiores: o 60% do slider delas é o 100% das
     // outras (reduzida demais, a gravura perde a hachura)
-    readonly property real escalaAlvo: tamanho * (({ serafim_gravura: 1, olho: 1, humana: 1 })[skinEmUso] ? 5 / 3 : 1)
+    readonly property real escalaAlvo: tamanhoEmUso * (({ serafim_gravura: 1, olho: 1, humana: 1 })[skinEmUso] ? 5 / 3 : 1)
     // na troca do principal a célula cresce ou encolhe junto com a animação
     // (de uma gravura para um desenhado ela muda 5/3); fora dela, a do alvo
     property real escalaTroca: -1
@@ -429,7 +438,7 @@ Item {
             micS: orbe.micS
             envEsc: orbe.envEsc
             envAlfa: orbe.envAlfa
-            esc: orbe.tamanho
+            esc: orbe.tamanhoEmUso
             glitch: orbe.glitch
             accent: orbe.corAccent
         }

@@ -43,10 +43,11 @@ ShellRoot {
         conteudo.vidro = !!o.vidro
         var som = parseFloat(o.sombra)
         conteudo.sombra = isNaN(som) ? 0.45 : Math.min(1.0, Math.max(0.1, som))
-        // cada skin guarda o seu tamanho; sem o dela, vale o comum
-        var proprio = (o.tamanhos || {})[conteudo.skin]
-        var tam = parseFloat(proprio === undefined || proprio === null ? o.tamanho : proprio)
+        // cada skin guarda o seu tamanho; sem o dela, vale o comum. O orbe da
+        // tela escolhe o do orbe em uso (o do relógio, no espelho, também)
+        var tam = parseFloat(o.tamanho)
         conteudo.tamanho = isNaN(tam) ? 1.0 : Math.min(1.6, Math.max(0.6, tam))
+        conteudo.tamanhos = o.tamanhos || {}
         conteudo.textoPos = o.texto === "abaixo" ? "abaixo" : "lado"
         conteudo.textoSombra = o.texto_sombra === undefined ? true : !!o.texto_sombra
         var fs = parseFloat(o.texto_sombra_forca)
