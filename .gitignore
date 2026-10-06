@@ -14,3 +14,5 @@ __pycache__/
 orb_frames/
 orb/
 mecha_tutor/
+# dados do orbe (modelos, vozes), quando o clone é a própria instalação
+dados/

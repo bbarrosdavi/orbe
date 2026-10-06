@@ -1,14 +1,14 @@
 #!/bin/sh
 # Instala o Orbe no macOS a partir desta pasta: Python com as dependências,
 # serviço do usuário (LaunchAgent), o app "Orbe" em ~/Applications e, se o
-# Hermes estiver instalado, as skills de segurar e dispensar a sessão.
+# Hermes Agent estiver instalado, as skills de segurar e dispensar a sessão.
 #
 #   ./install-mac.sh             instala e liga o serviço
 #   ./install-mac.sh --remover   desliga o serviço e apaga o LaunchAgent e o app
 set -eu
 
 ORBE=$(cd "$(dirname "$0")" && pwd)
-LABEL=io.hermes.orbe
+LABEL=io.orbe.daemon
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 APP="$HOME/Applications/Orbe.app"
 LOG="$HOME/Library/Logs/orbe.log"
@@ -20,12 +20,11 @@ if [ "${1:-}" = "--remover" ]; then
     rm -f "$PLIST"
     rm -rf "$APP"
     [ -L "$HOME/.local/bin/claude-orbe" ] && rm -f "$HOME/.local/bin/claude-orbe"
-    echo "Orbe removido (o config em ~/.config/hermes-voice fica)."
+    echo "Orbe removido (o config em ~/.config/orbe fica)."
     exit 0
 fi
 
-# ── Python: ORBE_PY, ou um venv 3.11 aqui (o mesmo Python do venv do Hermes,
-#    cujos pacotes o daemon também enxerga) ──
+# ── Python: ORBE_PY, ou um venv 3.11 aqui ──
 if [ -n "${ORBE_PY:-}" ]; then
     PY=$ORBE_PY
 else
@@ -42,8 +41,10 @@ fi
 
 # Silero VAD (v4, o formato que o daemon usa): sem ele o daemon cai no
 # webrtcvad, que confunde ruído com fala. Melhor esforço, ~1,8 MB.
-SILERO="$HOME/.hermes/cache/vad/silero_vad.onnx"
-if [ ! -s "$SILERO" ]; then
+DADOS="${ORBE_DADOS:-${XDG_DATA_HOME:-$HOME/.local/share}/orbe/dados}"
+SILERO="$DADOS/vad/silero_vad.onnx"
+# o de uma instalação antiga (em ~/.hermes) também serve
+if [ ! -s "$SILERO" ] && [ ! -s "$HOME/.hermes/cache/vad/silero_vad.onnx" ]; then
     mkdir -p "$(dirname "$SILERO")"
     curl -fsSL -o "$SILERO" https://github.com/snakers4/silero-vad/raw/v4.0/files/silero_vad.onnx \
         || { rm -f "$SILERO"; echo "aviso: Silero não baixou; o daemon usa o webrtcvad"; }
@@ -52,6 +53,21 @@ fi
 # shaders: os .qsb já vêm com Metal; recompila se houver qsb à mão
 "$ORBE/orbe-qt/build.sh" >/dev/null 2>&1 || true
 chmod +x "$ORBE"/*.py "$ORBE/claude-orbe" "$ORBE/orbe-qt/orbe_mac.py"
+
+# ── migração de antes da troca de nome (até 2026-10-06): a config vai de
+#    ~/.config/hermes-voice para ~/.config/orbe e o LaunchAgent antigo sai ──
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
+if [ -d "$CONFIG/hermes-voice" ] && [ ! -L "$CONFIG/hermes-voice" ] && [ ! -e "$CONFIG/orbe" ]; then
+    mv "$CONFIG/hermes-voice" "$CONFIG/orbe"
+    ln -s orbe "$CONFIG/hermes-voice"
+fi
+if [ -f "$HOME/Library/LaunchAgents/io.hermes.orbe.plist" ]; then
+    launchctl bootout "$ALVO/io.hermes.orbe" 2>/dev/null || true
+    rm -f "$HOME/Library/LaunchAgents/io.hermes.orbe.plist"
+fi
+if grep -q 'hermes_voice_sessao.py' "$HOME/.claude/settings.json" 2>/dev/null; then
+    python3 "$ORBE/orbe_sessao.py" --instalar >/dev/null || true
+fi
 
 # ── serviço: o daemon sobe no login e volta se cair ──
 mkdir -p "$(dirname "$PLIST")" "$(dirname "$LOG")"
@@ -64,7 +80,7 @@ cat > "$PLIST" <<FIM
     <key>ProgramArguments</key>
     <array>
         <string>$PY</string>
-        <string>$ORBE/hermes_voice_daemon.py</string>
+        <string>$ORBE/orbe_daemon.py</string>
     </array>
     <key>WorkingDirectory</key><string>$ORBE</string>
     <key>RunAtLoad</key><true/>
@@ -82,12 +98,12 @@ cat > "$PLIST" <<FIM
 </plist>
 FIM
 
-# ── app de configuração: um .app mínimo que abre o hermes_voice_app.py ──
+# ── app de configuração: um .app mínimo que abre o orbe_app.py ──
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cat > "$APP/Contents/MacOS/Orbe" <<FIM
 #!/bin/sh
-exec "$PY" "$ORBE/hermes_voice_app.py" "\$@"
+exec "$PY" "$ORBE/orbe_app.py" "\$@"
 FIM
 chmod +x "$APP/Contents/MacOS/Orbe"
 cat > "$APP/Contents/Info.plist" <<FIM
@@ -97,7 +113,7 @@ cat > "$APP/Contents/Info.plist" <<FIM
 <dict>
     <key>CFBundleName</key><string>Orbe</string>
     <key>CFBundleDisplayName</key><string>Orbe</string>
-    <key>CFBundleIdentifier</key><string>io.hermes.Orbe</string>
+    <key>CFBundleIdentifier</key><string>io.orbe.Orbe</string>
     <key>CFBundleExecutable</key><string>Orbe</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleIconFile</key><string>orbe</string>
@@ -156,9 +172,8 @@ FIM
 cat <<FIM
 
 Próximos passos:
-  1. chave da transcrição em ~/.hermes/.env: GROQ_API_KEY=... (ou só a
-     GEMINI_API_KEY, que também transcreve)
-  2. abra o app "Orbe" e escolha o agente, a ativação e a voz
-  3. aperte $( "$PY" -c "import sys; sys.path.insert(0, '$ORBE'); import hermes_voice_config as c; print(c.carregar()['ativacao']['atalho'])" )
+  1. abra o app "Orbe": escolha o agente, a ativação e a voz, e ponha a
+     chave da transcrição (a do Groq, ou só a do Gemini, que também transcreve)
+  2. aperte $( "$PY" -c "import sys; sys.path.insert(0, '$ORBE'); import orbe_config as c; print(c.carregar()['ativacao']['atalho'])" )
      (ou rode ./orb_control.py toggle). Na primeira vez o macOS pede o microfone.
 FIM

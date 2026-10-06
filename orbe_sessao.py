@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Sessões do Claude Code que o orbe não abriu: ver, mandar a fala, ouvir a resposta.
 
-O canal (hermes_voice_canal.py) só existe nas sessões abertas com o
+O canal (orbe_canal.py) só existe nas sessões abertas com o
 claude-orbe. As abertas à mão o orbe alcança por um hook do usuário, posto no
 ~/.claude/settings.json com --instalar. Só a stdlib:
 
@@ -20,9 +20,9 @@ claude-orbe. As abertas à mão o orbe alcança por um hook do usuário, posto n
 O Claude atende porque o hook diz de onde o pedido vem (ORIGEM, abaixo): sem
 isso ele recusa uma mensagem que não veio do usuário.
 
-  hermes_voice_sessao.py               lista as sessões abertas
-  hermes_voice_sessao.py --instalar    põe o hook no settings.json do usuário
-  hermes_voice_sessao.py --remover     tira o hook e solta as escutas
+  orbe_sessao.py               lista as sessões abertas
+  orbe_sessao.py --instalar    põe o hook no settings.json do usuário
+  orbe_sessao.py --remover     tira o hook e solta as escutas
 """
 
 from __future__ import annotations
@@ -48,18 +48,20 @@ VIDA_S = 86400
 ORIGEM = ("Pedido de voz do usuário desta sessão, transcrito pelo orbe de voz (hook do orbe "
           "que ele instalou no próprio settings.json; a resposta final é lida em voz alta para ele):")
 RESUMO = "Pedido do orbe de voz"
-MARCA = "hermes_voice_sessao.py"
+# o nome deste script no comando do hook; o segundo é o de antes da troca de
+# nome (2026-10-06), para o --instalar e o --remover limparem o hook antigo
+MARCAS = ("orbe_sessao.py", "hermes_voice_sessao.py")
 
 
 def _pasta() -> Path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import hermes_voice_config as vcfg
-    return vcfg.RUNTIME / "hermes-voice" / "sessoes"
+    import orbe_config as vcfg
+    return vcfg.RUNTIME / "orbe" / "sessoes"
 
 
 def _vivo(pid: int) -> bool:
     if os.name == "nt":
-        import hermes_voice_canal as canal      # o teste do Windows (ctypes) mora lá
+        import orbe_canal as canal      # o teste do Windows (ctypes) mora lá
         return canal._vivo(pid)
     # sem importar o canal: a escuta fica parada a sessão inteira, e ele pesa uns 4 MB
     try:
@@ -96,7 +98,7 @@ def sessoes() -> list[dict]:
     canal: aberta com o claude-orbe (o canal do orbe responde por ela);
     ouve: tem a escuta do hook armada; estado: "parada" ou "trabalhando".
     """
-    import hermes_voice_canal as canal
+    import orbe_canal as canal
     pasta = _pasta()
     vivas = []
     for d in _registros():
@@ -525,7 +527,8 @@ def _sem_o_orbe(grupos: list) -> list:
         if not isinstance(g, dict):
             limpos.append(g)
             continue
-        hooks = [h for h in g.get("hooks") or [] if MARCA not in str((h or {}).get("command") or "")]
+        hooks = [h for h in g.get("hooks") or []
+                 if not any(m in str((h or {}).get("command") or "") for m in MARCAS)]
         if hooks or not g.get("hooks"):
             limpos.append(dict(g, hooks=hooks))
     return limpos
@@ -587,7 +590,7 @@ class AgenteSessao:
     """Fala com uma sessão aberta à mão, pela escuta do hook."""
 
     def __init__(self, pid: int):
-        import hermes_voice_acp as acp
+        import orbe_acp as acp
         self._erro = acp.ErroACP
         self.alvo = int(pid)
         self.iniciado_em = time.time()
@@ -644,7 +647,7 @@ class AgenteSessao:
                 r = _falar(sock, {"tipo": "pergunta", "texto": texto, "pedido": pedido})
             except (OSError, ValueError):
                 raise self._erro(f"a sessão {self.alvo} não ouve o orbe (falta o hook: "
-                                 "hermes_voice_sessao.py --instalar, ou ela ainda não terminou um turno)")
+                                 "orbe_sessao.py --instalar, ou ela ainda não terminou um turno)")
             tipo = (r or {}).get("tipo")
             if tipo == "aceito":
                 break
@@ -698,7 +701,7 @@ class AgenteSessao:
 def agente(pid: int = 0):
     """O agente de uma sessão: pelo canal, se ela foi aberta com o claude-orbe
     (ou sem pid: a mais recente com ele); pela escuta do hook, se não."""
-    import hermes_voice_canal as canal
+    import orbe_canal as canal
     if not pid or (canal.PASTA / f"{pid}.sock").exists():
         return canal.AgenteClaude(pid)
     return AgenteSessao(pid)

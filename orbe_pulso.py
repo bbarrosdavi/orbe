@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Orbe de pulso: a ponte de fala entre o relógio e o agente, sem o desktop.
 
-O daemon (hermes_voice_daemon.py) é do Linux: PipeWire, o orbe em Quickshell,
+O daemon (orbe_daemon.py) é do Linux: PipeWire, o orbe em Quickshell,
 palavra de ativação. Aqui fica só o caminho do relógio (orbe-wear), e ele roda
 em qualquer sistema: o microfone e o alto-falante são os do relógio, e quem
 responde é o agente da config, por ACP ou pelo canal do Claude Code.
@@ -12,13 +12,13 @@ responde é o agente da config, por ACP ou pelo canal do Claude Code.
 
 O orbe continua sendo só a ponte: não decide nada e não guarda conversa. O
 agente, a transcrição e a voz saem do mesmo config.json do daemon (agente, voz,
-toque, relogio); as chaves, as do próprio orbe (~/.config/hermes-voice/chaves.env,
+toque, relogio); as chaves, as do próprio orbe (~/.config/orbe/chaves.env,
 editadas no app), senão as do ambiente ou de ~/.hermes/.env (GROQ_API_KEY,
 ELEVENLABS_API_KEY, GEMINI_API_KEY).
 
-  hermes_voice_pulso.py                   sobe com o agente da config
-  hermes_voice_pulso.py --agente claude   a sessão aberta com o claude-orbe
-  hermes_voice_pulso.py --comando "npx -y @zed-industries/claude-agent-acp" --pasta ~/projeto
+  orbe_pulso.py                   sobe com o agente da config
+  orbe_pulso.py --agente claude   a sessão aberta com o claude-orbe
+  orbe_pulso.py --comando "npx -y @zed-industries/claude-agent-acp" --pasta ~/projeto
                                           um agente ACP qualquer, numa pasta
 
 Com o terminal aberto, uma linha digitada vale por uma fala: serve para
@@ -41,12 +41,12 @@ import wave
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import hermes_voice_acp as acp  # noqa: E402
-import hermes_voice_canal as canal  # noqa: E402
-import hermes_voice_sessao as sessao  # noqa: E402
-import hermes_voice_config as vcfg  # noqa: E402
-import hermes_voice_relogio as relogio  # noqa: E402
-import hermes_voice_tts as tts  # noqa: E402
+import orbe_acp as acp  # noqa: E402
+import orbe_canal as canal  # noqa: E402
+import orbe_sessao as sessao  # noqa: E402
+import orbe_config as vcfg  # noqa: E402
+import orbe_relogio as relogio  # noqa: E402
+import orbe_tts as tts  # noqa: E402
 
 LOG = logging.getLogger("pulso")
 
@@ -203,7 +203,7 @@ class _Cano:
 
 
 class Voz(tts.Worker):
-    """A síntese do orbe (hermes_voice_tts.py) com o relógio no lugar do pw-cat."""
+    """A síntese do orbe (orbe_tts.py) com o relógio no lugar do pw-cat."""
 
     def __init__(self, ponte):
         super().__init__()

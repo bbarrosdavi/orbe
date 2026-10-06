@@ -1,7 +1,7 @@
 import QtQuick
 
 // Conteúdo do orbe de voz, sem nada de Quickshell, para rodar offscreen nos
-// testes. Portado do Ring/OrbWin do hermes_voice_orb.py: fases de entrada e
+// testes. Portado do Ring/OrbWin do orbe GTK antigo: fases de entrada e
 // saída, suavização dos níveis, protocolo do daemon, painel de texto do
 // raciocínio e ponto de sessão travada. O desenho é da Figura (avatares) ou do
 // Anel (rotoscope), os dois na GPU.

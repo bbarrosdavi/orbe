@@ -7,6 +7,8 @@ import random
 import wave
 from pathlib import Path
 
+import orbe_config as vcfg
+
 import numpy as np
 import scipy.signal
 import torch
@@ -14,17 +16,17 @@ import torch.nn as nn
 from openwakeword.model import Model
 from piper import PiperVoice, SynthesisConfig
 
-CACHE = Path.home() / ".hermes/cache/wakewords"
+CACHE = vcfg.dado("ativacao", "cache/wakewords")
 ONNX_PATH = CACHE / "ei_hermes_pt.onnx"
 TMP = Path("/tmp/wakeword_pt_retrain")
 TMP.mkdir(parents=True, exist_ok=True)
 BUNDLED = str(Path.home() / ".hermes/hermes-agent/tools/wakewords/hey_hermes.onnx")
 
 PIPER_MODELS = [
-    str(Path.home() / ".hermes/piper_models/pt_BR-faber-medium.onnx"),
-    str(Path.home() / ".hermes/piper_models/pt_BR-cadu-medium.onnx"),
-    str(Path.home() / ".hermes/piper_models/pt_BR-dii-high.onnx"),
-    str(Path.home() / ".hermes/piper_models/pt_BR-edresson-low.onnx"),
+    str(vcfg.dado("piper/pt_BR-faber-medium.onnx", "piper_models/pt_BR-faber-medium.onnx")),
+    str(vcfg.dado("piper/pt_BR-cadu-medium.onnx", "piper_models/pt_BR-cadu-medium.onnx")),
+    str(vcfg.dado("piper/pt_BR-dii-high.onnx", "piper_models/pt_BR-dii-high.onnx")),
+    str(vcfg.dado("piper/pt_BR-edresson-low.onnx", "piper_models/pt_BR-edresson-low.onnx")),
 ]
 POS_PHRASES = [
     "Ei Hermes", "Ei Hermes!", "Êi Hermes", "Ei, Hermes",

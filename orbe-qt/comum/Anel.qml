@@ -1,7 +1,7 @@
 import QtQuick
 
 // Anel de energia: rotoscope do mp4 deformado fisicamente pela voz, portado
-// do hermes_voice_orb.py. O desenho é do anel.frag (quadros num atlas, warp
+// do orbe GTK antigo. O desenho é do anel.frag (quadros num atlas, warp
 // polar, línguas e gotas) e do pos.frag (cor e glitch); aqui fica a física:
 // molas das línguas, gotas, quique global, fases dos lóbulos, rajadas de
 // glitch do pensamento e a paleta por estado.

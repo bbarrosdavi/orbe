@@ -3,7 +3,7 @@
 ouvindo o orbe.
 
 Roda o agente num pseudo-terminal, com a tela e o teclado da janela passando
-direto, e se anuncia em $XDG_RUNTIME_DIR/hermes-voice/terminais/<pid do
+direto, e se anuncia em $XDG_RUNTIME_DIR/orbe/terminais/<pid do
 agente>.json (o agente, a pasta, o estado, o título), com um socket ao lado.
 O daemon manda a fala por ele e espera a resposta:
 
@@ -19,9 +19,9 @@ O daemon manda a fala por ele e espera a resposta:
 
 Interromper só solta a espera: o agente segue o que estiver fazendo na janela.
 
-    hermes_voice_terminal.py opencode|gemini|hermes [--perfil P] [--retomar ID]
-    hermes_voice_terminal.py --hook             (o hook do Gemini: o evento no stdin)
-    hermes_voice_terminal.py --remover-gemini   (tira os hooks do settings do Gemini)
+    orbe_terminal.py opencode|gemini|hermes [--perfil P] [--retomar ID]
+    orbe_terminal.py --hook             (o hook do Gemini: o evento no stdin)
+    orbe_terminal.py --remover-gemini   (tira os hooks do settings do Gemini)
 """
 
 from __future__ import annotations
@@ -44,22 +44,22 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import hermes_voice_config as vcfg  # noqa: E402  (só stdlib)
-from hermes_voice_aceite import ANSI, Prompt, copiar_tamanho, escrever  # noqa: E402
+import orbe_config as vcfg  # noqa: E402  (só stdlib)
+from orbe_aceite import ANSI, Prompt, copiar_tamanho, escrever  # noqa: E402
 
-TERMINAIS = vcfg.RUNTIME / "hermes-voice" / "terminais"
+TERMINAIS = vcfg.RUNTIME / "orbe" / "terminais"
 AGENTES = ("opencode", "gemini", "hermes")
 NOMES = {"opencode": "OpenCode", "gemini": "Gemini CLI", "hermes": "Hermes"}
 HERMES_LAUNCHER = os.path.expanduser("~/.local/bin/hermes")
 # o hook do Gemini acha o socket da janela por aqui (herdado do gemini)
-VAR_SOCK = "HERMES_ORBE_TERMINAL"
+VAR_SOCK = "ORBE_TERMINAL"
 
 # Os hooks do Gemini ficam no settings.json do usuário: o settings de sistema
 # por janela (GEMINI_CLI_SYSTEM_DEFAULTS_PATH) a 0.62 só aceita em pasta do
 # root. O comando é fixo e só age numa janela do orbe, que põe as variáveis.
 GEMINI_SETTINGS = Path.home() / ".gemini" / "settings.json"
 EVENTOS_GEMINI = ("SessionStart", "BeforeAgent", "BeforeTool", "AfterAgent")
-VAR_PY, VAR_SCRIPT = "HERMES_ORBE_PY", "HERMES_ORBE_SCRIPT"
+VAR_PY, VAR_SCRIPT = "ORBE_PY_TERMINAL", "ORBE_SCRIPT_TERMINAL"
 GEMINI_HOOK = (f'[ -z "${VAR_SOCK}" ] || exec "${VAR_PY}" "${VAR_SCRIPT}" --hook')
 PRONTO_MAX = 45.0       # quanto o pedido espera o agente subir
 ALVO = 40               # as últimas letras do pedido colado, procuradas na tela
@@ -520,7 +520,7 @@ def servir(janela: Janela) -> Path:
 
 def rodar(agente: str, args) -> int:
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        print("hermes_voice_terminal.py roda numa janela de terminal", file=sys.stderr)
+        print("orbe_terminal.py roda numa janela de terminal", file=sys.stderr)
         return 2
     TERMINAIS.mkdir(parents=True, exist_ok=True, mode=0o700)
     janela = CLASSES[agente](agente, os.getcwd())
@@ -610,7 +610,10 @@ def _hooks_gemini(d: dict, com_o_orbe: bool) -> bool:
         grupos = []
         for g in hooks.get(ev) or []:
             if isinstance(g, dict):
-                hs = [h for h in g.get("hooks") or [] if (h or {}).get("command") != GEMINI_HOOK]
+                # pelo nome, que também pega a entrada de antes da troca de nome
+                # (o comando com as variáveis HERMES_ORBE_*)
+                hs = [h for h in g.get("hooks") or []
+                      if (h or {}).get("command") != GEMINI_HOOK and (h or {}).get("name") != "orbe"]
                 if not hs and g.get("hooks"):
                     continue
                 g = dict(g, hooks=hs)
@@ -733,7 +736,7 @@ class AgenteTerminal:
     """Fala com o agente de uma janela pelo socket dela; a mesma cara do AgenteACP."""
 
     def __init__(self, pid: int):
-        import hermes_voice_acp as acp
+        import orbe_acp as acp
         self._erro = acp.ErroACP
         self.alvo = int(pid)
         d = next((d for d in sessoes() if d["pid"] == self.alvo), {})

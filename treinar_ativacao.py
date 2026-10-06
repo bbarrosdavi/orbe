@@ -6,12 +6,14 @@ import scipy.signal
 import torch
 import torch.nn as nn
 from pathlib import Path
+
+import orbe_config as vcfg
 from piper import PiperVoice, SynthesisConfig
 from openwakeword.model import Model
 
 print("=== Multi-Speaker Portuguese Wake Word Training ('Ei Hermes') ===")
 
-cache_dir = Path.home() / ".hermes/cache/wakewords"
+cache_dir = vcfg.dado("ativacao", "cache/wakewords")
 cache_dir.mkdir(parents=True, exist_ok=True)
 tmp_dir = Path("/tmp/wakeword_pt_multi")
 tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -19,11 +21,11 @@ tmp_dir.mkdir(parents=True, exist_ok=True)
 onnx_path = cache_dir / "ei_hermes_pt.onnx"
 
 piper_models = [
-    str(Path.home() / ".hermes/piper_models/pt_BR-faber-medium.onnx"),
-    str(Path.home() / ".hermes/piper_models/pt_BR-cadu-medium.onnx"),
-    str(Path.home() / ".hermes/piper_models/pt_BR-edresson-low.onnx"),
-    str(Path.home() / ".hermes/piper_models/pt_BR-dii-high.onnx"),
-    str(Path.home() / ".hermes/piper_models/en_US-amy-medium.onnx")
+    str(vcfg.dado("piper/pt_BR-faber-medium.onnx", "piper_models/pt_BR-faber-medium.onnx")),
+    str(vcfg.dado("piper/pt_BR-cadu-medium.onnx", "piper_models/pt_BR-cadu-medium.onnx")),
+    str(vcfg.dado("piper/pt_BR-edresson-low.onnx", "piper_models/pt_BR-edresson-low.onnx")),
+    str(vcfg.dado("piper/pt_BR-dii-high.onnx", "piper_models/pt_BR-dii-high.onnx")),
+    str(vcfg.dado("piper/en_US-amy-medium.onnx", "piper_models/en_US-amy-medium.onnx"))
 ]
 
 voices = []

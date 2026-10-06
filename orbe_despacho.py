@@ -3,7 +3,7 @@
 resultado ao daemon de voz, que faz o Jarvis relatar em voz.
 
 Uso (o Jarvis chama pelo terminal):
-  hermes_voice_despacho.py <perfil> "<tarefa>"
+  orbe_despacho.py <perfil> "<tarefa>"
 
 Volta na hora: o trabalho segue desacoplado do turno de voz. Ao terminar, a
 resposta final do perfil vai para o socket de controle do daemon como
@@ -21,9 +21,9 @@ HERMES = str(Path.home() / ".local/bin/hermes")
 PROFILES = Path.home() / ".hermes/profiles"
 SAIDAS = PROFILES / "jarvis" / "despachos"
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import hermes_voice_config as vcfg  # noqa: E402
+import orbe_config as vcfg  # noqa: E402
 
-CTL_SOCK = str(vcfg.RUNTIME / "hermes-voice-ctl.sock")
+CTL_SOCK = str(vcfg.RUNTIME / "orbe-ctl.sock")
 TETO_SEC = 2 * 3600
 # O relato vira mensagem no chat do Jarvis; o resto fica no arquivo.
 RELATO_MAX = 6000
@@ -75,7 +75,7 @@ def main() -> None:
         executar(sys.argv[2], sys.argv[3])
         return
     if len(sys.argv) != 3 or not sys.argv[2].strip():
-        sys.exit('uso: hermes_voice_despacho.py <perfil> "<tarefa>"')
+        sys.exit('uso: orbe_despacho.py <perfil> "<tarefa>"')
     perfil, tarefa = sys.argv[1], sys.argv[2].strip()
     validos = perfis()
     if perfil not in validos:

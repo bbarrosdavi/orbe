@@ -2,7 +2,7 @@
 """TTS do orb. Segue tts.provider do perfil Jarvis a cada frase.
 xAI = mesmo OAuth da GUI (wss://api.x.ai/v1/tts → PCM 24 kHz).
 CANCEL em thread — corta pw-cat no meio da frase.
-No macOS o pw-cat é o hermes_voice_play.py (sounddevice) e o pw-play, o afplay.
+No macOS o pw-cat é o orbe_play.py (sounddevice) e o pw-play, o afplay.
 
 Para onde a frase vai: "DEST pc=1 relogio=0" antes do SAY (o daemon manda a
 cada frase). Com relogio=1 o áudio sai também no stdout, para a ponte do
@@ -24,11 +24,13 @@ import time
 import unicodedata
 from pathlib import Path
 
+import orbe_config as vcfg
+
 ENV_PATH = Path.home() / ".hermes" / ".env"
 JARVIS_CFG = Path.home() / ".hermes" / "profiles" / "jarvis" / "config.yaml"
 HERMES_AGENT = Path.home() / ".hermes" / "hermes-agent"
-PIPER_BIN = str(Path.home() / ".hermes/hermes-agent/venv/bin/piper")
-PIPER_MODEL = str(Path.home() / ".hermes/piper_models/pt_BR-faber-medium.onnx")
+PIPER_BIN = vcfg.piper_bin()
+PIPER_MODEL = str(vcfg.dado("piper/pt_BR-faber-medium.onnx", "piper_models/pt_BR-faber-medium.onnx"))
 RATE = 24000
 MAC = sys.platform == "darwin"
 AQUI = Path(__file__).resolve().parent
@@ -42,11 +44,11 @@ def _player(rate: int) -> list[str]:
     """
     if MAC:
         py = os.environ.get("ORBE_PY") or sys.executable
-        return [py, str(AQUI / "hermes_voice_play.py"), str(rate)]
+        return [py, str(AQUI / "orbe_play.py"), str(rate)]
     return ["pw-cat", "-p", "-a", "--format", "s16", "--rate", str(rate),
             "--channels", "1", "-"]
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
-ACK_DIR = Path.home() / ".hermes" / "cache" / "voice_ack"
+ACK_DIR = vcfg.dado("confirmacoes", "cache/voice_ack")
 ACK_PHRASES = (
     "Sim?", "Pois não?", "Manda.", "Escuto.",
 )
@@ -101,7 +103,6 @@ def _jarvis_tts() -> dict:
         sys.stderr.write(f"cfg: {e}\n")
     # Escolhas do app de configuração do orbe; vazio = segue o perfil.
     try:
-        import hermes_voice_config as vcfg
         v = vcfg.carregar()["voz"]
         if v.get("tts_provedor"):
             out["provider"] = str(v["tts_provedor"])
@@ -735,7 +736,7 @@ class Worker:
     def piper(self, text: str, modelo: str = PIPER_MODEL) -> bool:
         if not Path(PIPER_BIN).exists() or not Path(modelo).exists():
             return False
-        wav = f"/tmp/hermes-orb-tts-{os.getpid()}.wav"
+        wav = f"/tmp/orbe-tts-{os.getpid()}.wav"
         try:
             r = subprocess.run(
                 [PIPER_BIN, "--model", modelo, "--output_file", wav],

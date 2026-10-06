@@ -7,15 +7,16 @@ worker de TTS e o app rodam em Pythons diferentes.
 import copy
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 MAC = sys.platform == "darwin"
 
-CONFIG_PATH = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "hermes-voice" / "config.json"
+CONFIG_PATH = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "orbe" / "config.json"
 # Estado que o daemon publica para o app (modelos que o agente oferece etc.).
-STATE_PATH = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "hermes-voice" / "agente.json"
+STATE_PATH = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "orbe" / "agente.json"
 # Chaves de API do próprio orbe, fora do config.json (que vai e volta pela
 # ponte do relógio): KEY=valor, só para o dono ler. Chave vazia aqui herda a
 # do Hermes.
@@ -28,6 +29,29 @@ CHAVES = (
     ("GEMINI_API_KEY", "Gemini: voz"),
     ("XAI_API_KEY", "xAI: voz (sem o login do Hermes)"),
 )
+
+# Modelos e dados (ativação, vozes do Piper, VAD, locutor): ORBE_DADOS, senão
+# ~/.local/share/orbe/dados. Instalações antigas guardavam tudo em ~/.hermes;
+# o que só existe lá continua valendo de lá, sem mover (o Hermes Agent pode
+# estar usando os mesmos arquivos).
+DADOS = Path(os.environ.get("ORBE_DADOS")
+             or Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / "orbe" / "dados")
+_DADOS_LEGADO = Path.home() / ".hermes"
+
+
+def dado(rel: str, legado: str = "") -> Path:
+    """DADOS/rel; se ele não existe e o legado (relativo a ~/.hermes) existe,
+    o legado. Sem nenhum dos dois, DADOS/rel: é onde um arquivo novo nasce."""
+    novo = DADOS / rel
+    if legado and not novo.exists() and (_DADOS_LEGADO / legado).exists():
+        return _DADOS_LEGADO / legado
+    return novo
+
+
+def piper_bin() -> str:
+    """O piper do Python que está rodando (o venv do orbe), senão o do PATH."""
+    junto = Path(sys.executable).with_name("piper")
+    return str(junto) if junto.exists() else (shutil.which("piper") or str(junto))
 
 
 def _runtime() -> Path:
@@ -60,8 +84,8 @@ def _runtime() -> Path:
 RUNTIME = _runtime()
 
 # Serviço do daemon: unit do systemd no Linux, LaunchAgent no macOS.
-SERVICO = "hermes-voice"
-LAUNCHD_LABEL = "io.hermes.orbe"
+SERVICO = "orbe"
+LAUNCHD_LABEL = "io.orbe.daemon"
 LAUNCHD_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
 
 
@@ -125,7 +149,7 @@ DEFAULTS = {
         "manter_carregado_min": 10,
         # Onde cada agente roda: "terminal" abre uma janela do terminal no PC
         # com o agente (o Claude pelo claude-orbe, os outros pelo
-        # hermes_voice_terminal.py), e o pedido de voz aparece no chat dela;
+        # orbe_terminal.py), e o pedido de voz aparece no chat dela;
         # "fundo" roda sem janela (o Claude com claude --bg, ouvindo pelo
         # hook; os outros por ACP). O "comando" é sempre ACP.
         "modos": {"claude": "terminal", "opencode": "terminal", "gemini": "terminal", "hermes": "fundo"},
@@ -138,14 +162,15 @@ DEFAULTS = {
     "ativacao": {
         # nenhum | openwakeword | sherpa | microwakeword
         "provedor": "nenhum",
-        "oww_modelo": str(Path.home() / ".hermes/cache/wakewords/ei_hermes_pt.onnx"),
-        "mww_modelo": str(Path.home() / ".hermes/cache/wakewords/ei_hermes_mww.tflite"),
-        "sherpa_dir": str(Path.home() / ".hermes/cache/wakewords/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"),
+        "oww_modelo": str(dado("ativacao/ei_hermes_pt.onnx", "cache/wakewords/ei_hermes_pt.onnx")),
+        "mww_modelo": str(dado("ativacao/ei_hermes_mww.tflite", "cache/wakewords/ei_hermes_mww.tflite")),
+        "sherpa_dir": str(dado("ativacao/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01",
+                               "cache/wakewords/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01")),
         # Frase do sherpa-onnx: tokenizada na hora contra o vocabulário do modelo.
         "frase": "ei hermes",
         # Limiar de score de cada motor (mais alto = mais exigente). Valores de
         # partida: o do perfil jarvis no openWakeWord, o recomendado pelo Hermes
-        # no sherpa (0.5 vira keywords_threshold 0.25) e o do hermes_voice_mww.py.
+        # no sherpa (0.5 vira keywords_threshold 0.25) e o do orbe_mww.py.
         "limiar_oww": 0.78,
         "limiar_sherpa": 0.5,
         "limiar_mww": 0.45,
@@ -208,19 +233,19 @@ DEFAULTS = {
         # onde aparece o texto do raciocínio: lado | abaixo
         "texto": "lado",
         # destravado, o orbe pode ser arrastado; a posição fica em
-        # ~/.config/hermes-voice/orbe-posicao.json (o padrão é o canto)
+        # ~/.config/orbe/orbe-posicao.json (o padrão é o canto)
         "mover": False,
     },
     "relogio": {
         # ponte WebSocket para o app do relógio (orbe-wear), servida pelo
-        # hermes_voice_relogio.py; desligada, o daemon não abre porta nenhuma
+        # orbe_relogio.py; desligada, o daemon não abre porta nenhuma
         "ligado": False,
         # a sessão aberta pelo relógio aparece no orbe do PC com o orbe dela:
         # a skin e a cor da instância de onde foi pedida (os olhos ficam
         # vermelhos com ou sem isto)
         "seguir": False,
         "porta": 8777,
-        # pareamento: gerado na primeira subida (hermes_voice_relogio.py mostra)
+        # pareamento: gerado na primeira subida (orbe_relogio.py mostra)
         "token": "",
         # com o dedo no orbe do relógio, a fala vem do microfone dele
         "microfone": True,

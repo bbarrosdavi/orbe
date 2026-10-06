@@ -8,8 +8,8 @@
 # Mic1), e um nome fixo no arquivo quebra em qualquer troca de hardware.
 set -u
 
-AEC=hermes_aec_source
-PREV="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/hermes-aec.prev"
+AEC=orbe_aec_source
+PREV="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/orbe-aec.prev"
 
 esperar_no() {
     for _ in $(seq 1 25); do
@@ -22,7 +22,7 @@ esperar_no() {
 case "${1:-set}" in
 set)
     if ! esperar_no; then
-        echo "hermes-aec: fonte '$AEC' nao apareceu; o modulo do PipeWire subiu?" >&2
+        echo "orbe-aec: fonte '$AEC' nao apareceu; o modulo do PipeWire subiu?" >&2
         exit 1
     fi
     atual=$(pactl get-default-source 2>/dev/null || true)

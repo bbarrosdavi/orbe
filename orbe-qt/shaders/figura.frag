@@ -1,6 +1,6 @@
 #version 440
 // Figuras do orbe (Ophanim e Ophanim com asas) desenhadas inteiras na
-// GPU por distância: cada traço do desenho em Cairo (hermes_voice_avatares.py)
+// GPU por distância: cada traço do desenho em Cairo (avatares do orbe GTK)
 // vira uma função de distância, e a cobertura sai da distância e da largura do
 // traço. A saída é a máscara branca da figura no canal vermelho; a cor, a
 // aberração cromática, as faixas e as linhas de varredura são do pos.frag.

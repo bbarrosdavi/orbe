@@ -3,7 +3,7 @@ import QtQuick.Window
 import "."
 
 // Janela do app: sem moldura, fundo translúcido (o blur é da regra do niri
-// para io.hermes.Orbe). Fechar sai do processo.
+// para io.orbe.Orbe). Fechar sai do processo.
 Window {
     id: janela
     width: 500

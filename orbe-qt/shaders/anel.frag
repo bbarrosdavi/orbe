@@ -4,7 +4,7 @@
 // Os 62 quadros moram num atlas 5x5 de células 256x256, um quadro por canal
 // de cor (quadro f: canal f%3, célula f/3). Sem canal alfa de propósito: o
 // Qt Quick pré-multiplica textura com alfa, e o quarto quadro multiplicaria
-// os outros três. A deformação polar do hermes_voice_orb.py (36 fatias, cada
+// os outros três. A deformação polar do orbe GTK antigo (36 fatias, cada
 // uma com escala radial própria) vira um campo contínuo entre as fatias; o
 // glow é o mesmo quadro lido num mipmap mais baixo, que já vem borrado.
 //

@@ -1,4 +1,4 @@
-#!/opt/hermes-agent/venv/bin/python
+#!/usr/bin/env python3
 """Quem está falando com o orbe: o dono do PC ou outra pessoa na sala.
 
 Cada trecho de fala vira uma impressão vocal (embedding de 512 dimensões do
@@ -7,9 +7,9 @@ média normalizada das impressões do dono; a decisão é a similaridade de
 cosseno contra ela, acima de um limiar medido.
 
 Uso:
-  hermes_voice_speaker.py enroll [--seconds 25]   grava o dono falando sozinho
-  hermes_voice_speaker.py test [--seconds 5]      grava e mostra a similaridade
-  hermes_voice_speaker.py gravar --out F [--seconds 90]   grava conversa (calibração)
+  orbe_speaker.py enroll [--seconds 25]   grava o dono falando sozinho
+  orbe_speaker.py test [--seconds 5]      grava e mostra a similaridade
+  orbe_speaker.py gravar --out F [--seconds 90]   grava conversa (calibração)
 
 Sem cadastro (ou sem sherpa-onnx) o porteiro fica desligado e o daemon
 aceita qualquer voz, como antes.
@@ -25,9 +25,10 @@ from pathlib import Path
 
 import numpy as np
 
-HERMES_SITE = str(Path.home() / ".hermes/hermes-agent/venv/lib/python3.11/site-packages")
-MODEL = str(Path.home() / ".hermes/cache/speaker/campplus_voxceleb.onnx")
-PROFILE = Path.home() / ".hermes/cache/speaker/dono.npz"
+import orbe_config as vcfg
+
+MODEL = str(vcfg.dado("locutor/campplus_voxceleb.onnx", "cache/speaker/campplus_voxceleb.onnx"))
+PROFILE = vcfg.dado("locutor/dono.npz", "cache/speaker/dono.npz")
 MIC = "alsa_input.pci-0000_00_1f.3-platform-skl_hda_dsp_generic.HiFi__Mic1__source"
 SR = 16000
 # Abaixo disso a impressão vocal é ruído: o CAM++ precisa de voz contínua.
@@ -36,8 +37,6 @@ MIN_VOICE_SEC = 0.8
 
 class SpeakerGate:
     def __init__(self, profile: Path | None = PROFILE, model: str = MODEL):
-        if HERMES_SITE not in sys.path:
-            sys.path.append(HERMES_SITE)
         import sherpa_onnx
 
         cfg = sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=model, num_threads=1)
@@ -79,7 +78,7 @@ def _gravar(segundos: float) -> np.ndarray:
     que o áudio do daemon não tem.
     """
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from hermes_voice_daemon import _resample_frame  # noqa: E402
+    from orbe_daemon import _resample_frame  # noqa: E402
 
     if sys.platform == "darwin":
         # CoreAudio, entrada padrão, a 48 kHz como o daemon abre o mic do Mac
@@ -101,7 +100,7 @@ def _gravar(segundos: float) -> np.ndarray:
 def _janelas_de_voz(pcm: np.ndarray, janela_s: float = 1.5) -> list[np.ndarray]:
     """Janelas com >=70% de voz segundo o Silero, passo de meia janela."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from hermes_voice_daemon import SileroVad  # noqa: E402
+    from orbe_daemon import SileroVad  # noqa: E402
 
     vad = SileroVad()
     quadros = [pcm[i:i + 480] for i in range(0, len(pcm) - 479, 480)]

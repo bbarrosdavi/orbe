@@ -1,14 +1,14 @@
-#!/opt/hermes-agent/venv/bin/python
+#!/usr/bin/env python3
 """
-Hermes Voice Daemon v4 — Wake word "ei hermes" + comandos de voz.
+Orbe: daemon de voz. Palavra de ativação + comandos de voz.
 Usa Groq Whisper API (não faster-whisper local) para transcrição.
 
 Fluxo: VAD detecta fala sustentada → grava áudio → Groq transcreve →
-       detecta "ei hermes" no texto → Hermes processa comando → TTS responde.
+       detecta a ativação no texto → o agente processa o comando → TTS responde.
 
-Uso:  hermes_voice_daemon.py [--model whisper-large-v3] [--device N]
-       hermes_voice_daemon.py --install
-       hermes_voice_daemon.py --test
+Uso:  orbe_daemon.py [--model whisper-large-v3] [--device N]
+       orbe_daemon.py --install
+       orbe_daemon.py --test
 """
 
 import argparse
@@ -36,21 +36,18 @@ import numpy as np
 import sounddevice as sd
 import webrtcvad
 
-sys.path.append("/opt/hermes-agent/venv/lib/python3.11/site-packages")
-sys.path.insert(0, str(Path.home() / ".hermes/hermes-agent/venv/lib/python3.11/site-packages"))
-
 HERMES_PROFILE_DIR = Path.home() / ".hermes" / "profiles" / "jarvis"
 
-# Configuração do app (hermes_voice_app.py). Os padrões de lá são os valores
+# Configuração do app (orbe_app.py). Os padrões de lá são os valores
 # que viviam aqui como constantes; o que o app grava sobrepõe. Antes o wake
 # word vinha do wake_word: do perfil jarvis; agora é do app, que também
 # escolhe o provedor.
-import hermes_voice_acp as acp  # noqa: E402
-import hermes_voice_config as vcfg  # noqa: E402
-import hermes_voice_canal as canal  # noqa: E402
-import hermes_voice_sessao as sessao  # noqa: E402
+import orbe_acp as acp  # noqa: E402
+import orbe_config as vcfg  # noqa: E402
+import orbe_canal as canal  # noqa: E402
+import orbe_sessao as sessao  # noqa: E402
 try:
-    import hermes_voice_terminal as terminal  # noqa: E402  (usa pty: não existe no Windows)
+    import orbe_terminal as terminal  # noqa: E402  (usa pty: não existe no Windows)
 except ImportError:
     terminal = None
 
@@ -66,8 +63,8 @@ OWW_MODEL = str(_AT["oww_modelo"])
 OWW_THRESHOLD = min(max(float(_AT["limiar_oww"]), 0.0), 1.0)
 OWW_CONFIRM = min(max(int(_AT["confirmacao"]), 1), 10)
 OWW_FRAME = 1280  # 80ms @ 16kHz — igual à GUI
-MWW_PY = str(Path.home() / ".hermes/mww-tf/.venv/bin/python")
-MWW_BIN = str(Path(__file__).resolve().parent / "hermes_voice_mww.py")
+MWW_PY = str(vcfg.dado("mww/.venv/bin/python", "mww-tf/.venv/bin/python"))
+MWW_BIN = str(Path(__file__).resolve().parent / "orbe_mww.py")
 MWW_MODEL = str(_AT["mww_modelo"])
 LOGGER_WARN = []
 
@@ -84,7 +81,7 @@ VAD_AGGRESSIVENESS = 3
 # sem deixar o ruído da sala abrir gravação sozinho.
 MIN_SPEECH_RMS = 1500
 SUSTAINED_SPEECH_FRAMES = 12        # ~360ms pra abrir gravação (evita ruídos rápidos)
-# Medido na fonte com AEC (hermes_aec_source), quadros de 30ms:
+# Medido na fonte com AEC (orbe_aec_source), quadros de 30ms:
 #   ambiente ocioso   RMS medio 109, p95 289, maximo 595
 #   eco do proprio TTS RMS 176  (era 7958 no mic cru: 33 dB de atenuacao)
 #   fala real          milhares
@@ -110,14 +107,14 @@ MIN_UTTER_RMS = 500                 # evita enviar áudio de silêncio/ruído pa
 # música e ruído como fala, e as gravações iam até o teto de 12 s. O Silero é
 # uma rede treinada para separar voz de ruído e música. v4: blocos de 512
 # amostras a 16 kHz (32 ms), estado LSTM h/c carregado entre blocos.
-SILERO_MODEL = str(Path.home() / ".hermes/cache/vad/silero_vad.onnx")
+SILERO_MODEL = str(vcfg.dado("vad/silero_vad.onnx", "cache/vad/silero_vad.onnx"))
 SILERO_CHUNK = 512
 SILERO_THRESHOLD = 0.5              # padrão do Silero
 
 # Fonte virtual criada pelo module-echo-cancel do PipeWire. O nome do nó é
-# hermes_aec_source; o sounddevice enxerga pela node.description.
-AEC_SOURCE_NODE = "hermes_aec_source"
-AEC_SOURCE_DESC = "HermesMicAEC"
+# orbe_aec_source; o sounddevice enxerga pela node.description.
+AEC_SOURCE_NODE = "orbe_aec_source"
+AEC_SOURCE_DESC = "OrbeMicAEC"
 
 SILENCE_TIMEOUT = 0.90              # pausa intrafrase em PT > 0.55 cortava o início
 RECORD_MAX_SEC = 12
@@ -164,11 +161,11 @@ ELEVENLABS_MODEL_ID = "eleven_multilingual_v2"
 ELEVENLABS_API_URL = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
 
 # Piper TTS (fallback)
-PIPER_BIN = "/opt/hermes-agent/venv/bin/piper"
-PIPER_MODEL = str(Path.home() / ".hermes/piper_models/pt_BR-dii-high.onnx")
+PIPER_BIN = vcfg.piper_bin()
+PIPER_MODEL = str(vcfg.dado("piper/pt_BR-dii-high.onnx", "piper_models/pt_BR-dii-high.onnx"))
 
 # ── Chaves de API: as do orbe (chaves.env, editáveis no app); sem elas, as
-#    do .env do Hermes. O worker de TTS e o agente herdam este ambiente. ──
+#    do .env do Hermes, se houver. O worker de TTS e o agente herdam este ambiente. ──
 vcfg.aplicar_chaves()
 
 MAC = vcfg.MAC
@@ -177,10 +174,10 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_API_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_MODEL = "whisper-large-v3-turbo"
 
-# HERMES_VOICE_DEBUG=1 liga o rastro de nível no estado listening.
-DEBUG_LEVELS = os.environ.get("HERMES_VOICE_DEBUG") == "1"
+# ORBE_DEBUG=1 liga o rastro de nível no estado listening.
+DEBUG_LEVELS = os.environ.get("ORBE_DEBUG") == "1"
 
-LOG = logging.getLogger("hermes-voice")
+LOG = logging.getLogger("orbe")
 
 
 class _SemMixer(Exception):
@@ -307,7 +304,7 @@ class SherpaEar:
         d = Path(pasta)
         toks = text2token([frase.strip().upper()], tokens=str(d / "tokens.txt"),
                           tokens_type="bpe", bpe_model=str(d / "bpe.model"))[0]
-        kw = vcfg.RUNTIME / "hermes-voice-kws.txt"
+        kw = vcfg.RUNTIME / "orbe-kws.txt"
         kw.write_text(" ".join(toks) + " @WAKE\n", encoding="utf-8")
 
         def arq(parte: str) -> str:
@@ -341,7 +338,7 @@ class SherpaEar:
 class MicroWakeWordEar:
     """microWakeWord em processo próprio (TensorFlow, venv mww-tf).
 
-    hermes_voice_mww.py lê PCM s16le 16 kHz no stdin e escreve WAKE no stdout.
+    orbe_mww.py lê PCM s16le 16 kHz no stdin e escreve WAKE no stdout.
     É o provedor mais pesado em RAM, por causa do TensorFlow.
     """
 
@@ -697,13 +694,13 @@ RUNTIME = str(vcfg.RUNTIME)
 # Orbe: Quickshell no Wayland; no macOS, uma janela PySide6 com o mesmo
 # OrbeConteudo (orbe-qt/orbe_mac.py). Os dois desenham na GPU.
 ORB_QML = str(Path(__file__).resolve().parent / "orbe-qt" / ("orbe_mac.py" if MAC else "orbe.qml"))
-ORB_SOCK = f"{RUNTIME}/hermes-voice-orb.sock"
+ORB_SOCK = f"{RUNTIME}/orbe.sock"
 # Entrada de controle do daemon, uma linha por mensagem:
 #   touch down | touch up      dedo no orbe (orbe-qt/orbe.qml)
-#   relato {json}              trabalho despachado terminou (hermes_voice_despacho.py)
+#   relato {json}              trabalho despachado terminou (orbe_despacho.py)
 #   fala <texto>               o orbe diz o texto, sem passar pelo agente (o
 #                              aviso de quem trabalhou fora de um pedido de voz)
-CTL_SOCK = f"{RUNTIME}/hermes-voice-ctl.sock"
+CTL_SOCK = f"{RUNTIME}/orbe-ctl.sock"
 # Toque mais curto que isto é só "interromper"; mais longo, o dedo segura a
 # gravação aberta até ser solto, e pausa entre palavras não fecha nada.
 TOQUE_SEGURAR_SEC = 0.35
@@ -754,7 +751,7 @@ def get_desktop_env():
     env["HOME"] = str(Path.home())
     env["PATH"] = HERMES_PATH
     if MAC:
-        # o player do TTS (hermes_voice_play.py) precisa do sounddevice daqui
+        # o player do TTS (orbe_play.py) precisa do sounddevice daqui
         env["ORBE_PY"] = sys.executable
         return env
     env["XDG_RUNTIME_DIR"] = RUNTIME
@@ -831,13 +828,13 @@ def _compositor_ready() -> bool:
 
 
 def _sock_do_orbe(pid: int):
-    """HERMES_ORB_SOCK do ambiente do processo; None quando usa o padrão."""
+    """ORBE_SOCK do ambiente do processo; None quando usa o padrão."""
     try:
         env = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0")
     except OSError:
         return None
     for kv in env:
-        if kv.startswith(b"HERMES_ORB_SOCK="):
+        if kv.startswith(b"ORBE_SOCK="):
             return kv.split(b"=", 1)[1].decode(errors="replace") or None
     return None
 
@@ -875,7 +872,7 @@ def _reap_orbs() -> None:
 
 _ORB_CONN = None
 _ORB_CONN_LOCK = threading.Lock()
-# Ponte para o app do relógio (hermes_voice_relogio.py); None com ela desligada.
+# Ponte para o app do relógio (orbe_relogio.py); None com ela desligada.
 _RELOGIO = None
 # Sessão aberta pelo relógio: as íris do orbe do PC ficam desta cor.
 COR_OLHOS_RELOGIO = "#ff2a2a"
@@ -930,7 +927,7 @@ _CLAUDE_FUNDO = 0
 
 def _abrir_claude_fundo(pasta: str, espera: float = 60.0, nova: bool = False, retomar: str = "") -> int:
     """O Claude em segundo plano (claude --bg, agente.modos.claude = "fundo"),
-    alcançado pelo hook de sessão do orbe (hermes_voice_sessao.py --instalar).
+    alcançado pelo hook de sessão do orbe (orbe_sessao.py --instalar).
 
     Sem [nova], a última que o orbe abriu, se ainda ouve; senão abre uma na
     pasta, com as ferramentas aprovadas sozinhas, como no terminal. Com
@@ -960,7 +957,7 @@ def _abrir_claude_fundo(pasta: str, espera: float = 60.0, nova: bool = False, re
             return _CLAUDE_FUNDO
         time.sleep(0.25)
     LOG.warning("Claude em segundo plano: a sessão não ouviu o orbe em %.0f s "
-                "(o hook está instalado? hermes_voice_sessao.py --instalar)", espera)
+                "(o hook está instalado? orbe_sessao.py --instalar)", espera)
     return 0
 
 
@@ -983,7 +980,7 @@ def _parar_claude_fundo(pid: int) -> int:
 
 
 def _em_janela(tipo: str) -> bool:
-    """O agente roda numa janela do terminal do PC (hermes_voice_terminal.py)."""
+    """O agente roda numa janela do terminal do PC (orbe_terminal.py)."""
     return terminal is not None and tipo in terminal.AGENTES and vcfg.modo_do_agente(tipo, VCFG) == "terminal"
 
 
@@ -1052,7 +1049,7 @@ def orb_cmd(line: str, relogio: bool = True) -> None:
         _reap_orbs()
         time.sleep(0.15)
         try:
-            logf = open("/tmp/hermes-voice-orb.log", "ab", buffering=0)
+            logf = open("/tmp/orbe-orb.log", "ab", buffering=0)
             # no Mac o orbe morre junto com o daemon (--pai), como o hotkey
             # que ele registra
             argv = ([sys.executable, ORB_QML, "--pai", str(os.getpid())] if MAC
@@ -1348,7 +1345,7 @@ _MIN_UTTER_RMS_ARQUIVO = MIN_UTTER_RMS
 
 
 def _aplicar_config():
-    """hermes_voice_config sobrepõe as constantes definidas acima."""
+    """orbe_config sobrepõe as constantes definidas acima."""
     global SILENCE_TIMEOUT, MIN_SPEECH_RMS, MIN_UTTER_RMS, SUSTAINED_SPEECH_FRAMES, BARGE_IN
     global INTERRUPT_SPEECH_FRAMES, INTERRUPT_MIN_RMS, RECORD_MAX_SEC
     global SESSION_IDLE_SEC, TOQUE_SEGURAR_SEC, RECORD_MAX_TOQUE_SEC
@@ -1395,10 +1392,10 @@ class Daemon:
             LOG.warning("Silero indisponível (%s); VAD volta ao webrtcvad", e)
         self._vad_max = 0.0
         # Porteiro de voz: só o dono do PC comanda o orbe. Sem cadastro
-        # (hermes_voice_speaker.py enroll) ele fica desligado.
+        # (orbe_speaker.py enroll) ele fica desligado.
         self.speaker = None
         try:
-            from hermes_voice_speaker import SpeakerGate
+            from orbe_speaker import SpeakerGate
             gate = SpeakerGate()
             if gate.ativo:
                 self.speaker = gate
@@ -1525,7 +1522,7 @@ class Daemon:
     def _check_aec(self):
         """Módulo no grafo → captura pelo nome. Default source intocada.
 
-        hermes_aec_source é a saída filtrada. Não vira o microfone do
+        orbe_aec_source é a saída filtrada. Não vira o microfone do
         desktop: o daemon amarra PIPEWIRE_NODE só no pw-record.
         """
         self._aec_ok = False
@@ -1643,7 +1640,7 @@ class Daemon:
             self._tts_push(ack)
 
     def _poll_cmdfile(self):
-        p = vcfg.RUNTIME / "hermes-voice.cmd"
+        p = vcfg.RUNTIME / "orbe.cmd"
         try:
             txt = p.read_text()
             p.unlink(missing_ok=True)
@@ -1745,7 +1742,7 @@ class Daemon:
         if not rc["ligado"]:
             return
         try:
-            import hermes_voice_relogio as relogio
+            import orbe_relogio as relogio
             # os agentes que o relógio pode dar a cada orbe: os instalados aqui
             agentes = [{"id": t, "nome": acp.NOMES[t] + (f" ({AGENTE_CFG['perfil']})" if t == "hermes" else ""),
                         "instancias": _com_instancias(t)}
@@ -2217,12 +2214,12 @@ class Daemon:
     def _ensure_tts_worker(self):
         if self._tts_proc is not None and self._tts_proc.poll() is None:
             return
-        logf = open("/tmp/hermes-voice-tts.log", "ab", buffering=0)
+        logf = open("/tmp/orbe-tts.log", "ab", buffering=0)
         # o venv do Hermes, se houver (credenciais OAuth do xAI); senão, o do daemon
         py_hermes = Path.home() / ".hermes/hermes-agent/venv/bin/python"
         self._tts_proc = subprocess.Popen(
             [str(py_hermes) if py_hermes.exists() else sys.executable,
-             str(Path(__file__).resolve().parent / "hermes_voice_tts.py")],
+             str(Path(__file__).resolve().parent / "orbe_tts.py")],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=logf,
@@ -2882,7 +2879,7 @@ class Daemon:
     # ── Main Loop ──
 
     def run(self):
-        LOG.info("═══ Hermes Voice Daemon v4 (Groq Whisper) ═══")
+        LOG.info("═══ Orbe: daemon de voz ═══")
         LOG.info("VAD: %d | Groq: %s", VAD_AGGRESSIVENESS, GROQ_MODEL)
         LOG.info("Agente: %s | wake word: %s | barge-in: %s",
                  acp.NOMES.get(AGENTE_CFG["tipo"], AGENTE_CFG["tipo"])
@@ -3485,19 +3482,19 @@ def install_systemd():
                        env=dict(os.environ, ORBE_PY=sys.executable))
         return
     aqui = Path(__file__).resolve().parent
-    unit = (aqui / "hermes-voice.service.unit").read_text()
+    unit = (aqui / "orbe.service.unit").read_text()
     unit = unit.replace("@ORBE@", str(aqui)).replace("@PY@", sys.executable)
-    path = Path.home() / ".config/systemd/user/hermes-voice.service"
+    path = Path.home() / ".config/systemd/user/orbe.service"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(unit)
     subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
     print(f"Serviço instalado: {path}")
-    print("Ative com: systemctl --user enable --now hermes-voice")
+    print("Ative com: systemctl --user enable --now orbe")
 
 
 def test_once():
     """Testa: grava 1 utterance, envia pra Groq, mostra resultado."""
-    print("Fale 'Ei Hermes <comando>' agora (escuta por 8s)...")
+    print("Fale a ativação e o comando agora (escuta por 8s)...")
     frames_buf = []
     with sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS,
                          dtype=DTYPE, blocksize=FRAME_SIZE) as stream:
@@ -3528,7 +3525,7 @@ def test_once():
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Hermes Voice Daemon (Groq Whisper)")
+    parser = argparse.ArgumentParser(description="Orbe: daemon de voz")
     parser.add_argument("--device", type=int, default=None, help="Índice do dispositivo de áudio")
     parser.add_argument("--install", action="store_true", help="Instalar como serviço systemd")
     parser.add_argument("--test", action="store_true", help="Testar transcrição 1x e sair")

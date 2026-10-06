@@ -14,7 +14,7 @@ sessão: um Enter e, se a tela não reagir, mais um. Qualquer outra tela (o avis
 do modo bypass, que tem "No, exit" marcado) passa intacta, nos dois sentidos.
 
 Também cola no prompt o pedido de voz que o canal do orbe manda (socket em
-$XDG_RUNTIME_DIR/hermes-voice/terminais/<pid do claude>.sock): assim a fala
+$XDG_RUNTIME_DIR/orbe/terminais/<pid do claude>.sock): assim a fala
 aparece inteira no chat, como digitada; a mensagem de canal o Claude Code
 desenha cortada em 60 caracteres. Só cola com o prompt vazio (nada digitado
 desde o último Enter), em pedaços abaixo do limite em que o Claude Code troca
@@ -22,7 +22,7 @@ a colagem por "[Pasted text #n]", e só aperta o Enter depois de ver o texto na
 tela: um diálogo aberto (uma permissão, uma lista) não recebe o Enter. Sem
 isso, o canal manda o pedido como mensagem de canal.
 
-    hermes_voice_aceite.py claude [argumentos do claude...]
+    orbe_aceite.py claude [argumentos do claude...]
 """
 
 import errno
@@ -42,7 +42,7 @@ import tty
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import hermes_voice_config as vcfg  # noqa: E402  (só stdlib)
+import orbe_config as vcfg  # noqa: E402  (só stdlib)
 
 # a tela do Claude sem cores nem movimentos de cursor, e sem espaços (o Ink às
 # vezes avança o cursor em vez de escrever o espaço)
@@ -54,7 +54,7 @@ CALMA = 0.25        # a tela parou de desenhar: a lista já aceita o Enter
 REACAO = 1.5        # sem nada novo na tela depois do Enter, ele não pegou
 TENTATIVAS = 2
 
-TERMINAIS = vcfg.RUNTIME / "hermes-voice" / "terminais"
+TERMINAIS = vcfg.RUNTIME / "orbe" / "terminais"
 PEDACO = 700        # o Claude Code troca colagem de mais de 800 caracteres por "[Pasted text #n]"
 APARECER = 2.0      # quanto o texto colado tem para aparecer na tela antes do Enter
 
@@ -202,7 +202,7 @@ def servir(prompt: Prompt, pid: int):
 
 def main(argv: list[str]) -> int:
     if not argv:
-        print("uso: hermes_voice_aceite.py claude [args...]", file=sys.stderr)
+        print("uso: orbe_aceite.py claude [args...]", file=sys.stderr)
         return 2
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         os.execvp(argv[0], argv)

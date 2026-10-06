@@ -2,8 +2,8 @@
 """Orbe de voz no macOS: o papel do Quickshell (orbe.qml) em PySide6.
 
 Mesmo protocolo e mesmos sockets. O daemon fala por
-<runtime>/hermes-voice-orb.sock (show, state, level, mic, line, hold, hide,
-clear, warm, quit) e o toque vai para hermes-voice-ctl.sock (touch down /
+<runtime>/orbe.sock (show, state, level, mic, line, hold, hide,
+clear, warm, quit) e o toque vai para orbe-ctl.sock (touch down /
 touch up), uma conexão por mensagem. O desenho é o OrbeConteudo na GPU
 (Metal), a animação anda no vsync e para quando o orbe some.
 
@@ -30,7 +30,7 @@ from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent
 sys.path.insert(0, str(AQUI.parent))
-import hermes_voice_config as vcfg  # noqa: E402
+import orbe_config as vcfg  # noqa: E402
 
 from PySide6.QtCore import (QFileSystemWatcher, QObject, QPointF, QRect, QTimer, QUrl,  # noqa: E402
                             Property, Signal, Slot)
@@ -336,8 +336,8 @@ class Servidor(QObject):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--sock", default=str(vcfg.RUNTIME / "hermes-voice-orb.sock"))
-    ap.add_argument("--ctl", default=str(vcfg.RUNTIME / "hermes-voice-ctl.sock"))
+    ap.add_argument("--sock", default=str(vcfg.RUNTIME / "orbe.sock"))
+    ap.add_argument("--ctl", default=str(vcfg.RUNTIME / "orbe-ctl.sock"))
     ap.add_argument("--config", default=str(vcfg.CONFIG_PATH))
     ap.add_argument("--pai", type=int, default=0)
     args = ap.parse_args()
@@ -360,7 +360,7 @@ def main():
     # atalho global só na instância do daemon, nunca na pré-visualização
     atalho = None
     if not previa:
-        cmd = vcfg.RUNTIME / "hermes-voice.cmd"
+        cmd = vcfg.RUNTIME / "orbe.cmd"
 
         def alternar():
             _log("atalho apertado → toggle")

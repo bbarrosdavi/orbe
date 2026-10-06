@@ -82,30 +82,31 @@ sudo pacman -S quickshell pyside6 pipewire uv
 git clone https://github.com/orbe-project/orbe-desktop.git ~/.local/share/orbe
 cd ~/.local/share/orbe
 
-# Python do daemon (pule se já usa o venv do Hermes Agent); o uv baixa o 3.12
+# Python do daemon; o uv baixa o 3.12
 uv venv --python 3.12 .venv
 uv pip install --python .venv numpy scipy sounddevice webrtcvad requests onnxruntime websockets pyyaml
+# opcionais: voz local (piper-tts), palavra de ativação (openwakeword, sherpa-onnx)
 
-ORBE_PY="$PWD/.venv/bin/python" ./install.sh
+./install.sh
 ```
 
-O `install.sh` cria o serviço do usuário (`hermes-voice.service`), o atalho
-"Orbe" no lançador de aplicativos e, se o Hermes estiver instalado, as skills
-que deixam o agente segurar e dispensar a sessão. Sem `ORBE_PY`, ele usa o venv
-do Hermes Agent, se existir, ou o `python3` do PATH.
+O `install.sh` cria o serviço do usuário (`orbe.service`), o atalho
+"Orbe" no lançador de aplicativos e, se o Hermes Agent estiver instalado, as
+skills que deixam o agente segurar e dispensar a sessão. O Python do daemon é
+o de `ORBE_PY`, o `.venv` da pasta ou o `python3` do PATH, nessa ordem. Uma
+instalação de antes da troca de nome (`hermes-voice`) é migrada: config,
+serviço, hook do Claude Code e link do `claude-orbe`.
 
 Depois:
 
-1. Ponha a chave do Groq em `~/.hermes/.env`:
+1. Abra o app **Orbe**, escolha o agente, a ativação e a voz e ponha as chaves:
+   a do Groq (transcrição) é a obrigatória, a do Gemini ou da ElevenLabs dá a
+   voz. Elas ficam em `~/.config/orbe/chaves.env`; com o Hermes Agent
+   instalado, as que faltarem vêm do `.env` dele. O botão "Pré-visualizar"
+   mostra o orbe passando por todos os estados.
+2. Ligue o serviço:
    ```sh
-   mkdir -p ~/.hermes && echo 'GROQ_API_KEY=gsk_...' >> ~/.hermes/.env
-   ```
-   Para síntese pelo Gemini, acrescente `GEMINI_API_KEY=...` no mesmo arquivo.
-2. Abra o app **Orbe** e escolha o agente, a ativação e a voz. O botão
-   "Pré-visualizar" mostra o orbe passando por todos os estados.
-3. Ligue o serviço:
-   ```sh
-   systemctl --user enable --now hermes-voice
+   systemctl --user enable --now orbe
    ```
 
 ### Atalho de teclado
@@ -130,7 +131,7 @@ terminal mostra com o ponto, traduzida para o português ou como veio. No Window
 lançador é o `claude-orbe.cmd` (ver [Relógio](#relógio-wear-os)).
 
 As sessões abertas à mão, com `claude`, o relógio alcança por um hook do
-usuário: `./hermes_voice_sessao.py --instalar` o põe no
+usuário: `./orbe_sessao.py --instalar` o põe no
 `~/.claude/settings.json`. No relógio, cada sessão aberta é uma instância dos
 orbes do Claude, que se passa com dois dedos, na sua cor e com a pasta e o
 estado embaixo, e o orbe fala só a resposta ao pedido de voz (ver [Sessões do
@@ -152,7 +153,7 @@ cada agente roda", `agente.modos` no `config.json`):
   sessão aberta, o orbe abre uma janela de `agente.terminal` (o Ghostty, de
   padrão) com o agente, na pasta de `agente.claude_pasta`. O pedido de voz
   aparece no chat da janela, como digitado, e o detalhe do trabalho fica nela.
-  O Claude vem pelo `claude-orbe`; os outros pelo `hermes_voice_terminal.py`,
+  O Claude vem pelo `claude-orbe`; os outros pelo `orbe_terminal.py`,
   que roda o agente num pseudo-terminal e lê a resposta pelo que cada um
   oferece: no OpenCode, a API do servidor da TUI (`--port`), que também põe o
   pedido no prompt; no Gemini CLI, hooks; no Hermes, o espelho de eventos da
@@ -163,13 +164,13 @@ cada agente roda", `agente.modos` no `config.json`):
   por ACP: na janela, vale o do agente.
 - **Em segundo plano** (o padrão do Hermes): sem janela. Os ACP rodam como
   antes; o Claude abre com `claude --bg --dangerously-skip-permissions` e ouve
-  o orbe pelo hook de sessão (`hermes_voice_sessao.py --instalar`), e o
+  o orbe pelo hook de sessão (`orbe_sessao.py --instalar`), e o
   Encerrar o para com `claude stop`, guardando a conversa.
 
 Os hooks do Gemini ficam no `~/.gemini/settings.json`, postos na primeira
 janela do Gemini aberta pelo orbe (com cópia em `settings.json.orbe-bak`).
 Fora de uma janela do orbe eles saem sem fazer nada; para tirar:
-`./hermes_voice_terminal.py --remover-gemini`. Desde a 0.62, o Gemini só roda
+`./orbe_terminal.py --remover-gemini`. Desde a 0.62, o Gemini só roda
 hooks em pasta confiada (`~/.gemini/trustedFolders.json`): fora delas, o orbe
 diz que o Gemini não confia na pasta.
 
@@ -183,10 +184,10 @@ Para interromper o agente falando por cima sem que ele ouça a própria voz:
 
 ```sh
 mkdir -p ~/.config/pipewire/pipewire.conf.d
-cp pipewire-hermes-aec.conf ~/.config/pipewire/pipewire.conf.d/99-hermes-echo-cancel.conf
+cp pipewire-orbe-aec.conf ~/.config/pipewire/pipewire.conf.d/99-orbe-echo-cancel.conf
 systemctl --user restart pipewire
-sed -e "s|@ORBE@|$PWD|g" hermes-aec.service.unit > ~/.config/systemd/user/hermes-aec.service
-systemctl --user daemon-reload && systemctl --user enable --now hermes-aec
+sed -e "s|@ORBE@|$PWD|g" orbe-aec.service.unit > ~/.config/systemd/user/orbe-aec.service
+systemctl --user daemon-reload && systemctl --user enable --now orbe-aec
 ```
 
 ## Relógio (Wear OS)
@@ -198,11 +199,11 @@ O `orbe-watch` é o orbe no pulso: o mesmo desenho, feito na GPU do relógio com
 shaders do `orbe-qt` (o build leva os `.frag` e os atlas; nada é copiado no
 git), e um menu no estilo do app. Como o orbe do desktop, ele é só a ponte de
 fala: quem responde é o agente. O relógio conversa por um WebSocket na rede
-local (`hermes_voice_relogio.py`), servido de um de dois jeitos:
+local (`orbe_relogio.py`), servido de um de dois jeitos:
 
 - **pelo daemon**, no Linux com o desktop: o orbe do relógio acompanha o do
   computador, e a resposta em voz sai no computador;
-- **pelo orbe de pulso** (`hermes_voice_pulso.py`), sem o desktop e fora do
+- **pelo orbe de pulso** (`orbe_pulso.py`), sem o desktop e fora do
   Linux: o microfone e o alto-falante são os do relógio.
 
 Nos dois, o toque vale como no desktop (um toque abre a sessão ou interrompe,
@@ -216,8 +217,8 @@ Ligue a ponte na aba Ativação do app (grupo Relógio), ou pela linha de
 comando:
 
 ```sh
-./hermes_voice_relogio.py --ligar      # liga a ponte e mostra o endereço e o token
-systemctl --user restart hermes-voice
+./orbe_relogio.py --ligar      # liga a ponte e mostra o endereço e o token
+systemctl --user restart orbe
 ```
 
 Ligada, a ponte abre a porta 8777 para a rede local (libere-a no firewall, se
@@ -230,16 +231,16 @@ O orbe de pulso faz só o caminho do relógio: a fala vai para o Groq Whisper, o
 texto vai para o agente, o raciocínio volta em linhas e a resposta volta em
 voz, tocada no relógio. É Python puro, sem PipeWire nem Wayland, e foi testado
 no Windows. Precisa de Python 3.11 ou mais novo com `websockets` e
-`requests`, e das chaves `GROQ_API_KEY` e `GEMINI_API_KEY` no ambiente, em
-`~/.hermes/.env` ou num arquivo passado com `--env`.
+`requests`, e das chaves `GROQ_API_KEY` e `GEMINI_API_KEY` no ambiente, no
+`chaves.env` do orbe ou num arquivo passado com `--env`.
 
 ```sh
 # a sessão do Claude Code que estiver aberta com o canal do orbe
 ./claude-orbe                  # no Windows: claude-orbe.cmd
-./hermes_voice_pulso.py --agente claude
+./orbe_pulso.py --agente claude
 
 # ou um agente ACP qualquer, numa pasta (aqui, o Claude pelo adaptador da Zed)
-./hermes_voice_pulso.py --comando "npx -y @zed-industries/claude-agent-acp" --pasta ~/projeto
+./orbe_pulso.py --comando "npx -y @zed-industries/claude-agent-acp" --pasta ~/projeto
 ```
 
 Sem argumentos, o agente é o do `config.json`, o mesmo do daemon. Ao subir, o
@@ -262,12 +263,12 @@ cd orbe-watch
 ./gradlew :app:assembleRelease
 adb install app/build/outputs/apk/release/app-release.apk
 # o endereço e o token, sem digitar no pulso
-adb shell am start -n io.hermes.orbe/.MainActivity --es servidor 192.168.0.10 --es token abcd2345
+adb shell am start -n io.orbe.watch/.MainActivity --es servidor 192.168.0.10 --es token abcd2345
 ```
 
 O endereço e o token também entram pelo menu do relógio (arraste a tela para
 a esquerda). Para ver o relógio funcionando sem daemon nem agente,
-`./hermes_voice_relogio.py --demo` serve o ciclo da prévia do app.
+`./orbe_relogio.py --demo` serve o ciclo da prévia do app.
 
 O relógio precisa alcançar o computador pela rede. Com os dois em redes
 separadas (o relógio no Wi-Fi do modem e o computador atrás de outro
@@ -302,7 +303,7 @@ cd ~/.local/share/orbe
 
 O `install-mac.sh` cria um venv Python 3.11 em `.venv` com as dependências
 (PySide6 incluso), baixa o detector de voz Silero, instala o LaunchAgent
-`io.hermes.orbe` (sobe no login e volta se cair; log em
+`io.orbe.daemon` (sobe no login e volta se cair; log em
 `~/Library/Logs/orbe.log`), o app **Orbe** em `~/Applications`, o
 `claude-orbe` em `~/.local/bin` e as skills do Hermes. Na primeira sessão o macOS pede acesso ao microfone para o Python
 do venv: aceite (ou ative em Ajustes do Sistema › Privacidade e Segurança ›
@@ -324,22 +325,24 @@ O que muda em relação ao Linux:
   `jarvis`), usa o `default`.
 
 ```sh
-launchctl kickstart -k gui/$(id -u)/io.hermes.orbe   # reinicia o daemon
+launchctl kickstart -k gui/$(id -u)/io.orbe.daemon   # reinicia o daemon
 tail -f ~/Library/Logs/orbe.log
 ```
 
 ## Modelos locais
 
-Todos opcionais; o daemon procura em `~/.hermes/`:
+Todos opcionais; ficam em `~/.local/share/orbe/dados/` (ou em `ORBE_DADOS`).
+Uma instalação antiga que os tem em `~/.hermes/` continua usando de lá.
 
 | Arquivo | Para quê |
 |---|---|
-| `cache/vad/silero_vad.onnx` | detector de voz Silero (sem ele, usa o webrtcvad) |
-| `cache/wakewords/*.onnx`, `*.tflite`, `sherpa-onnx-kws-*` | palavra de ativação; caminhos editáveis no app |
-| `piper_models/*.onnx` | voz local do Piper |
-| `mww-tf/.venv` | venv com `tensorflow` para o microWakeWord |
+| `vad/silero_vad.onnx` | detector de voz Silero (sem ele, usa o webrtcvad) |
+| `ativacao/*.onnx`, `*.tflite`, `sherpa-onnx-kws-*` | palavra de ativação; caminhos editáveis no app |
+| `piper/*.onnx` | voz local do Piper |
+| `locutor/` | filtro de locutor (`campplus_voxceleb.onnx` e o perfil `dono.npz`) |
+| `mww/.venv` | venv com `tensorflow` para o microWakeWord |
 
-`record_and_train_wake.py` e `train_ei_hermes.py` treinam uma palavra de
+`record_and_train_wake.py` e `treinar_ativacao.py` treinam uma palavra de
 ativação própria a partir de gravações e de vozes do Piper.
 
 ## Controle pela linha de comando
@@ -355,20 +358,20 @@ ativação própria a partir de gravações e de vozes do Piper.
 
 | Arquivo | Papel |
 |---|---|
-| `hermes_voice_daemon.py` | captura, ativação, VAD, transcrição e orquestração |
-| `hermes_voice_acp.py` | cliente ACP: fala com o agente escolhido |
-| `hermes_voice_canal.py`, `claude-orbe`, `claude-orbe.cmd` | canal MCP para o Claude Code |
-| `hermes_voice_sessao.py` | sessões do Claude Code abertas à mão: lista, hook que acorda a sessão e devolve a resposta |
-| `hermes_voice_tts.py` | worker de síntese e reprodução |
+| `orbe_daemon.py` | captura, ativação, VAD, transcrição e orquestração |
+| `orbe_acp.py` | cliente ACP: fala com o agente escolhido |
+| `orbe_canal.py`, `claude-orbe`, `claude-orbe.cmd` | canal MCP para o Claude Code |
+| `orbe_sessao.py` | sessões do Claude Code abertas à mão: lista, hook que acorda a sessão e devolve a resposta |
+| `orbe_tts.py` | worker de síntese e reprodução |
 | `orbe-qt/orbe.qml` | orbe em Quickshell (layer-shell), desenho em shaders |
 | `orbe-qt/orbe_mac.py`, `orbe_mac.qml` | o mesmo orbe no macOS (PySide6, Metal, atalho global) |
-| `hermes_voice_play.py` | reprodução do TTS no macOS (o `pw-cat` do Mac) |
-| `orbe-qt/app/`, `hermes_voice_app.py` | app de configuração (PySide6 e QML) |
+| `orbe_play.py` | reprodução do TTS no macOS (o `pw-cat` do Mac) |
+| `orbe-qt/app/`, `orbe_app.py` | app de configuração (PySide6 e QML) |
 | `orb_control.py` | controle do orbe por socket |
-| `hermes_voice_relogio.py` | ponte WebSocket para o relógio |
-| `hermes_voice_pulso.py` | orbe de pulso: a ponte de fala do relógio sem o desktop |
+| `orbe_relogio.py` | ponte WebSocket para o relógio |
+| `orbe_pulso.py` | orbe de pulso: a ponte de fala do relógio sem o desktop |
 | [orbe-watch](https://github.com/orbe-project/orbe-watch) | app do relógio (Wear OS, Kotlin e Compose), em repositório próprio, com os shaders do `orbe-qt` |
-| `hermes_voice_config.py` | config única em `~/.config/hermes-voice/config.json` |
+| `orbe_config.py` | config única em `~/.config/orbe/config.json` |
 | `skills/` | skills do Hermes para segurar e dispensar a sessão |
 | `*.service.unit`, `orbe.desktop.in` | modelos preenchidos pelo `install.sh` |
 | `install-mac.sh` | instalação no macOS: venv, LaunchAgent e `Orbe.app` |

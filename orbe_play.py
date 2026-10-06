@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Toca PCM s16le mono do stdin no alto-falante padrão: o pw-cat do macOS.
 
-Uso: hermes_voice_play.py TAXA
+Uso: orbe_play.py TAXA
 
 O worker de TTS escreve o áudio aos pedaços enquanto ele chega da rede, e
 mata este processo para cortar a fala no meio (barge-in, dispensa). A escrita

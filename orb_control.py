@@ -14,10 +14,10 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-import hermes_voice_config as vcfg  # noqa: E402
+import orbe_config as vcfg  # noqa: E402
 
-SOCK = vcfg.RUNTIME / "hermes-voice-orb.sock"
-CMD = vcfg.RUNTIME / "hermes-voice.cmd"
+SOCK = vcfg.RUNTIME / "orbe.sock"
+CMD = vcfg.RUNTIME / "orbe.cmd"
 
 
 def sock(msg: str):

@@ -2,20 +2,20 @@
 """Orbe: configurações do orbe de voz (Qt Quick, desenho na GPU).
 
 Janela pequena e flutuante, vidro fosco (o blur vem da regra do niri para o
-app-id io.hermes.Orbe; a janela só pinta fundo translúcido). O processo sai
+app-id io.orbe.Orbe; a janela só pinta fundo translúcido). O processo sai
 quando a janela fecha: nada fica residente.
 
 A interface é QML (orbe-qt/app); as figuras do topo, dos cartões e do botão
 do tamanho são os mesmos componentes do orbe (orbe-qt/comum), em shaders.
-Este arquivo é a ponte: lê e grava ~/.config/hermes-voice/config.json
-(hermes_voice_config.py), troca o atalho em ~/.config/niri/dms/binds.kdl,
-consulta agentes e sessões do Claude e reinicia o hermes-voice ao aplicar.
+Este arquivo é a ponte: lê e grava ~/.config/orbe/config.json
+(orbe_config.py), troca o atalho em ~/.config/niri/dms/binds.kdl,
+consulta agentes e sessões do Claude e reinicia o orbe ao aplicar.
 No macOS o atalho fica só no config (o orbe registra a tecla), o serviço é
 um LaunchAgent e a pré-visualização é o orbe_mac.py.
 
-  hermes_voice_app.py              abre o app
-  hermes_voice_app.py --previa     abre o app com a pré-visualização do orbe ligada
-  hermes_voice_app.py --captura P [páginas]  PNG de cada página em P_<página>.png
+  orbe_app.py              abre o app
+  orbe_app.py --previa     abre o app com a pré-visualização do orbe ligada
+  orbe_app.py --captura P [páginas]  PNG de cada página em P_<página>.png
       (renderizado offscreen pela GPU, sem janela)
 """
 import ctypes
@@ -41,12 +41,12 @@ from PySide6.QtQml import QJSValue, QQmlApplicationEngine
 from PySide6.QtQuick import QQuickImageProvider, QQuickWindow
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import hermes_voice_acp as acp  # noqa: E402
-import hermes_voice_canal as canal  # noqa: E402
-import hermes_voice_config as vcfg  # noqa: E402
-import hermes_voice_relogio as relogio  # noqa: E402
+import orbe_acp as acp  # noqa: E402
+import orbe_canal as canal  # noqa: E402
+import orbe_config as vcfg  # noqa: E402
+import orbe_relogio as relogio  # noqa: E402
 
-APP_ID = "io.hermes.Orbe"
+APP_ID = "io.orbe.Orbe"
 SERVICO = vcfg.SERVICO
 MAC = vcfg.MAC
 QML_DIR = Path(__file__).resolve().parent / "orbe-qt" / "app"
@@ -55,9 +55,9 @@ ORBE_MAC = Path(__file__).resolve().parent / "orbe-qt" / "orbe_mac.py"
 # Pré-visualização: uma instância do orbe ao lado da do daemon, com socket e
 # config próprios. O toque vai para um socket sem ouvinte, longe do daemon.
 RUNTIME = vcfg.RUNTIME
-PREVIA_SOCK = RUNTIME / "hermes-voice-previa.sock"
-PREVIA_CFG = RUNTIME / "hermes-voice-previa.json"
-PREVIA_CTL = RUNTIME / "hermes-voice-previa-ctl.sock"
+PREVIA_SOCK = RUNTIME / "orbe-previa.sock"
+PREVIA_CFG = RUNTIME / "orbe-previa.json"
+PREVIA_CTL = RUNTIME / "orbe-previa-ctl.sock"
 # Ciclo da prévia: todos os estados, com som simulado onde o orbe reage a ele
 # (mic ao ouvir, nível e tom da voz ao responder). Nenhum áudio é tocado.
 PREVIA_CICLO = [("idle", "idle", 4.0), ("listening", "ouvindo", 5.0),
@@ -71,8 +71,8 @@ PREVIA_LINHAS = [
 BINDS = Path.home() / ".config" / "niri" / "dms" / "binds.kdl"
 DANK_CSS = Path.home() / ".config" / "gtk-4.0" / "dank-colors.css"
 ACCENT_CSS = Path.home() / "Projetos/Docs_rice_sistema/main.css"
-WAKE_DIR = Path.home() / ".hermes" / "cache" / "wakewords"
-PIPER_DIR = Path.home() / ".hermes" / "piper_models"
+WAKE_DIR = vcfg.dado("ativacao", "cache/wakewords")
+PIPER_DIR = vcfg.dado("piper", "piper_models")
 JARVIS_CFG = Path.home() / ".hermes" / "profiles" / "jarvis" / "config.yaml"
 # Linha do bind do orbe: só a tecla muda, o resto do bloco fica.
 BIND_RE = re.compile(r'^(\s*)(\S+)(\s+hotkey-overlay-title="Voice Assistant \(Orb\)".*)$', re.M)
@@ -232,7 +232,7 @@ def _agente_carregado() -> tuple[str, int] | None:
         for linha in out.splitlines():
             rss, _, cmd = linha.strip().partition(" ")
             for marca, nome in marcas:
-                if marca in cmd and "hermes_voice_app" not in cmd:
+                if marca in cmd and "orbe_app" not in cmd:
                     return nome, int(rss or 0) // 1024
         return None
     for pid in os.listdir("/proc"):
@@ -243,7 +243,7 @@ def _agente_carregado() -> tuple[str, int] | None:
         except OSError:
             continue
         for marca, nome in marcas:
-            if marca in cmd and "hermes_voice_app" not in cmd:
+            if marca in cmd and "orbe_app" not in cmd:
                 try:
                     rss = int(next(l for l in open(f"/proc/{pid}/status") if l.startswith("VmRSS")).split()[1])
                 except (OSError, StopIteration):
@@ -655,9 +655,9 @@ class Ponte(QObject):
             return
         self.atualizarPrevia(aparencia)
         env = QProcessEnvironment.systemEnvironment()
-        env.insert("HERMES_ORB_SOCK", str(PREVIA_SOCK))
-        env.insert("HERMES_CTL_SOCK", str(PREVIA_CTL))
-        env.insert("HERMES_ORB_CONFIG", str(PREVIA_CFG))
+        env.insert("ORBE_SOCK", str(PREVIA_SOCK))
+        env.insert("ORBE_CTL_SOCK", str(PREVIA_CTL))
+        env.insert("ORBE_CONFIG", str(PREVIA_CFG))
         p = QProcess(self)
         p.setProcessEnvironment(env)
         if MAC:

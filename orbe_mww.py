@@ -14,13 +14,15 @@ from tensorflow.lite.experimental.microfrontend.python.ops import (
     audio_microfrontend_op as frontend_op,
 )
 
+import orbe_config as vcfg
+
 MODEL = os.environ.get(
     "MWW_MODEL",
-    os.path.expanduser("~/.hermes/cache/wakewords/ei_hermes_mww.tflite"),
+    str(vcfg.dado("ativacao/ei_hermes_mww.tflite", "cache/wakewords/ei_hermes_mww.tflite")),
 )
 CUTOFF = float(os.environ.get("MWW_CUTOFF", "0.45"))
 STREAK_N = int(os.environ.get("MWW_STREAK", "2"))
-LOG = "/tmp/hermes-voice-mww.log"
+LOG = "/tmp/orbe-mww.log"
 STEP = 320  # 20 ms @ 16 kHz
 KEEP = 16000  # 1 s de PCM pro PCAN
 

@@ -4,11 +4,11 @@ import Quickshell.Io
 import Quickshell.Wayland
 import "comum"
 
-// Orbe de voz do Hermes no Quickshell (substituiu o hermes_voice_orb.py em GTK em 2026-10-04).
+// Orbe de voz no Quickshell (substituiu o orbe antigo em GTK em 2026-10-04).
 //
 // Mesmo protocolo e mesmos sockets do orbe GTK. O daemon fala por
-// $XDG_RUNTIME_DIR/hermes-voice-orb.sock (show, state, level, mic, line,
-// hold, hide, clear, olhos, warm, quit) e o toque vai para hermes-voice-ctl.sock
+// $XDG_RUNTIME_DIR/orbe.sock (show, state, level, mic, line,
+// hold, hide, clear, olhos, warm, quit) e o toque vai para orbe-ctl.sock
 // (touch down / touch up). O desenho roda na GPU (Figura/Anel), a animação
 // anda no vsync da janela e para quando o orbe some.
 ShellRoot {
@@ -18,12 +18,12 @@ ShellRoot {
     readonly property string home: Quickshell.env("HOME")
     // ajudante do ponteiro na pasta acima desta, onde quer que ela esteja
     // (no arquivo raiz o Qt.resolvedUrl do Quickshell dá qrc:/qs-blackhole)
-    readonly property string ponteiroPy: Quickshell.shellPath("../hermes_voice_ponteiro.py")
+    readonly property string ponteiroPy: Quickshell.shellPath("../orbe_ponteiro.py")
     // sobrescrevíveis para uma instância ao lado do orbe em uso (teste e a
     // pré-visualização do app, que aponta o config para um arquivo próprio)
-    readonly property string sockOrbe: Quickshell.env("HERMES_ORB_SOCK") || runtime + "/hermes-voice-orb.sock"
-    readonly property string sockCtl: Quickshell.env("HERMES_CTL_SOCK") || runtime + "/hermes-voice-ctl.sock"
-    readonly property string arqConfig: Quickshell.env("HERMES_ORB_CONFIG") || home + "/.config/hermes-voice/config.json"
+    readonly property string sockOrbe: Quickshell.env("ORBE_SOCK") || runtime + "/orbe.sock"
+    readonly property string sockCtl: Quickshell.env("ORBE_CTL_SOCK") || runtime + "/orbe-ctl.sock"
+    readonly property string arqConfig: Quickshell.env("ORBE_CONFIG") || home + "/.config/orbe/config.json"
     readonly property var tela: {
         var ts = Quickshell.screens
         for (var i = 0; i < ts.length; i++)
@@ -69,7 +69,7 @@ ShellRoot {
     property bool mover: false
     property real margemX: 0               // distância da borda direita
     property real margemY: 0               // distância do topo
-    readonly property bool lembraPosicao: !Quickshell.env("HERMES_ORB_SOCK")
+    readonly property bool lembraPosicao: !Quickshell.env("ORBE_SOCK")
     function limitar() {
         if (!tela) return
         margemX = Math.max(0, Math.min(tela.width - janela.width, margemX))
@@ -77,7 +77,7 @@ ShellRoot {
     }
     FileView {
         id: arqPosicao
-        path: raiz.lembraPosicao ? raiz.home + "/.config/hermes-voice/orbe-posicao.json" : ""
+        path: raiz.lembraPosicao ? raiz.home + "/.config/orbe/orbe-posicao.json" : ""
         printErrors: false
         atomicWrites: true
         onLoaded: {
@@ -172,7 +172,7 @@ ShellRoot {
     }
 
     // ── olhar: sobre o orbe a posição é exata (e vira âncora); fora, vem do
-    //    hermes_voice_ponteiro (evdev), só enquanto o orbe está na tela ──
+    //    orbe_ponteiro (evdev), só enquanto o orbe está na tela ──
     property var olharLocal: null
     property var olharGlobal: null
     readonly property real origemX: tela ? tela.x + tela.width - janela.width - margemX : 0
@@ -207,7 +207,7 @@ ShellRoot {
         exclusionMode: ExclusionMode.Normal
         exclusiveZone: 0
         WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.namespace: "hermes-voice-orb"
+        WlrLayershell.namespace: "orbe-orb"
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
         // só o quadrado da arte recebe toque; a coluna de texto deixa passar

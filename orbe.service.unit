@@ -7,12 +7,12 @@ Wants=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=@PY@ @ORBE@/hermes_voice_daemon.py
+ExecStart=@PY@ @ORBE@/orbe_daemon.py
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=5
 KillMode=control-group
-Environment=PATH=%h/.hermes/hermes-agent/venv/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=XDG_RUNTIME_DIR=%t
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=%t/bus
 Environment=XDG_SESSION_TYPE=wayland

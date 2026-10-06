@@ -27,7 +27,7 @@ import threading
 from pathlib import Path
 import time
 
-LOG = logging.getLogger("hermes-voice.acp")
+LOG = logging.getLogger("orbe.acp")
 
 HERMES_LAUNCHER = os.path.expanduser("~/.local/bin/hermes")
 PROFILES_DIR = os.path.expanduser("~/.hermes/profiles")
@@ -166,7 +166,7 @@ class AgenteACP:
         self.info = self._pedir("initialize", {
             "protocolVersion": 1,
             "clientCapabilities": {},
-            "clientInfo": {"name": "hermes-voice", "version": "1.0"},
+            "clientInfo": {"name": "orbe", "version": "1.0"},
         }, teto) or {}
 
     def fechar(self) -> None:

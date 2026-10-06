@@ -8,7 +8,7 @@ Dois papéis no mesmo arquivo, só com a stdlib:
   orbe como `notifications/claude/channel`. O Claude responde pela ferramenta
   `reply`, que devolve o texto a quem perguntou. Na sessão aberta pelo
   `claude-orbe`, a pergunta vai antes colada no prompt pelo wrapper
-  (hermes_voice_aceite), para a fala aparecer inteira no chat; a mensagem de
+  (orbe_aceite), para a fala aparecer inteira no chat; a mensagem de
   canal o Claude Code mostra numa linha cortada em 60 caracteres.
 - Importado pelo daemon: `AgenteClaude` tem a mesma cara do `AgenteACP` e fala
   com o socket da sessão aberta mais recente.
@@ -32,10 +32,10 @@ import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import hermes_voice_config as vcfg  # noqa: E402  (só stdlib)
+import orbe_config as vcfg  # noqa: E402  (só stdlib)
 
 # Onde as sessões se anunciam: o runtime do usuário (no Windows, o perfil local).
-PASTA = vcfg.RUNTIME / "hermes-voice" / "claude"
+PASTA = vcfg.RUNTIME / "orbe" / "claude"
 # Sem AF_UNIX (o Python do Windows), o canal escuta no laço local e o .sock da
 # sessão é um arquivo com a porta e a chave de quem pode falar com ela.
 UNIX = hasattr(socket, "AF_UNIX")
@@ -59,8 +59,8 @@ LEMBRETE = ("Fala do usuario pelo orbe de voz. No fim, chame a ferramenta reply 
             "pedido e a resposta que sera dita em voz alta, sem markdown.")
 # O mesmo, no fim do pedido colado no prompt (o modelo lê o que o usuário vê).
 MARCA = "(pelo orbe: no fim, reply com pedido {})"
-# O wrapper do claude-orbe (hermes_voice_aceite) escuta aqui, pelo pid do Claude.
-TERMINAIS = vcfg.RUNTIME / "hermes-voice" / "terminais"
+# O wrapper do claude-orbe (orbe_aceite) escuta aqui, pelo pid do Claude.
+TERMINAIS = vcfg.RUNTIME / "orbe" / "terminais"
 
 
 def _vivo(pid: int) -> bool:
@@ -341,7 +341,7 @@ class AgenteClaude:
     """Fala com a sessão aberta mais recente, ou com a de [pid]; não sobe processo nenhum."""
 
     def __init__(self, pid: int = 0):
-        import hermes_voice_acp as acp
+        import orbe_acp as acp
         self._erro = acp.ErroACP
         self.alvo = int(pid or 0)
         self.iniciado_em = time.time()
@@ -390,7 +390,7 @@ class AgenteClaude:
         descrição de cada ferramenta que ele chama."""
         etapas = None
         if a_etapa:
-            import hermes_voice_sessao as sessao
+            import orbe_sessao as sessao
             etapas = sessao.Etapas(self.sessao)
         try:
             cli = _ligar(PASTA / f"{self.sessao}.sock")

@@ -1,6 +1,6 @@
 [Unit]
 # O MÓDULO em si sobe pelo PipeWire, via
-# ~/.config/pipewire/pipewire.conf.d/99-hermes-echo-cancel.conf — lá está o
+# ~/.config/pipewire/pipewire.conf.d/99-orbe-echo-cancel.conf — lá está o
 # monitor.mode, que filtra só a captura e não encosta no playback.
 #
 # Esta unit faz uma coisa só: apontar a fonte padrão para a fonte filtrada.
@@ -18,8 +18,8 @@ PartOf=pipewire.service
 Type=oneshot
 RemainAfterExit=yes
 Environment=XDG_RUNTIME_DIR=%t
-ExecStart=@ORBE@/hermes_aec_default.sh set
-ExecStop=@ORBE@/hermes_aec_default.sh restore
+ExecStart=@ORBE@/orbe_aec_default.sh set
+ExecStop=@ORBE@/orbe_aec_default.sh restore
 
 [Install]
 WantedBy=default.target

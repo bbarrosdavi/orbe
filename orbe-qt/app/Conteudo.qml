@@ -6,7 +6,7 @@ import "."
 
 // Corpo do app: cabeçalho, o Ophanim do topo, o menu das páginas, as páginas,
 // o rodapé e os avisos. A lógica de carregar, coletar e reagir é a do
-// hermes_voice_app.py GTK; o que mexe no sistema fica na ponte em Python.
+// orbe_app.py GTK; o que mexe no sistema fica na ponte em Python.
 Item {
     id: raiz
     width: 500
@@ -379,7 +379,7 @@ Item {
                 }
                 Grupo {
                     titulo: "Chaves de API"
-                    descricao: "Vazia, vale a do Hermes. Preencha para usar o orbe com outro agente ou numa máquina sem o Hermes. Ficam em ~/.config/hermes-voice/chaves.env, legível só por você."
+                    descricao: "Vazia, vale a do Hermes. Preencha para usar o orbe com outro agente ou numa máquina sem o Hermes. Ficam em ~/.config/orbe/chaves.env, legível só por você."
                     Repeater {
                         id: rChaves
                         model: ponte.chaves

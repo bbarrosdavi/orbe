@@ -2,7 +2,7 @@
 """Ponte do orbe para o relógio (orbe-wear): um WebSocket na rede local.
 
 O relógio desenha o orbe na GPU dele, com os mesmos shaders do orbe-qt. Daqui
-saem só as linhas do protocolo do orbe (as do hermes-voice-orb.sock) e entram
+saem só as linhas do protocolo do orbe (as do orbe.sock) e entram
 o toque, os comandos do orb_control e a fala captada pelo relógio.
 
 Conversa (texto = uma linha por mensagem; binário = PCM s16le mono 16 kHz):
@@ -50,7 +50,7 @@ Conversa (texto = uma linha por mensagem; binário = PCM s16le mono 16 kHz):
                                                     "t" (ms) mais novo, guardado em
                                                     relogio.ajustes no config do PC
 
-Quando quem serve a ponte fala pelo relógio (hermes_voice_pulso.py, ou o
+Quando quem serve a ponte fala pelo relógio (orbe_pulso.py, ou o
 daemon numa sessão aberta pelo relógio), a resposta vai em PCM s16le mono,
 na taxa anunciada:
   ponte   → voz 24000 | (binário) a resposta | voz fim | voz corta (cala já)
@@ -63,10 +63,10 @@ ponha a ponte atrás de um proxy com TLS (o relógio aceita wss://) ou numa VPN.
 
 Só a biblioteca padrão e o websockets, que o daemon já tem (o Pillow, se
 houver, lê o papel de parede para o fundo do relógio). Avulso:
-  hermes_voice_relogio.py              mostra o endereço e o token do pareamento
-  hermes_voice_relogio.py --ligar      liga a ponte no config (--desligar desfaz)
-  hermes_voice_relogio.py --novo-token troca o token
-  hermes_voice_relogio.py --demo       serve o ciclo da prévia, sem o daemon
+  orbe_relogio.py              mostra o endereço e o token do pareamento
+  orbe_relogio.py --ligar      liga a ponte no config (--desligar desfaz)
+  orbe_relogio.py --novo-token troca o token
+  orbe_relogio.py --demo       serve o ciclo da prévia, sem o daemon
 """
 import argparse
 import asyncio
@@ -84,8 +84,8 @@ import threading
 import time
 from pathlib import Path
 
-import hermes_voice_config as vcfg
-import hermes_voice_sessao as sessao
+import orbe_config as vcfg
+import orbe_sessao as sessao
 
 LOG = logging.getLogger("relogio")
 
@@ -116,7 +116,7 @@ TEMA_PADRAO = {"accent_bg_color": "#b8cacb", "accent_fg_color": "#233334", "wind
 
 
 def tema() -> dict:
-    """Cores do matugen, as mesmas que o app lê (hermes_voice_app._tema)."""
+    """Cores do matugen, as mesmas que o app lê (orbe_app._tema)."""
     cores = {}
     try:
         for m in re.finditer(r"@define-color\s+(\w+)\s+(#[0-9a-fA-F]{6})", DANK_CSS.read_text()):
@@ -450,7 +450,7 @@ class PonteRelogio:
         com_janela = {a["id"] for a in self._agentes if a.get("instancias") and a.get("id") != "claude"}
         if com_janela:
             try:
-                import hermes_voice_terminal as terminal      # usa pty: não existe no Windows
+                import orbe_terminal as terminal      # usa pty: não existe no Windows
                 for d in reversed(terminal.sessoes()):       # da mais velha: ela fica com a vaga menor
                     if d.get("agente") in com_janela:
                         pasta = Path(str(d.get("pasta") or "")).name
@@ -760,7 +760,7 @@ def _mtime(p: Path) -> float:
 
 # ── avulso: pareamento e demonstração ──
 
-# o ciclo e as linhas da prévia do app (hermes_voice_app.py)
+# o ciclo e as linhas da prévia do app (orbe_app.py)
 DEMO_CICLO = [("idle", 4.0), ("listening", 5.0), ("thinking", 5.0), ("speaking", 6.0)]
 DEMO_LINHAS = [
     "Pedido: resumir as mensagens não lidas de hoje.",
@@ -841,7 +841,7 @@ def main():
         print(f"  servidor: {ip}:{porta}")
     print(f"  token:    {tok}")
     if args.ligar or args.desligar or args.novo_token:
-        print("Reinicie o daemon para valer: systemctl --user restart hermes-voice")
+        print("Reinicie o daemon para valer: systemctl --user restart orbe")
 
     if args.demo:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s", datefmt="%H:%M:%S")
