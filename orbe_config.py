@@ -249,6 +249,9 @@ DEFAULTS = {
         "token": "",
         # com o dedo no orbe do relógio, a fala vem do microfone dele
         "microfone": True,
+        # o plano de fundo do relógio: "" segue o papel de parede do PC; um
+        # caminho, a imagem escolhida no app
+        "papel": "",
         # Os ajustes do app do relógio, nos dois sentidos: o relógio manda os
         # dele ao conectar e a cada mudança, o app do PC muda aqui, e vale o
         # lado de "t" mais novo (ms desde 1970 da última mudança).

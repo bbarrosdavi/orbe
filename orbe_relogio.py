@@ -173,12 +173,52 @@ def papel() -> list:
     return cores
 
 
+PAPEL_IMAGEM_LADO = 384     # px: o mostrador tem ~450, e o fundo vai coberto pelo tom do tema
+_papel_imagem_guardado = (None, {})
+
+
+def _papel_escolhido():
+    """A imagem escolhida no app para o fundo do relógio (relogio.papel), ou None."""
+    p = str(vcfg.carregar()["relogio"].get("papel") or "").strip()
+    return Path(p).expanduser() if p else None
+
+
+def papel_imagem() -> dict:
+    """A imagem escolhida para o fundo do relógio, recortada no quadrado do meio
+    e reduzida: {"papel_imagem": JPEG em base64, "papel_id": o que muda com ela}.
+    Vazio sem imagem escolhida (o relógio segue o papel de parede do PC)."""
+    global _papel_imagem_guardado
+    caminho = _papel_escolhido()
+    if caminho is None or not caminho.is_file():
+        return {}
+    chave = (str(caminho), _mtime(caminho))
+    if _papel_imagem_guardado[0] == chave:
+        return _papel_imagem_guardado[1]
+    saida = {}
+    try:
+        import base64, io
+        from PIL import Image, ImageOps
+        with Image.open(caminho) as im:
+            im = ImageOps.exif_transpose(im).convert("RGB")
+            lado = min(im.width, im.height)
+            x0, y0 = (im.width - lado) // 2, (im.height - lado) // 2
+            im = im.crop((x0, y0, x0 + lado, y0 + lado)).resize((PAPEL_IMAGEM_LADO, PAPEL_IMAGEM_LADO), Image.LANCZOS)
+            buf = io.BytesIO()
+            im.save(buf, "JPEG", quality=85)
+        dados = buf.getvalue()
+        saida = {"papel_imagem": base64.b64encode(dados).decode(), "papel_id": hashlib.sha1(dados).hexdigest()[:12]}
+    except Exception as e:
+        LOG.warning("imagem do fundo do relógio (%s): %s", caminho, e)
+    _papel_imagem_guardado = (chave, saida)
+    return saida
+
+
 def aparencia() -> dict:
     """O que o relógio precisa para desenhar o orbe igual ao do PC."""
     o = vcfg.carregar()["orbe"]
     tam = (o.get("tamanhos") or {}).get(o["skin"])
     return {"orbe": {"skin": o["skin"], "glitch": bool(o["glitch"]), "tamanho": o["tamanho"] if tam is None else tam},
-            "tema": tema(), "papel": papel()}
+            "tema": tema(), "papel": papel(), **papel_imagem()}
 
 
 def novo_token() -> str:
@@ -304,7 +344,9 @@ def enderecos() -> list:
 
 def _assinatura() -> tuple:
     caminho = _papel_caminho()
-    return tuple(_mtime(p) for p in (vcfg.CONFIG_PATH, DANK_CSS, ACCENT_CSS)) + (str(caminho), caminho and _mtime(caminho))
+    escolhido = _papel_escolhido()
+    return (tuple(_mtime(p) for p in (vcfg.CONFIG_PATH, DANK_CSS, ACCENT_CSS)) + (str(caminho), caminho and _mtime(caminho))
+            + (str(escolhido), escolhido and _mtime(escolhido)))
 
 
 class PonteRelogio:
