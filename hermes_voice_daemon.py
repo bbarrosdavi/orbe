@@ -101,8 +101,8 @@ INTERRUPT_SPEECH_FRAMES = 12        # ~360ms contínuos; teclado não acumula
 # quadros em nenhum piso testado. Em 2500 metade da fala dele ficava de fora
 # (a interrupção que funcionou disparou raspando, em 2631).
 INTERRUPT_MIN_RMS = 2000
-MIN_UTTER_SPEECH_FRAMES = 12        # ~360ms de VAD pra mandar ao Groq
-MIN_UTTER_RMS = 1000                # evita enviar áudio de silêncio/ruído para Groq
+MIN_UTTER_SPEECH_FRAMES = 8         # ~240ms de VAD pra mandar ao Groq
+MIN_UTTER_RMS = 500                 # evita enviar áudio de silêncio/ruído para Groq
 
 # Silero VAD decide "isto é voz" no lugar do webrtcvad. Medido em 2026-10-03:
 # o ruído da sala no Mic1 cru tinha RMS mediano 1730, acima do piso de 1500,
@@ -2935,6 +2935,12 @@ class Daemon:
                     try:
                         subprocess.run(["pactl", "set-source-volume", AEC_SOURCE_NODE, "100%"], capture_output=True)
                         subprocess.run(["pactl", "set-source-mute", AEC_SOURCE_NODE, "0"], capture_output=True)
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SOURCE@", "1.0"], capture_output=True)
+                        subprocess.run(["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "0"], capture_output=True)
                     except Exception:
                         pass
                 latency_str = f"{int(round(self.capture_block * 1000 / self.capture_rate))}ms"
