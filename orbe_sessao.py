@@ -122,6 +122,9 @@ def sessoes() -> list[dict]:
     return sorted(vivas, key=lambda s: (s["desde"], s["pid"]))
 
 
+_CANAL = re.compile(r'<channel\b[^>]*>(.*?)</channel>', re.S)
+
+
 def _inicio(p: Path) -> dict:
     """A pasta, a entrada e o primeiro pedido de um transcript (o que o /resume
     mostra de uma conversa sem título)."""
@@ -140,9 +143,16 @@ def _inicio(p: Path) -> dict:
             continue
         if d.get("cwd") and "cwd" not in ini:
             ini = {"cwd": str(d["cwd"]), "entrypoint": str(d.get("entrypoint") or ""), "pedido": ""}
-        c = (d.get("message") or {}).get("content") if d.get("type") == "user" and not d.get("isMeta") else None
+        c = (d.get("message") or {}).get("content") if d.get("type") == "user" else None
         if isinstance(c, list):
             c = next((x.get("text") for x in c if isinstance(x, dict) and x.get("type") == "text"), None)
+        # a fala que chega pelo canal do orbe vem dentro da tag dele (numa
+        # mensagem marcada como meta): o pedido é o miolo
+        m = _CANAL.match(c.strip()) if isinstance(c, str) else None
+        if m:
+            c = m.group(1)
+        elif d.get("isMeta"):
+            c = None
         # os comandos de barra e os avisos do sistema vêm entre tags: não são o pedido
         if isinstance(c, str) and c.strip() and not c.lstrip().startswith("<"):
             ini["pedido"] = " ".join(c.split())[:120]
@@ -187,6 +197,21 @@ def rotulo(s: dict) -> str:
     return f"{s['pasta']} · {s['nome']}" if s.get("pasta") else s["nome"]
 
 
+# transcript -> (bytes já lidos, primeiro pedido): o nome da conversa sem título
+_PEDIDOS: dict[str, tuple[int, str]] = {}
+
+
+def _pedido(p: Path, tam: int) -> str:
+    """O primeiro pedido da conversa, o que o /resume e o histórico mostram de
+    uma sem título; lido de novo só enquanto não aparece e o arquivo cresce."""
+    lido, achado = _PEDIDOS.get(str(p), (-1, ""))
+    if achado or tam == lido:
+        return achado
+    achado = _inicio(p).get("pedido", "")
+    _PEDIDOS[str(p)] = (tam, achado)
+    return achado
+
+
 # transcript -> (bytes já lidos, último título achado)
 _TITULOS: dict[str, tuple[int, str]] = {}
 # só o fim do transcript na primeira leitura: o título é regravado a cada turno
@@ -217,8 +242,8 @@ def _ultimo_titulo(bloco: bytes) -> str:
 
 def titulo(s: dict) -> str:
     """O título da conversa: o nome dado com /rename ou, sem ele, o que o Claude
-    Code deu (o do /resume, linha ai-title do transcript). Lê só o que o
-    transcript cresceu desde a última vez."""
+    Code deu (o do /resume, linha ai-title do transcript) ou, sem esse, o
+    primeiro pedido. Lê só o que o transcript cresceu desde a última vez."""
     if s.get("nome") and not s.get("nome_derivado"):
         return s["nome"]
     p = _transcript(s.get("sessao") or "", s.get("cwd") or "") if s.get("sessao") else None
@@ -230,7 +255,7 @@ def titulo(s: dict) -> str:
         return ""
     lido, achado = _TITULOS.get(str(p), (0, ""))
     if tam == lido:
-        return achado
+        return achado or _pedido(p, tam)
     ini = lido if 0 < lido < tam else max(0, tam - _CAUDA)
     try:
         with open(p, "rb") as f:
@@ -243,7 +268,9 @@ def titulo(s: dict) -> str:
         return achado
     achado = novo or achado
     _TITULOS[str(p)] = (tam, achado)
-    return achado
+    # o Claude Code nem sempre dá título a uma conversa viva (às vezes só ao
+    # fechar): até lá, o primeiro pedido, como no histórico
+    return achado or _pedido(p, tam)
 
 
 class Etapas:
