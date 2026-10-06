@@ -82,6 +82,13 @@ layout(std140, binding = 0) uniform buf {
     vec4 m47;
 };
 layout(binding = 1) uniform sampler2D arte;
+#if IMG >= 2 && defined(RELOGIO)
+// no relógio, as transformações das peças num vetor de uniforms, que a Adreno
+// 504 indexa direto; montadas num vetor local no main (vec4 M[48] = ..., o
+// caminho do Qt, que não passa vetor de uniforms) elas iam para a memória a
+// cada pixel, uns 115 ms por quadro só nisso
+uniform vec4 Mu[48];
+#endif
 
 #if IMG == 1
 // Seraphim (gravura): recorte de 392 x 444 px, células de 408 px no atlas
@@ -365,7 +372,11 @@ void main() {
 #if IMG >= 2
     gX = dFdx(q) / ATLAS;
     gY = dFdy(q) / ATLAS;
+#ifdef RELOGIO
+#define M Mu
+#else
     vec4 M[48] = vec4[48](m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41, m42, m43, m44, m45, m46, m47);
+#endif
 #endif
     // direção do olhar, saturada: longe, a íris vai até a borda
     vec2 g = olhar - centro;
@@ -417,22 +428,36 @@ void main() {
     // as cabeças olham para o cursor: giram em volta do queixo e andam um pouco para ele
     vec2 olharH = dg * vec2(5.5, 4.0);
     float girarH = dg.x * 0.28;
+    // O desvio só escolhe o modo (0 nada, 1 pinta, 2 só a sombra) e a escrita vem
+    // depois, sem desvio: o compilador da Adreno 504 (relógio) perdia o que
+    // pintar() e sombra() escreviam no acumulado de dentro deste if/else, e o
+    // miolo e as sombras sumiam. O acumulado ainda está zerado aqui: pintar dá
+    // (r, g), a sombra dá (0, g)
     int pq = pecaEm(q);
-    if (pq == 0) pintar(q);
+    float modo = 0.0;
+    if (pq == 0) modo = 1.0;
     else if (pq > NL && pq <= NL + NB) {
         // só se o corpo saiu mesmo de cima deste pixel (parado, ele se cobre)
         int bq = pq - NL - 1;
-        if (distance(PIVO[bq] + girar(q - PIVO[bq], -M[NL + bq].x), q) > 0.35) sombra(q);
+        if (distance(PIVO[bq] + girar(q - PIVO[bq], -M[NL + bq].x), q) > 0.35) modo = 2.0;
     } else if (pq > NL + NB) {
-        if (length(olharH) > 0.35 || abs(girarH) > 0.004) sombra(q);
-        else pintar(q);
+        modo = length(olharH) > 0.35 || abs(girarH) > 0.004 ? 2.0 : 1.0;
     }
+    vec2 rg0 = lerPeca(clamp(q, vec2(0.5), TAM - 0.5) / ATLAS).rg;
+    rg0 *= step(0.0, q.x) * step(0.0, q.y) * step(q.x, TAM.x) * step(q.y, TAM.y);
+    accB = modo == 1.0 ? rg0.r : 0.0;
+    accA = modo > 0.5 ? rg0.g : 0.0;
+    // SEM_CORPOS, SEM_CABECAS e SEM_MEMBROS só existem na bancada do relógio
+    // (medir o custo de cada laço na GPU dele); o app não os define
+#ifndef SEM_CORPOS
     // os corpos, cada um girando em volta do pescoço
     for (int b = 0; b < NB; b++) {
         if (!dentro(q, CAIXA_C[b])) continue;
         vec2 p = PIVO[b] + girar(q - PIVO[b], -M[NL + b].x);
         if (pecaEm(p) == NL + 1 + b) pintar(p);
     }
+#endif
+#ifndef SEM_CABECAS
     // as cabeças, por cima dos corpos
     if (length(olharH) > 0.35 || abs(girarH) > 0.004) {
         for (int h = 0; h < NH; h++) {
@@ -441,6 +466,8 @@ void main() {
             if (pecaEm(ph) == NL + NB + 1 + h) pintar(ph);
         }
     }
+#endif
+#ifndef SEM_MEMBROS
     // os membros, por cima: primeiro o giro do corpo de onde saem, depois a cadeia
     for (int i = 0; i < NL; i++) {
         int pai = PAI[i];
@@ -449,6 +476,7 @@ void main() {
         vec2 p = cadeia(qb, JUNTA[4 * i], JUNTA[4 * i + 1], JUNTA[4 * i + 2], JUNTA[4 * i + 3], M[i].xyz, 3);
         if (pecaEm(p) == i + 1) pintar(p);
     }
+#endif
 #endif
 
     float A = min(accB, accA);
