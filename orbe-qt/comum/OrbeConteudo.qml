@@ -104,7 +104,15 @@ Item {
     function fator(a, k) { return 1 - Math.pow(1 - a, k) }
 
     // ── comandos (mesma semântica do OrbWin) ──
+    // uma troca esperando o fim da saída: feita já (a fase segue a pedida)
+    function concluirTroca() {
+        if (!trocaPendente) return
+        var f = trocaPendente
+        trocaPendente = null
+        f()
+    }
     function mostrar(e) {
+        concluirTroca()
         aplicarEspelho()
         linhas = []
         if (estados.indexOf(e) >= 0) estado = e
@@ -126,6 +134,7 @@ Item {
     }
     function esconder() {
         linhas = []
+        concluirTroca()             // a saída da troca vira a saída de esconder
         if (visivel && fase !== "out") {
             fase = "out"
             faseT = 0
@@ -146,12 +155,38 @@ Item {
         espelhoDepois = null
         var de = { skin: skinEmUso, cor: espelhoCor.a > 0 ? espelhoCor.toString() : "" }
         var para = { skin: novo.skin || skin, cor: novo.cor !== "transparent" && novo.cor ? String(novo.cor) : "" }
+        trocarPrincipal(de, para, function () {
+            espelhoSkin = novo.skin
+            espelhoCor = novo.cor
+        })
+    }
+    // "base <skin>": o orbe do PC passou a outro (a rodinha em cima dele). Com o
+    // PC mostrando o dele, troca de lugar com a lua como no espelho; mostrando o
+    // do relógio, só guarda (o "espelho" de volta, que vem depois, anima)
+    function trocarBase(sk) {
+        if (["ofanim", "ofanim_alado", "serafim_gravura", "olho", "humana", "anel"].indexOf(sk) < 0 || sk === skin) return
+        if (espelhoSkin) { skin = sk; return }
+        trocarPrincipal({ skin: skin, cor: "" }, { skin: sk, cor: "" }, function () { skin = sk })
+    }
+    // a troca do principal de [de] para [para]: [aplicar] faz a troca de fato
+    // (a skin passa nela); antes, a lua do que sai e a partida do que chega
+    // sem lua para trocar de lugar: o orbe sai como ao desativar e volta já o
+    // outro, como ao ativar (o Meta+A); a troca de fato fica para o fim da saída
+    property var trocaPendente: null
+    function trocarPrincipal(de, para, aplicar) {
+        var o = null
         var muda = de.skin !== para.skin || de.cor.toLowerCase() !== para.cor.toLowerCase()
+        if (muda && visivel && fase === "run" && !(luas.lista.length && luasLigadas)) {
+            trocaPendente = aplicar
+            fase = "out"
+            faseT = 0
+            return
+        }
         // com o orbe na tela e satélites em volta, os dois trocam de lugar: o
         // chamado sai de onde estava crescendo até o centro, e o principal
         // encolhe indo para onde o chamado estava (Satelites.trocar)
         if (muda && visivel && fase === "run" && luas.lista.length && luasLigadas) {
-            var o = luas.onde(para.skin, para.cor)
+            o = luas.onde(para.skin, para.cor)
             // a lua do que sai começa do tamanho visível dele: o raio da figura
             // dele aqui (com a sombra, cabe no disco) sobre o raio na caixa de lua
             var s0 = -1
@@ -169,8 +204,7 @@ Item {
             escalaTroca = escala
             trocaT = 0
         }
-        espelhoSkin = novo.skin
-        espelhoCor = novo.cor
+        aplicar()
         // o chamado chega com a pose que tinha de lua (a Figura do principal é a
         // mesma; trocar de skin zerou o estado dela)
         if (o && o.id && luas.estados[o.id] && avatar && arte.item && arte.item.st !== undefined)
@@ -236,6 +270,8 @@ Item {
             corOlhos = /^#[0-9a-fA-F]{6}$/.test(arg) ? arg : "transparent"
         } else if (op === "espelho") {
             espelhar(arg)
+        } else if (op === "base") {
+            trocarBase(arg.trim())
         } else if (op === "satelites") {
             try {
                 var l = JSON.parse(arg || "[]")
@@ -255,10 +291,18 @@ Item {
             if (fase === "in" && faseT >= 0.35) {
                 fase = "run"
             } else if (fase === "out" && faseT >= 0.25) {
-                fase = "run"
-                visivel = false
-                aplicarEspelho()
-                saiu()
+                if (trocaPendente) {
+                    // a saída era de uma troca: volta já o outro, entrando
+                    concluirTroca()
+                    fase = "in"
+                    faseT = 0
+                    aplicarEspelho()
+                } else {
+                    fase = "run"
+                    visivel = false
+                    aplicarEspelho()
+                    saiu()
+                }
             }
         }
         t += dt

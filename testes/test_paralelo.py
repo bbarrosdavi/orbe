@@ -231,17 +231,61 @@ class OrbesEmParalelo(unittest.TestCase):
         self.tique(0.1)
         self.assertEqual("espelho ofanim_alado -", d._espelho)
 
-    def test_seguindo_o_relogio_o_pc_fala_com_o_agente_de_la(self):
-        """A fala no microfone do PC vai para o agente escolhido no relógio
-        (a vaga da instância) seguindo ele; fixo, para o agente do PC."""
+    def test_a_sessao_do_pc_e_do_orbe_do_pc(self):
+        """A sessão do PC abre com o orbe do PC (o último escolhido aqui) e o
+        agente dele, mesmo seguindo o relógio; a que veio do relógio, com o
+        orbe e o agente em tela lá, que o PC mostra no lugar."""
         p, d = self.ponte, self.d
-        d._origem = "pc"
         p.ir("olho", 3)
+        d._origem = "relogio"
         self.assertEqual(3, d._agente_cfg()["vaga"])
         self.assertEqual(("olho", True), (d._orbe_em_foco()["skin"], d._orbe_em_foco()["do_relogio"]))
-        od.VCFG["relogio"]["seguir"] = False
+        d._definir_origem("pc")
         self.assertEqual(-1, d._agente_cfg().get("vaga", -1))
         self.assertEqual((od.VCFG["orbe"]["skin"], False), (d._orbe_em_foco()["skin"], d._orbe_em_foco()["do_relogio"]))
+        self.assertEqual("espelho", d._espelho, "na sessão do PC, o orbe do PC")
+
+    def test_rodinha_troca_o_orbe_do_pc(self):
+        """A rodinha em cima do orbe passa o orbe do PC ao seguinte na ordem do
+        relógio, guarda e manda o orbe da tela trocar (base), e a sessão vira do PC."""
+        d = self.d
+        skin_pc = od.VCFG["orbe"]["skin"]
+        self.addCleanup(lambda: od.VCFG["orbe"].__setitem__("skin", skin_pc))
+        salvos = []
+        carregar, salvar = od.vcfg.carregar, od.vcfg.salvar
+        self.addCleanup(lambda: (setattr(od.vcfg, "carregar", carregar), setattr(od.vcfg, "salvar", salvar)))
+        od.vcfg.carregar = lambda: __import__("copy").deepcopy(od.VCFG)
+        od.vcfg.salvar = lambda cfg: salvos.append(cfg["orbe"]["skin"])
+        ordem = [s for s in (od.VCFG["relogio"].get("ajustes", {}).get("ordem") or od.vcfg.SKINS) if s in od.vcfg.SKINS]
+        ordem += [s for s in od.vcfg.SKINS if s not in ordem]
+        od.VCFG["orbe"]["skin"] = ordem[0]
+        d._trocar_orbe(+1)
+        self.assertEqual(ordem[1], od.VCFG["orbe"]["skin"])
+        self.assertEqual([ordem[1]], salvos)
+        self.assertIn(f"base {ordem[1]}", self.ordens)
+        self.assertEqual("pc", d._origem)
+        d._trocar_orbe(-1)
+        d._trocar_orbe(-1)
+        self.assertEqual(ordem[-1], od.VCFG["orbe"]["skin"], "dá a volta na ordem")
+
+    def test_demo_tres_falas_juntas(self):
+        """A demonstração põe três falas de orbes diferentes na fila ao mesmo
+        tempo: falam uma de cada vez, na ordem, e o relógio rola até cada uma."""
+        p, d = self.ponte, self.d
+        aj = od.VCFG["relogio"].setdefault("ajustes", {})
+        antes = dict(aj)
+        self.addCleanup(lambda: (aj.clear(), aj.update(antes)))
+        aj["ordem"] = ["anel", "olho", "ofanim", "ofanim_alado", "serafim_gravura", "humana"]
+        aj["agentes"] = {"anel": "hermes", "olho": "opencode"}
+        d._demo_paralelo()
+        fila = [(f["turno"]["skin"], f["turno"]["vaga"]) for f in d._falas]
+        self.assertEqual(3, len({s for s, _ in fila}), "três orbes diferentes")
+        self.assertEqual("anel", fila[0][0], "o de agente sem instâncias primeiro")
+        self.tique(1.0)
+        self.assertEqual([s for s, _ in fila], [s for s, _ in d.falado], "falam na ordem em que chegaram")
+        self.assertEqual([f"Mensagem {k} de 3" in t for k, (_, t) in enumerate(d.falado, 1)], [True] * 3)
+        self.assertEqual(fila, p.focos, "o relógio rola até cada um")
+        self.assertIsNone(d.agente, "a demonstração não troca o agente da sessão")
 
     def test_mesmo_orbe_continua_interrompendo_como_antes(self):
         p, d = self.ponte, self.d

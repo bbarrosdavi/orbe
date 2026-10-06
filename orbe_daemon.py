@@ -1761,12 +1761,9 @@ class Daemon:
     # mais devagar, os sem sessão.
 
     def _orbe_do_relogio(self) -> bool:
-        """A sessão fala com o orbe em tela no relógio: a que veio de lá e,
-        seguindo o relógio, também a do microfone do PC (depois que o relógio
-        disse qual é). Fixo, a do PC fala com o agente do PC."""
-        if _RELOGIO is None:
-            return False
-        return self._origem == "relogio" or (self._seguindo_relogio() and bool(_RELOGIO.orbe()[0]))
+        """A sessão fala com o orbe em tela no relógio quando veio de lá; a do
+        PC fala com o orbe do PC (o último escolhido aqui, pela rodinha)."""
+        return _RELOGIO is not None and self._origem == "relogio"
 
     def _orbe_em_foco(self) -> dict:
         """O orbe da sessão agora: o do relógio (skin, agente, vaga e cor da
@@ -1836,14 +1833,86 @@ class Daemon:
             _RELOGIO.focar(t["skin"], t["agente"], t["vaga"], t["cor"])
         self._definir_origem(t["origem"])
         # o agente dele vira o da sessão: o que o Davi responder vai para ele
-        with self._agente_lock:
-            velho = self.agente
-            self.agente = t["ag"]
-            self._agente_viva = t["chave"]
-        if velho is not None and velho is not t["ag"] and not self._em_uso(velho):
-            threading.Thread(target=velho.fechar, daemon=True).start()
+        # (a demonstração não tem agente: a sessão segue com o de antes)
+        if t.get("ag") is not None:
+            with self._agente_lock:
+                velho = self.agente
+                self.agente = t["ag"]
+                self._agente_viva = t["chave"]
+            if velho is not None and velho is not t["ag"] and not self._em_uso(velho):
+                threading.Thread(target=velho.fechar, daemon=True).start()
         self._skin_falante = t["skin"]
         self._iniciar_aviso(fala["texto"])
+
+    def _trocar_orbe(self, passo: int):
+        """A rodinha em cima do orbe do PC (orbe.qml): o orbe do PC passa ao
+        seguinte (ou ao de antes) na ordem do relógio e fica salvo (orbe.skin),
+        com o agente dele (o mapa de agentes por orbe). A sessão vira do PC:
+        se o PC mostrava o orbe do relógio, volta ao dele, já o novo."""
+        aj = VCFG["relogio"].get("ajustes") or {}
+        ordem = [s for s in (aj.get("ordem") or vcfg.SKINS) if s in vcfg.SKINS]
+        ordem += [s for s in vcfg.SKINS if s not in ordem]
+        atual = VCFG["orbe"]["skin"]
+        i = ordem.index(atual) if atual in ordem else 0
+        novo = ordem[(i + passo) % len(ordem)]
+        VCFG["orbe"]["skin"] = novo
+        try:
+            cfg = vcfg.carregar()
+            cfg["orbe"]["skin"] = novo
+            vcfg.salvar(cfg)
+        except Exception as e:
+            LOG.warning("orbe do PC: não salvou (%s)", e)
+        LOG.info("orbe do PC: %s -> %s (rodinha)", atual, novo)
+        # primeiro o orbe novo (animado, se o PC mostra o dele), depois a volta
+        # do espelho, se o PC mostrava o do relógio
+        orb_cmd(f"base {novo}", relogio=False)
+        self._definir_origem("pc")
+        self._publicar_paralelos()
+
+    # os nomes dos orbes, para a demonstração falar quem é quem
+    NOMES_ORBE = {"anel": "anel", "ofanim": "Ophanim", "ofanim_alado": "Ophanim com asas",
+                  "serafim_gravura": "Seraphim", "olho": "Paranoia", "humana": "Rei dos Ratos"}
+
+    def _demo_paralelo(self):
+        """Só para ver a concorrência dos orbes em paralelo (comando
+        "demo_paralelo" no socket de controle): três orbes do relógio com uma
+        fala cada, postas juntas na fila, como três turnos em segundo plano que
+        acabassem no mesmo instante. Falam um de cada vez, na ordem de chegada;
+        os outros esperam (no PC, no canto de baixo à esquerda; no relógio, em
+        miniatura) e o relógio, e o orbe do PC seguindo ele, passam a quem fala.
+        Os orbes: os de agente sem instâncias primeiro, depois os do Claude com
+        sessão ativa (os sem sessão não aparecem esperando, só como fantasma)."""
+        if _RELOGIO is None:
+            LOG.warning("demo_paralelo: sem a ponte do relógio")
+            return
+        aj = VCFG["relogio"].get("ajustes") or {}
+        por_skin = aj.get("agentes") or {}
+        ordem = [s for s in (aj.get("ordem") or vcfg.SKINS) if s in vcfg.SKINS]
+        ativos = [e for e in _RELOGIO.satelites() if e["tipo"] == "ativo" and "/" in str(e["id"])]
+        escolhidos = []
+        for s in ordem:
+            tipo = por_skin.get(s) or "claude"
+            if not _com_instancias(tipo):
+                escolhidos.append((s, tipo, -1, ""))
+        for e in ativos:
+            tipo = por_skin.get(e["skin"]) or "claude"
+            escolhidos.append((e["skin"], tipo, int(str(e["id"]).split("/")[1]), e["cor"]))
+        for s in ordem:                          # sem sessão bastante: completa com a vaga 0
+            tipo = por_skin.get(s) or "claude"
+            if all(x[0] != s for x in escolhidos):
+                escolhidos.append((s, tipo, 0 if _com_instancias(tipo) else -1, ""))
+        escolhidos = escolhidos[:3]
+        agora = time.monotonic()
+        with self._falas_lock:
+            for k, (skin, tipo, vaga, cor) in enumerate(escolhidos, 1):
+                nome = self.NOMES_ORBE.get(skin, skin)
+                quem = acp.NOMES.get(tipo, tipo)
+                turno = {"skin": skin, "cor": cor, "agente": tipo, "vaga": vaga, "origem": "relogio",
+                         "do_relogio": True, "chave": "", "ag": None, "fundo": True, "thread": None}
+                texto = (f"Aqui é o {nome}, do {quem}. Mensagem {k} de {len(escolhidos)}, "
+                         f"chegando junto com as outras.")
+                self._falas.append({"turno": turno, "texto": texto, "t": agora})
+        LOG.info("demo_paralelo: %s na fila", ", ".join(f"{s} ({t}, vaga {v})" for s, t, v, _ in escolhidos))
 
     def _em_uso(self, ag) -> bool:
         """O agente ainda tem turno em segundo plano, ou resposta na fila."""
@@ -1861,8 +1930,9 @@ class Daemon:
         if _RELOGIO is None:
             return
         esperando = self._esperando()
-        # o principal não orbita: o orbe em tela no relógio, seguindo ele; fixo, o do PC
-        principal = None if self._seguindo_relogio() else (VCFG["orbe"]["skin"], -1)
+        # o principal não orbita: o orbe em tela no relógio quando o PC mostra
+        # ele (sessão de lá, seguindo o relógio); senão, o do PC
+        principal = None if self._seguindo_relogio() and self._origem == "relogio" else (VCFG["orbe"]["skin"], -1)
         lista = json.dumps(_RELOGIO.satelites({(e["skin"], e["vaga"]) for e in esperando}, principal),
                            ensure_ascii=False)
         if lista != self._satelites:
@@ -1981,26 +2051,26 @@ class Daemon:
         self._ctl_q.put(f"cmd {op} relogio")
 
     def _definir_origem(self, origem: str):
-        """Quem abriu ou tocou na sessão por último: o relógio pinta os olhos do PC."""
+        """Quem abriu ou tocou na sessão por último: o relógio pinta os olhos do
+        PC e decide o orbe dele (o espelho depende da origem: vem depois dela)."""
+        if origem != self._origem:
+            LOG.info("sessão de voz: origem %s", origem)
+            self._origem = origem
+            orb_cmd("olhos " + COR_OLHOS_RELOGIO if origem == "relogio" else "olhos", relogio=False)
         self._espelhar()
-        if origem == self._origem:
-            return
-        LOG.info("sessão de voz: origem %s", origem)
-        self._origem = origem
-        orb_cmd("olhos " + COR_OLHOS_RELOGIO if origem == "relogio" else "olhos", relogio=False)
 
     def _seguindo_relogio(self) -> bool:
         return bool(VCFG["relogio"].get("seguir")) and _RELOGIO is not None
 
     def _espelhar(self):
-        """O orbe principal do PC. Fixo (relogio.seguir desligado): o daqui,
-        sempre. Seguindo o relógio: o último escolhido lá (a skin e a cor da
-        instância), venha a sessão de onde vier e com o relógio conectado ou
-        não. Ele só muda quando o agente em tela no relógio muda, e o orbe do
-        PC anima a troca (Satelites.qml); o Wi-Fi do relógio dormir e voltar
-        não troca nada. Mudar o agente no próprio PC ainda não existe."""
+        """O orbe principal do PC. A sessão do PC abre com o orbe do PC (o
+        último escolhido aqui, pela rodinha em cima dele: orbe.skin). A que veio
+        do relógio, seguindo o relógio (relogio.seguir), mostra no lugar o orbe
+        em tela lá (a skin e a cor da instância), e muda quando o agente lá
+        muda, com a troca animada (Satelites.qml); conectado ou não: o Wi-Fi do
+        relógio dormir e voltar não troca nada. Fixo, o do PC sempre."""
         linha = "espelho"
-        if self._seguindo_relogio():
+        if self._seguindo_relogio() and self._origem == "relogio":
             skin, cor = _RELOGIO.orbe()
             if skin:
                 linha = f"espelho {skin} {cor or '-'}"
@@ -2087,6 +2157,10 @@ class Daemon:
             elif op == "fala" and arg.strip():
                 self._avisos.append(arg.strip())
                 LOG.info("Aviso na fila: %s", arg.strip()[:80])
+            elif op == "demo_paralelo":
+                self._demo_paralelo()
+            elif op == "orbe" and arg.strip() in ("+1", "-1"):
+                self._trocar_orbe(int(arg.strip()))
         if (self._relatos and self.state == "listening" and self.rec is None
                 and not self._busy()):
             self._iniciar_relato(self._relatos.popleft())

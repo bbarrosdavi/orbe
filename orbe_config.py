@@ -256,10 +256,10 @@ DEFAULTS = {
         # ponte WebSocket para o app do relógio (orbe-wear), servida pelo
         # orbe_relogio.py; desligada, o daemon não abre porta nenhuma
         "ligado": False,
-        # o orbe principal do PC: desligado, fica fixo no daqui; ligado, segue o
-        # relógio e passa ao agente escolhido lá (a skin e a cor da instância),
-        # com a troca animada, e fica nele mesmo com o relógio desconectado. Os
-        # olhos ficam vermelhos na sessão do relógio com ou sem isto
+        # a sessão aberta no relógio aparece no PC com o orbe de lá (a skin e a
+        # cor da instância), com a troca animada; a do PC abre sempre com o
+        # orbe do PC (orbe.skin, o último escolhido com a rodinha em cima dele).
+        # Os olhos ficam vermelhos na sessão do relógio com ou sem isto
         "seguir": False,
         "porta": 8777,
         # pareamento: gerado na primeira subida (orbe_relogio.py mostra)

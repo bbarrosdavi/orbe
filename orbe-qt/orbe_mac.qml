@@ -74,6 +74,20 @@ Window {
         height: conteudo.artBox
         MouseArea {
             anchors.fill: parent
+            // a rodinha em cima do orbe troca o orbe do PC: um passo por entalhe,
+            // no máximo um a cada 250 ms (o trackpad manda muitos eventos)
+            property real roda: 0
+            property real rodaEm: 0
+            onWheel: wheel => {
+                roda += wheel.angleDelta.y !== 0 ? wheel.angleDelta.y : wheel.angleDelta.x
+                var agora = Date.now()
+                if (Math.abs(roda) >= 120 && agora - rodaEm > 250) {
+                    ponte.trocarOrbe(roda < 0 ? 1 : -1)
+                    roda = 0
+                    rodaEm = agora
+                }
+                wheel.accepted = true
+            }
             onPressed: tocar(true)
             onReleased: tocar(false)
             onCanceled: tocar(false)

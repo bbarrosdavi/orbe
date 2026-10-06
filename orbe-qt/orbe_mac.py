@@ -254,11 +254,19 @@ class Ponte(QObject):
     @Slot(bool)
     def tocar(self, dentro: bool):
         """Uma conexão por mensagem, como o daemon espera (lê até EOF)."""
+        self._enviar(b"touch down\n" if dentro else b"touch up\n")
+
+    @Slot(int)
+    def trocarOrbe(self, passo: int):
+        """A rodinha em cima do orbe: o orbe do PC seguinte (+1) ou o de antes (-1)."""
+        self._enviar(b"orbe +1\n" if passo > 0 else b"orbe -1\n")
+
+    def _enviar(self, linha: bytes):
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.settimeout(0.3)
         try:
             s.connect(self._ctl)
-            s.sendall(b"touch down\n" if dentro else b"touch up\n")
+            s.sendall(linha)
         except OSError:
             pass
         finally:

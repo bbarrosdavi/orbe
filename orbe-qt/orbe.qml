@@ -254,6 +254,21 @@ ShellRoot {
                     interval: 350
                     onTriggered: if (area.pressed && !area.arrastando) raiz.tocar(true)
                 }
+                // a rodinha em cima do orbe troca o orbe do PC (o daemon guarda e
+                // anima): um passo por entalhe (120), no máximo um a cada 250 ms,
+                // que o touchpad manda muitos eventos pequenos
+                property real roda: 0
+                property real rodaEm: 0
+                onWheel: wheel => {
+                    roda += wheel.angleDelta.y !== 0 ? wheel.angleDelta.y : wheel.angleDelta.x
+                    var agora = Date.now()
+                    if (Math.abs(roda) >= 120 && agora - rodaEm > 250) {
+                        ctl.enviar("orbe " + (roda < 0 ? "+1" : "-1"))
+                        roda = 0
+                        rodaEm = agora
+                    }
+                    wheel.accepted = true
+                }
                 onPressed: mouse => {
                     if (!raiz.mover) { raiz.tocar(true); return }
                     inicio = Qt.point(mouse.x, mouse.y)
