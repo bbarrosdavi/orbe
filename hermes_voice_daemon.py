@@ -701,6 +701,8 @@ ORB_SOCK = f"{RUNTIME}/hermes-voice-orb.sock"
 # Entrada de controle do daemon, uma linha por mensagem:
 #   touch down | touch up      dedo no orbe (orbe-qt/orbe.qml)
 #   relato {json}              trabalho despachado terminou (hermes_voice_despacho.py)
+#   fala <texto>               o orbe diz o texto, sem passar pelo agente (o
+#                              aviso de quem trabalhou fora de um pedido de voz)
 CTL_SOCK = f"{RUNTIME}/hermes-voice-ctl.sock"
 # Toque mais curto que isto é só "interromper"; mais longo, o dedo segura a
 # gravação aberta até ser solto, e pausa entre palavras não fecha nada.
@@ -1464,6 +1466,7 @@ class Daemon:
         self._toque_rec_novo = False
         self._toque_curto_t = 0.0   # último toque curto: dois seguidos travam a sessão
         self._relatos: collections.deque = collections.deque()
+        self._avisos: collections.deque = collections.deque()
         self._dbg_max, self._dbg_sf, self._dbg_next = 0.0, 0, 0.0
         self._mic_orb_t = 0.0
         self._inicio = time.monotonic()
@@ -1939,9 +1942,15 @@ class Daemon:
                     continue
                 self._relatos.append(rel)
                 LOG.info("Relato na fila (%s)", rel.get("perfil", "?"))
+            elif op == "fala" and arg.strip():
+                self._avisos.append(arg.strip())
+                LOG.info("Aviso na fila: %s", arg.strip()[:80])
         if (self._relatos and self.state == "listening" and self.rec is None
                 and not self._busy()):
             self._iniciar_relato(self._relatos.popleft())
+        elif (self._avisos and self.state == "listening" and self.rec is None
+                and not self._busy()):
+            self._iniciar_aviso(self._avisos.popleft())
         self._talvez_descarregar_agente()
 
     def _toque_down(self, origem: str = "pc"):
@@ -2046,6 +2055,38 @@ class Daemon:
             target=self._responder, args=(texto, gen), kwargs={"relato": True},
             daemon=True)
         self._processing_thread.start()
+
+    def _iniciar_aviso(self, texto: str):
+        """O orbe diz [texto] onde a última sessão estava e fica ouvindo, como
+        no fim de uma resposta. Nenhum agente sobe: o aviso não é pedido."""
+        LOG.info("Aviso: %s", texto[:120])
+        if not self._voice_session:
+            self._voice_session = HERMES_SESSION
+        self._abrir_mic()
+        self.allow_interrupt = True
+        self.expecting_command = False
+        self._continuando = False
+        self._interrupted.clear()
+        self.state = "processing"
+        orb_cmd("clear")
+        orb_cmd("show speaking")
+        self._touch_session()
+        gen = self._tts_gen
+        self._processing_thread = threading.Thread(
+            target=self._dizer_aviso, args=(texto, gen), daemon=True)
+        self._processing_thread.start()
+
+    def _dizer_aviso(self, texto: str, gen: int):
+        self._tts_turn_n = 0
+        self._tts_push(texto, gen)
+        self._tts_drain()
+        if gen != self._tts_gen or self._interrupted.is_set():
+            self._touch_session()
+            return
+        self.expecting_command = True
+        self.allow_interrupt = True
+        self._touch_session()
+        orb_cmd("state listening")
 
     def _guardar_pedido(self, cmd: str, falou: bool = False):
         """Geração abortada por continuação antes de qualquer palavra falada:
