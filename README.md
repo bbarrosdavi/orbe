@@ -9,10 +9,10 @@ Hermes Agent, OpenCode e Gemini CLI, e com o Claude Code por um canal MCP.
 
 > **Orbe Watch.** O Orbe também vive no pulso: um app Wear OS com o mesmo
 > desenho e a mesma estética, que serve de ponte de fala para os agentes.
-> Documentação completa, com imagens, no repositório [orbe-watch](https://github.com/bbarrosdavi/orbe-watch).
+> Documentação completa, com imagens, no repositório [orbe-watch](https://github.com/orbe-project/orbe-watch).
 
 <p align="center">
-<a href="https://github.com/bbarrosdavi/orbe-watch"><img src="https://raw.githubusercontent.com/bbarrosdavi/orbe-watch/main/docs/img/ciclo.gif" width="240" alt="O orbe no relógio"></a>
+<a href="https://github.com/orbe-project/orbe-watch"><img src="https://raw.githubusercontent.com/orbe-project/orbe-watch/master/docs/img/ciclo.png" width="240" alt="O orbe no relógio"></a>
 </p>
 
 <table align="center">
@@ -79,7 +79,7 @@ sudo pacman -S quickshell pyside6 pipewire uv
 ## Instalação
 
 ```sh
-git clone https://github.com/bbarrosdavi/orbe-desktop.git ~/.local/share/orbe
+git clone https://github.com/orbe-project/orbe-desktop.git ~/.local/share/orbe
 cd ~/.local/share/orbe
 
 # Python do daemon (pule se já usa o venv do Hermes Agent); o uv baixa o 3.12
@@ -134,7 +134,7 @@ usuário: `./hermes_voice_sessao.py --instalar` o põe no
 `~/.claude/settings.json`. No relógio, cada sessão aberta é uma instância dos
 orbes do Claude, que se passa com dois dedos, na sua cor e com a pasta e o
 estado embaixo, e o orbe fala só a resposta ao pedido de voz (ver [Sessões do
-Claude Code](https://github.com/bbarrosdavi/orbe-watch#sessões-do-claude-code)). Pelo hook, o pedido
+Claude Code](https://github.com/orbe-project/orbe-watch#sessões-do-claude-code)). Pelo hook, o pedido
 aparece no terminal só como "Pedido do orbe de voz"; pelo canal, o `claude-orbe`
 cola a fala inteira no prompt e dá Enter, como se fosse digitada, com o código
 do pedido no fim. Com algo já digitado no prompt ou um diálogo aberto, ele não
@@ -191,11 +191,7 @@ systemctl --user daemon-reload && systemctl --user enable --now hermes-aec
 
 ## Relógio (Wear OS)
 
-<p align="center">
-<img src="https://raw.githubusercontent.com/bbarrosdavi/orbe-watch/main/docs/img/relogio.png" width="760" alt="O Orbe no relógio: ouvindo, pensando com as linhas do raciocínio, e o menu">
-</p>
-
-O app do relógio mora no repositório [orbe-watch](https://github.com/bbarrosdavi/orbe-watch), com a
+O app do relógio mora no repositório [orbe-watch](https://github.com/orbe-project/orbe-watch), com a
 documentação completa e as telas do app.
 
 O `orbe-watch` é o orbe no pulso: o mesmo desenho, feito na GPU do relógio com os
@@ -210,7 +206,7 @@ local (`hermes_voice_relogio.py`), servido de um de dois jeitos:
   Linux: o microfone e o alto-falante são os do relógio.
 
 Nos dois, o toque vale como no desktop (um toque abre a sessão ou interrompe,
-dois travam, segurar é segurar para falar, com a fala captada pelo relógio),
+dois ligam o live, segurar é segurar para falar, com a fala captada pelo relógio),
 as linhas do raciocínio aparecem abaixo da figura, e o avatar, o glitch e as
 cores seguem os do computador, ou o relógio escolhe os dele.
 
@@ -261,7 +257,7 @@ No relógio (Wear OS 3 ou mais novo), com o Android SDK instalado
 (`ANDROID_HOME` ou `local.properties`):
 
 ```sh
-git clone --recursive https://github.com/bbarrosdavi/orbe-watch.git
+git clone --recursive https://github.com/orbe-project/orbe-watch.git
 cd orbe-watch
 ./gradlew :app:assembleRelease
 adb install app/build/outputs/apk/release/app-release.apk
@@ -270,7 +266,7 @@ adb shell am start -n io.hermes.orbe/.MainActivity --es servidor 192.168.0.10 --
 ```
 
 O endereço e o token também entram pelo menu do relógio (arraste a tela para
-cima ou gire a coroa). Para ver o relógio funcionando sem daemon nem agente,
+a esquerda). Para ver o relógio funcionando sem daemon nem agente,
 `./hermes_voice_relogio.py --demo` serve o ciclo da prévia do app.
 
 O relógio precisa alcançar o computador pela rede. Com os dois em redes
@@ -299,7 +295,7 @@ daemon é o mesmo. Requisitos: macOS 12 ou mais novo, [uv](https://docs.astral.s
 (`hermes`, `opencode`, `gemini`, `claude`).
 
 ```sh
-git clone https://github.com/bbarrosdavi/orbe-desktop.git ~/.local/share/orbe
+git clone https://github.com/orbe-project/orbe-desktop.git ~/.local/share/orbe
 cd ~/.local/share/orbe
 ./install-mac.sh
 ```
@@ -371,7 +367,7 @@ ativação própria a partir de gravações e de vozes do Piper.
 | `orb_control.py` | controle do orbe por socket |
 | `hermes_voice_relogio.py` | ponte WebSocket para o relógio |
 | `hermes_voice_pulso.py` | orbe de pulso: a ponte de fala do relógio sem o desktop |
-| [orbe-watch](https://github.com/bbarrosdavi/orbe-watch) | app do relógio (Wear OS, Kotlin e Compose), em repositório próprio, com os shaders do `orbe-qt` |
+| [orbe-watch](https://github.com/orbe-project/orbe-watch) | app do relógio (Wear OS, Kotlin e Compose), em repositório próprio, com os shaders do `orbe-qt` |
 | `hermes_voice_config.py` | config única em `~/.config/hermes-voice/config.json` |
 | `skills/` | skills do Hermes para segurar e dispensar a sessão |
 | `*.service.unit`, `orbe.desktop.in` | modelos preenchidos pelo `install.sh` |
