@@ -279,6 +279,8 @@ DEFAULTS = {
             # null é "ainda não sei", e o relógio fica com o que tem.
             # a ação de 1, 2, 3 e 4 toques: abrir | live | encerrar | historico | nada
             "toques": None,
+            # a de 1, 2, 3 e 4 toques com o último segurado: as mesmas e falar
+            "segurar": None,
             "live": None,         # um toque no orbe fechado abre já no live
             "fundo": None,        # o fundo do menu também atrás dos orbes
             "ordem": None,        # a ordem dos orbes na lista do relógio, pelas skins

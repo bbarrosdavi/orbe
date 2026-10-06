@@ -1760,7 +1760,7 @@ class Daemon:
             LOG.warning("relógio: ponte indisponível (%s)", e)
 
     def _historico(self, agente: str) -> dict:
-        """As sessões passadas do agente de um orbe do relógio (quatro toques), para retomar."""
+        """As sessões passadas do agente de um orbe do relógio (a ação Histórico dos toques), para retomar."""
         tipo = agente or "claude"
         if tipo == "claude":
             return {"agente": tipo, "sessoes": [{k: s[k] for k in ("id", "titulo", "pasta", "quando")}

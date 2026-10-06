@@ -51,6 +51,7 @@ Item {
             t: 0, rot: 0, framePos: 0, ph2: 0.9, ph3: 2.1, ampL: 0.5,
             tAng: [], tDrift: [], tH: [], tV: [], tW: [], tNext: 0,
             glAte: 0, glProx: 0.6, glLo: 0, glSpan: 0, glAmp: 0, glJump: 0, glShear: 0, glDx: 0, glBands: [],
+            glRepouso: false,
             dE: [], dAng: [], dDist: [], dSpd: [], dNext: 0,
             rOff: 0, rVel: 0, rawAnt: 0, pb: null
         }
@@ -65,6 +66,21 @@ Item {
     function uni(a, b) { return a + Math.random() * (b - a) }
 
     function sorteia(n) { return Math.floor(Math.random() * n) }
+    // a forma de uma rajada de glitch; [repouso]: a fraca do orbe parado
+    readonly property real glRepouso: 0.3
+    function sortearRajada(s, repouso) {
+        s.glRepouso = repouso
+        s.glLo = sorteia(nW)
+        s.glSpan = 2 + sorteia(Math.max(3, nW / 3) - 1)
+        s.glAmp = uni(5, 15) * (Math.random() < 0.5 ? -1 : 1)
+        s.glShear = uni(-0.09, 0.09)
+        s.glJump = !repouso && Math.random() < 0.34 ? 1 + sorteia(nQuadros - 1) : 0
+        s.glDx = Math.random() < 0.75 ? uni(1.6, 5.5) : 0
+        s.glBands = []
+        var nb = sorteia(repouso ? 2 : 5)
+        for (var b = 0; b < nb; b++)
+            s.glBands.push([uni(-46, 40), uni(2, 9), uni(5, 20) * (Math.random() < 0.5 ? -1 : 1)])
+    }
     function wrap(a) { return ((a + Math.PI) % tau + tau) % tau - Math.PI }
     function lim(v, a, b) { return v < a ? a : (v > b ? b : v) }
 
@@ -174,22 +190,21 @@ Item {
             s.tH[j] = lim(s.tH[j] + s.tV[j] * dt, -3, 16)
         }
 
-        // glitch do pensamento: rajadas curtas e irregulares, mais densas no fundo do raciocínio
+        // glitch do pensamento: rajadas curtas e irregulares, mais densas no fundo do raciocínio;
+        // em repouso, um resto dele: raras, fracas (GL_REPOUSO), sem salto de quadro
         var wt = mix.thinking || 0
+        var wi = mix.idle || 0
         if (wt > 0.25 && glitch) {
             if (s.t >= s.glProx) {
                 s.glAte = s.t + uni(0.05, 0.20)
                 s.glProx = s.glAte + uni(0.06, 0.75) / (0.4 + wt)
-                s.glLo = sorteia(nW)
-                s.glSpan = 2 + sorteia(Math.max(3, nW / 3) - 1)
-                s.glAmp = uni(5, 15) * (Math.random() < 0.5 ? -1 : 1)
-                s.glShear = uni(-0.09, 0.09)
-                s.glJump = Math.random() < 0.34 ? 1 + sorteia(nQuadros - 1) : 0
-                s.glDx = Math.random() < 0.75 ? uni(1.6, 5.5) : 0
-                s.glBands = []
-                var nb = sorteia(5)
-                for (var b = 0; b < nb; b++)
-                    s.glBands.push([uni(-46, 40), uni(2, 9), uni(5, 20) * (Math.random() < 0.5 ? -1 : 1)])
+                sortearRajada(s, false)
+            }
+        } else if (wi > 0.5 && glitch) {
+            if (s.t >= s.glProx) {
+                s.glAte = s.t + uni(0.05, 0.15)
+                s.glProx = s.glAte + uni(1.5, 4.5)
+                sortearRajada(s, true)
             }
         } else {
             s.glAte = 0
@@ -219,7 +234,7 @@ Item {
         var scb = (artBox / 256) * envEsc * pulse * esc
 
         var rajada = s.t < s.glAte
-        var glk = rajada ? (mix.thinking || 0) : 0
+        var glk = rajada ? (s.glRepouso ? glRepouso * (mix.idle || 0) : (mix.thinking || 0)) : 0
         var idx = Math.floor(s.framePos) % nQuadros
         if (glk > 0 && s.glJump) idx = (idx + s.glJump) % nQuadros
 
