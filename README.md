@@ -39,7 +39,7 @@ e respondendo, gravado na área de trabalho.
   dispensa o orbe, "fica" trava a sessão aberta e "pode soltar" destrava.
   Dois toques (ou cliques) no orbe também travam.
 - **Avatares desenhados na GPU**: Ophanim, Ophanim com asas, Seraphim
-  (gravura), Olho, Humana e anel de energia, cada um com o seu tamanho, com
+  (gravura), Paranoia, Rei dos Ratos e anel de energia, cada um com o seu tamanho, com
   glitch, sombra opcional e o texto do raciocínio ao lado ou abaixo do orbe.
   Os de gravura são a própria ilustração recortada em camadas e animada na
   GPU: na pose desenhada, a saída é o recorte pixel a pixel
