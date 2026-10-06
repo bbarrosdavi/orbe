@@ -239,8 +239,11 @@ DEFAULTS = {
         # dela no meio (0.1 a 1.0)
         "texto_sombra": True,
         "texto_sombra_forca": 0.7,
-        # como os outros orbes (as sessões em paralelo) andam em volta deste:
-        # vagalumes (soltos, vivos) | orbitas (elipses de perfil, como elétrons)
+        # os outros orbes (as sessões em paralelo) como mini orbes em volta deste;
+        # desligado, nenhum aparece, nem o que espera a vez de falar
+        "luas_ligadas": True,
+        # como eles andam: vagalumes (soltos, vivos) | orbitas (elipses de
+        # perfil, como elétrons)
         "luas": "vagalumes",
         # destravado, o orbe pode ser arrastado; a posição fica em
         # ~/.config/orbe/orbe-posicao.json (o padrão é o canto)

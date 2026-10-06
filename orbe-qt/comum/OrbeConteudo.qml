@@ -21,6 +21,9 @@ Item {
     property bool textoSombra: true        // a nuvem no tom do fundo atrás do texto
     property real textoSombraForca: 0.7    // a opacidade dela no meio (0.1 a 1.0)
     property string luasMovimento: "vagalumes"   // vagalumes | orbitas: como os outros orbes andam
+    property bool luasLigadas: true        // os outros orbes como mini orbes em volta deste
+    // desligadas no meio de uma troca, a lua do principal que saía não fica parada na tela
+    onLuasLigadasChanged: if (!luasLigadas) luas.saindo = null
     property color corTema: "#b8cacb"      // @accent_bg_color: cor dos avatares
     property color accent: "#f3b2e3"       // --colorAccentBg: paleta do anel
     property color corFundo: "#121414"     // @window_bg_color: sombra e contorno do texto
@@ -146,7 +149,7 @@ Item {
         // com o orbe na tela e satélites em volta, os dois trocam de lugar: o
         // chamado sai de onde estava crescendo até o centro, e o principal
         // encolhe indo para onde o chamado estava (Satelites.trocar)
-        if (muda && visivel && fase === "run" && satelites.length) {
+        if (muda && visivel && fase === "run" && satelites.length && luasLigadas) {
             var o = luas.onde(para.skin, para.cor)
             // a lua do que sai começa do tamanho visível dele: o raio da figura
             // dele aqui (com a sombra, cabe no disco) sobre o raio na caixa de lua
@@ -262,7 +265,7 @@ Item {
             trocaT += dt
             escalaTroca = trocaT < luas.duracao ? escalaDe + (escalaAlvo - escalaDe) * trocaF : -1
         }
-        if (satelites.length || luas.saindo) luas.passo(dt)
+        if (luasLigadas && (satelites.length || luas.saindo)) luas.passo(dt)
 
         var m = {}
         for (var e in mix) m[e] = mix[e] + ((e === estado ? 1 : 0) - mix[e]) * fator(0.16, k)
@@ -313,7 +316,7 @@ Item {
             id: luas
             anchors.fill: parent
             lado: orbe.orbBox
-            lista: orbe.satelites
+            lista: orbe.luasLigadas ? orbe.satelites : []
             movimento: orbe.luasMovimento
             corTema: orbe.corTema
             corAnel: orbe.accent

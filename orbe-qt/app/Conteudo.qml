@@ -591,8 +591,14 @@ Item {
                         skin: raiz.skin
                         glitch: rGlitch.ligado
                     }
+                    LinhaSwitch {
+                        id: rLuasLigadas
+                        titulo: "Outros orbes em volta"
+                        subtitulo: "as sessões em paralelo como mini orbes em volta deste"
+                    }
                     LinhaCombo {
                         id: rLuas
+                        visible: rLuasLigadas.ligado
                         titulo: "Movimento dos outros orbes"
                         subtitulo: "como as sessões em paralelo andam em volta deste"
                         itens: [{ id: "vagalumes", nome: "Vagalumes" }, { id: "orbitas", nome: "Órbitas" }]
@@ -1099,7 +1105,8 @@ Item {
                                         texto: rTexto.efetivo,
                                         texto_sombra: rTextoSombra.ligado,
                                         texto_sombra_forca: rTextoSombraForca.valor,
-                                        luas: rLuas.efetivo })
+                                        luas: rLuas.efetivo,
+                                        luas_ligadas: rLuasLigadas.ligado })
     onAparenciaChanged: if (ponte.previa) ponte.atualizarPrevia(aparencia)
     readonly property string ttsEfetivo: rTts.efetivo || ponte.ttsPerfil
 
@@ -1292,6 +1299,7 @@ Item {
         rTextoSombra.ligado = o.texto_sombra === undefined ? true : !!o.texto_sombra
         rTextoSombraForca.definir(o.texto_sombra_forca === undefined ? 0.7 : o.texto_sombra_forca)
         rLuas.valor = o.luas || "vagalumes"
+        rLuasLigadas.ligado = o.luas_ligadas === undefined ? true : !!o.luas_ligadas
         rMover.ligado = !!o.mover
         skinDoTamanho = skin
         tamanho.definir(tamanhoDe(skin))
@@ -1358,6 +1366,7 @@ Item {
         cfg.orbe.texto_sombra = rTextoSombra.ligado
         cfg.orbe.texto_sombra_forca = rTextoSombraForca.valor
         cfg.orbe.luas = rLuas.efetivo
+        cfg.orbe.luas_ligadas = rLuasLigadas.ligado
         cfg.orbe.mover = rMover.ligado
         // vão à parte, para o chaves.env (o config.json não guarda chave)
         cfg.chaves = {}
