@@ -37,7 +37,12 @@ Item {
     readonly property bool avatar: skinEmUso !== "anel"
     // as skins de imagem saem 5/3 maiores: o 60% do slider delas é o 100% das
     // outras (reduzida demais, a gravura perde a hachura)
-    readonly property real escala: tamanho * (({ serafim_gravura: 1, olho: 1, humana: 1 })[skinEmUso] ? 5 / 3 : 1)
+    readonly property real escalaAlvo: tamanho * (({ serafim_gravura: 1, olho: 1, humana: 1 })[skinEmUso] ? 5 / 3 : 1)
+    // na troca do principal a célula cresce ou encolhe junto com a animação
+    // (de uma gravura para um desenhado ela muda 5/3); fora dela, a do alvo
+    property real escalaTroca: -1
+    property real escalaDe: 1
+    readonly property real escala: escalaTroca > 0 ? escalaTroca : escalaAlvo
     // ART_BOX é o tamanho visual da arte; ORB_BOX, a célula reservada para ela
     readonly property int orbBox: Math.round(148 * escala)
     readonly property int artBox: Math.round(120 * escala)
@@ -138,22 +143,49 @@ Item {
         var de = { skin: skinEmUso, cor: espelhoCor.a > 0 ? espelhoCor.toString() : "" }
         var para = { skin: novo.skin || skin, cor: novo.cor !== "transparent" && novo.cor ? String(novo.cor) : "" }
         var muda = de.skin !== para.skin || de.cor.toLowerCase() !== para.cor.toLowerCase()
-        // com o orbe na tela e satélites em volta, a troca é orgânica: o
-        // principal encolhe e entra na órbita, e o chamado sai de onde estava
-        // crescendo até o centro
+        // com o orbe na tela e satélites em volta, os dois trocam de lugar: o
+        // chamado sai de onde estava crescendo até o centro, e o principal
+        // encolhe indo para onde o chamado estava (Satelites.trocar)
         if (muda && visivel && fase === "run" && satelites.length) {
             var o = luas.onde(para.skin, para.cor)
-            luas.trocar(de)
+            // a lua do que sai começa do tamanho visível dele: o raio da figura
+            // dele aqui (com a sombra, cabe no disco) sobre o raio na caixa de lua
+            var s0 = -1
+            if (avatar && arte.item && arte.item.raioQueCabe) {
+                var rLua = arte.item.raioQueCabe(luas.tamanho, luas.tamanho, -1)
+                if (rLua > 0) s0 = arte.item.raioQueCabe(arte.width, arte.height, arte.item.disco) / rLua
+            }
+            luas.trocar(de, o, avatar && arte.item ? arte.item.st : null, mix, s0)
+            // o chamado chega no estado que tinha de lua e vai ao de agora pelo
+            // passo, como qualquer mudança de estado
+            mix = o && o.tipo === "espera" ? ({ idle: 0, listening: 0, thinking: 0, tools: 0, speaking: 1 })
+                                           : ({ idle: 1, listening: 0, thinking: 0, tools: 0, speaking: 0 })
             trocaDe = o ? o : { x: 0, y: 0, s: 0.3 }
+            escalaDe = escala
+            escalaTroca = escala
             trocaT = 0
         }
         espelhoSkin = novo.skin
         espelhoCor = novo.cor
+        // o chamado chega com a pose que tinha de lua (a Figura do principal é a
+        // mesma; trocar de skin zerou o estado dela)
+        if (o && o.id && luas.estados[o.id] && avatar && arte.item && arte.item.st !== undefined)
+            arte.item.st = luas.estados[o.id]
+        // e do tamanho visível que tinha: o raio da figura na caixa de lua sobre o
+        // raio dela aqui (a célula ainda é a de antes; ela cresce com a troca)
+        if (o && avatar && arte.item && arte.item.raioQueCabe) {
+            var rAqui = arte.item.raioQueCabe(arte.width, arte.height, arte.item.disco)
+            if (rAqui > 0)
+                trocaDe = { x: o.x, y: o.y, a: o.a, id: o.id, tipo: o.tipo,
+                            s: arte.item.raioQueCabe(o.s * orbBox, o.s * orbBox, -1) / rAqui }
+        }
     }
     // a troca do principal: de onde o chamado estava (x, y a partir do centro, escala) até o centro
     property var trocaDe: ({ x: 0, y: 0, s: 1 })
-    property real trocaT: 1                // segundos desde a troca (anda no passo, como o resto)
-    readonly property real trocaF: trocaT >= 0.75 ? 1 : easeOutBack(trocaT / 0.75)
+    property real trocaT: 99               // segundos desde a troca (anda no passo, como o resto)
+    // devagar no começo e no fim, sem passar do ponto: o mesmo tempo e a mesma
+    // curva da lua que sai (Satelites.duracao, Satelites.suave)
+    readonly property real trocaF: luas.suave(trocaT / luas.duracao)
     function empurrarLinha(texto) {
         // tira glifos sem cobertura na fonte (emoji, nerd fonts, símbolos)
         var s = ""
@@ -226,7 +258,10 @@ Item {
             }
         }
         t += dt
-        if (trocaT < 1) trocaT += dt
+        if (trocaT < luas.duracao) {
+            trocaT += dt
+            escalaTroca = trocaT < luas.duracao ? escalaDe + (escalaAlvo - escalaDe) * trocaF : -1
+        }
         if (satelites.length || luas.saindo) luas.passo(dt)
 
         var m = {}
@@ -290,6 +325,8 @@ Item {
                 anchors.fill: parent
                 z: 0
                 sourceComponent: orbe.avatar ? compFigura : compAnel
+                // o chamado chega com o brilho que tinha de lua e acende até o de principal
+                opacity: orbe.trocaDe.a === undefined ? 1 : orbe.trocaDe.a + (1 - orbe.trocaDe.a) * orbe.trocaF
                 transform: [
                     Scale {
                         origin.x: arte.width / 2; origin.y: arte.height / 2
@@ -307,6 +344,7 @@ Item {
         Figura {
             skin: orbe.skinEmUso
             glitch: orbe.glitch
+            glitchForca: orbe.trocaF
             peso: 1.4                       // o traço do menu some numa área de 148 px
             cor: orbe.corFigura
             corOlhos: orbe.corOlhos

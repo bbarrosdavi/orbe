@@ -33,6 +33,9 @@ Item {
 
     property string skin: "ofanim"         // ofanim | ofanim_alado | serafim_gravura | olho | humana
     property bool glitch: true
+    // a força da aberração do glitch (0 a 1): na troca do principal ela cresce
+    // no que chega e some no que sai, sem salto de brilho
+    property real glitchForca: 1
     property real peso: 1.0                // traço mais grosso e opaco (o orbe usa mais)
     property color cor: "white"
     property color corOlhos: "transparent" // íris em cor própria; transparente = a do traço
@@ -591,7 +594,7 @@ if (skin in polares) {
         property vector2d centro: raiz._centroPos
         property vector4d cor: Qt.vector4d(raiz.cor.r, raiz.cor.g, raiz.cor.b, raiz.alfa)
         // ciano e magenta do anel; na rajada, tão opacos quanto os dele
-        readonly property real alfaGl: raiz._glt.y > 0.5 ? 0.60 : 0.40
+        readonly property real alfaGl: (raiz._glt.y > 0.5 ? 0.60 : 0.40) * raiz.glitchForca
         property vector4d corA: raiz.glitch ? Qt.vector4d(0.00, 0.95, 0.95, alfaGl) : Qt.vector4d(0, 0, 0, 0)
         property vector4d corB: raiz.glitch ? Qt.vector4d(1.00, 0.08, 0.55, alfaGl) : Qt.vector4d(0, 0, 0, 0)
         property vector4d glt: raiz._glt

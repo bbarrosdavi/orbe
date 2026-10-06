@@ -32,14 +32,14 @@ Item {
     // o principal que acabou de sair, até a lista nova chegar com ele
     property var saindo: null
     readonly property var vista: {
-        var l = lista.slice()
+        var l = lista.filter(function (e) { return e.id !== chamado })
         if (saindo && !l.some(function (e) { return mesmo(e, saindo) })) l.push(saindo)
         return l
     }
 
     readonly property real tau: 2 * Math.PI
     readonly property real tamanho: lado * 0.36
-    readonly property real duracao: 0.75   // a troca, em segundos
+    readonly property real duracao: 1.4    // a troca, em segundos
 
     function mesmo(a, b) {
         return a.skin === b.skin && (a.cor || "").toLowerCase() === (b.cor || "").toLowerCase()
@@ -84,6 +84,12 @@ Item {
     // o estado de cada vagalume, pelo id (sobrevive à troca da lista):
     // posição e velocidade em 3D, em px a partir do centro
     property var enxame: ({})
+    // a pose da animação de cada lua (o st da Figura), pelo id: a lista nova
+    // recria os delegates, e sem isto toda lua voltava à pose inicial
+    property var estados: ({})
+    // o estado (mix) do principal quando ele saiu: a lua dele parte desse e
+    // chega ao de lua junto com a troca
+    property var mixSaindo: null
 
     // uma vontade que muda devagar e nunca se repete: três senos de frequências
     // sem razão simples entre si, de -1 a 1
@@ -150,17 +156,33 @@ Item {
         for (var i = 0; i < rep.count; i++) {
             var it = rep.itemAt(i)
             if (it && mesmo(it.e, { skin: skin, cor: cor }) && it.e.id !== "_saindo")
-                return { x: it.px, y: it.py, s: it.width * it.scale / lado }
+                return { x: it.px, y: it.py, s: it.width * it.scale / lado, id: it.e.id, tipo: it.e.tipo,
+                         a: it.opacity / Math.max(alfa, 0.01) }
         }
         return null
     }
 
-    // o principal [de] vira satélite: entra na órbita saindo do centro
-    function trocar(de) {
+    // o chamado, que agora é o principal: some do enxame na hora (a lista nova
+    // do daemon chega depois), para não aparecer em dois lugares
+    property string chamado: ""
+
+    // o principal [de] vira satélite e os dois trocam de lugar: ele sai do
+    // centro para onde o [chamado] (o que onde() achou) estava, e segue
+    // voando dali como vagalume
+    function trocar(de, chamadoEm, estadoPrincipal, mixPrincipal, escalaInicial) {
+        mixSaindo = mixPrincipal || null
+        // a pose do principal vai com ele para a lua (antes de ela nascer)
+        delete estados["_saindo"]
+        if (estadoPrincipal && de.skin !== "anel") estados["_saindo"] = estadoPrincipal
         saindo = { id: "_saindo", skin: de.skin, cor: de.cor || "", tipo: "ativo" }
         delete enxame["_saindo"]
+        chamado = chamadoEm && chamadoEm.id ? chamadoEm.id : ""
+        var c = chamado ? enxame[chamado] : null
+        if (c) enxame["_saindo"] = { x: c.x, y: c.y, z: c.z, vx: 0, vy: 0, vz: 0 }
         var en = entradas
-        en["_saindo"] = { t0: t, s0: lado / tamanho * 0.85 }
+        // começa do tamanho visível do principal (quem chama calcula pelo raio das
+        // figuras; sem isso, o da célula)
+        en["_saindo"] = { t0: t, s0: escalaInicial > 0 ? escalaInicial : lado / tamanho }
         entradas = en
     }
 
@@ -168,6 +190,8 @@ Item {
         // quem saiu da lista leva o vagalume junto
         var vivos = {}
         for (var v = 0; v < lista.length; v++) vivos[lista[v].id] = true
+        if (chamado && !vivos[chamado]) chamado = ""
+        for (var ide in estados) if (!vivos[ide] && ide !== "_saindo") delete estados[ide]
         for (var idv in enxame) if (!vivos[idv] && idv !== "_saindo") delete enxame[idv]
         // a lista nova trouxe o que saiu: ele continua a entrada com o id de verdade
         if (saindo) {
@@ -180,6 +204,8 @@ Item {
                     // o vagalume dele segue de onde estava, com o id de verdade
                     if (enxame["_saindo"]) enxame[lista[i].id] = enxame["_saindo"]
                     delete enxame["_saindo"]
+                    if (estados["_saindo"]) estados[lista[i].id] = estados["_saindo"]
+                    delete estados["_saindo"]
                     saindo = null
                     break
                 }
@@ -222,8 +248,13 @@ Item {
             // perto. Na frente, a lua não passa do olho do Ophanim (o olho tem uns
             // 22% da célula; a lua de 0,6 fica em 13% a 19%, conforme a skin)
             readonly property real escNormal: espera ? 1.1 * (1 + 0.05 * Math.sin(sat.t * 3)) : 0.44 * pos.p
-            width: sat.tamanho
-            height: sat.tamanho
+            // a escala que aparece; acima de 1 (o principal que sai, ainda grande)
+            // a figura é desenhada nesse tamanho em vez de ampliada da caixa de
+            // lua, que a borrava
+            readonly property real escalaVisivel: s0 + (escNormal - s0) * entrando
+            readonly property real resolucao: Math.max(1, escalaVisivel)
+            width: sat.tamanho * resolucao
+            height: width
             x: sat.width / 2 + rx - width / 2
             y: sat.height / 2 + ry - height / 2
             property real rx: px
@@ -233,10 +264,13 @@ Item {
             property bool saiuDaEspera: false
             onEsperaChanged: if (!espera) { saiuDaEspera = true; soltar.restart() }
             Timer { id: soltar; interval: 900; onTriggered: lua.saiuDaEspera = false }
-            // atrás da figura na metade de trás da órbita; entrando, na frente
-            z: espera || entrando < 0.6 || pos.d > 0 ? 2 : -1
-            scale: s0 + (escNormal - s0) * entrando
-            opacity: sat.alfa * (fantasma ? 0.32 : espera ? 1 : 0.6 + 0.4 * (pos.d + 1) / 2)
+            // atrás da figura na metade de trás da órbita; o principal que sai
+            // na troca vai por trás do que chega, que vem para a frente
+            z: espera || (entrando >= 1 && pos.d > 0) ? 2 : -1
+            scale: escalaVisivel / resolucao
+            // o principal que sai começa com o brilho de principal e apaga até o de lua
+            readonly property real alfaLua: fantasma ? 0.32 : espera ? 1 : 0.6 + 0.4 * (pos.d + 1) / 2
+            opacity: sat.alfa * (1 + (alfaLua - 1) * entrando)
 
             property real acumulado: 0
             function avancar(dt, quadro) {
@@ -265,11 +299,31 @@ Item {
                 id: compFigura
                 Figura {
                     skin: lua.e.skin
-                    glitch: false
-                    peso: 1.6
+                    // lua não tem glitch; o principal que sai na troca leva o dele
+                    // apagando até zero
+                    glitch: sat.glitch && lua.entrando < 1
+                    glitchForca: 1 - lua.entrando
+                    Component.onCompleted: {
+                        // a lista nova pode recriar a lua do principal que saiu, já
+                        // com o id de verdade, antes de onListaChanged passar o
+                        // estado de "_saindo" para ele: procura lá também
+                        var k = lua.e.id, est = sat.estados[k]
+                        if (!est && k !== "_saindo" && sat.saindo && sat.mesmo(lua.e, sat.saindo))
+                            est = sat.estados["_saindo"]
+                        if (est) st = est
+                        sat.estados[k] = st
+                    }
+                    // o traço de lua, um pouco mais grosso; o que sai do centro parte do de principal
+                    peso: lua.entrando < 1 ? 1.4 + 0.2 * lua.entrando : 1.6
                     cor: lua.e.cor ? lua.e.cor : sat.corTema
-                    mix: lua.espera ? ({ idle: 0, listening: 0, thinking: 0, tools: 0, speaking: 1 })
-                                    : ({ idle: 1, listening: 0, thinking: 0, tools: 0, speaking: 0 })
+                    mix: {
+                        var base = lua.espera ? ({ idle: 0, listening: 0, thinking: 0, tools: 0, speaking: 1 })
+                                              : ({ idle: 1, listening: 0, thinking: 0, tools: 0, speaking: 0 })
+                        if (lua.entrando >= 1 || !sat.mixSaindo) return base
+                        var m = {}, f = lua.entrando
+                        for (var k in base) m[k] = (sat.mixSaindo[k] || 0) * (1 - f) + base[k] * f
+                        return m
+                    }
                     voz: lua.espera ? 0.35 + 0.3 * Math.abs(Math.sin(sat.t * 4.6)) : 0
                 }
             }
@@ -277,7 +331,7 @@ Item {
                 id: compAnel
                 Anel {
                     anchors.centerIn: parent
-                    esc: sat.tamanho / 120
+                    esc: lua.width / 120
                     glitch: false
                     accent: lua.e.cor ? lua.e.cor : sat.corAnel
                     estado: lua.espera ? "speaking" : "listening"
