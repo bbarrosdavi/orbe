@@ -123,9 +123,6 @@ DEFAULTS = {
         # do jarvis ocupa 515 MB depois do primeiro turno; subir de novo custa
         # ~2 s de initialize mais a sessão, feito em paralelo à fala.
         "manter_carregado_min": 10,
-        # O orbe fala as etapas do Claude enquanto ele trabalha: a descrição
-        # de cada ferramenta, a mesma linha que o terminal mostra com o ponto.
-        "falar_etapas": True,
         # Onde cada agente roda: "terminal" abre uma janela do terminal no PC
         # com o agente (o Claude pelo claude-orbe, os outros pelo
         # hermes_voice_terminal.py), e o pedido de voz aparece no chat dela;
@@ -242,6 +239,11 @@ DEFAULTS = {
             "glitch": True,
             "linhas": True,       # as linhas de TV (só no relógio; no PC elas vêm com o glitch)
             "tamanho": 1.0,
+            # o orbe (aqui e no relógio) fala as etapas do agente enquanto ele
+            # trabalha: a descrição de cada ferramenta, a linha que o terminal
+            # mostra com o ponto. "pt" traduz pelo Groq; "original" fala como veio
+            "etapas": False,
+            "idioma_etapas": "pt",
             # a escala de cada orbe do relógio; null = a de "tamanho"
             "tamanhos": {"anel": None, "serafim_gravura": None, "ofanim": None, "ofanim_alado": None},
             "seguir_pc": True,    # o avatar e o glitch vêm do orbe do PC

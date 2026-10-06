@@ -203,7 +203,10 @@ def token_da_config(trocar: bool = False) -> str:
 
 # o que o app do relógio guarda e o app do PC também edita (relogio.ajustes)
 CAMPOS_AJUSTES = {"voz": bool, "voz_pc": bool, "microfone": bool, "vibrar": bool,
-                  "texto": bool, "glitch": bool, "linhas": bool, "seguir_pc": bool, "tamanho": float}
+                  "texto": bool, "glitch": bool, "linhas": bool, "seguir_pc": bool, "tamanho": float,
+                  "etapas": bool, "idioma_etapas": str}
+# a língua das etapas faladas: traduzidas para o português, ou como o agente escreve
+IDIOMAS_ETAPAS = ("pt", "original")
 # os que o PC só conhece pelo relógio: null no config até ele mandar os dele
 CAMPOS_DO_RELOGIO = ("toques", "live", "fundo", "ordem", "sacudida", "sair",
                      "sacudida_fora", "sacudida_dentro", "sair_fora")
@@ -265,6 +268,8 @@ def gravar_ajustes(novos: dict) -> bool:
             atual[k] = v
         elif tipo is float and isinstance(v, (int, float)) and not isinstance(v, bool):
             atual[k] = round(min(1.3, max(0.6, float(v))), 3)
+        elif tipo is str and v in IDIOMAS_ETAPAS:
+            atual[k] = v
     tamanhos = novos.get("tamanhos")
     if isinstance(tamanhos, dict):
         for skin in atual["tamanhos"]:

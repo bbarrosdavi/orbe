@@ -8,6 +8,7 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
 import android.util.Log
+import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
@@ -39,6 +40,7 @@ class AltoFalante(
     private val geracao: Int get() = cortes.get()
     @Volatile private var trilha: AudioTrack? = null
     private var fio: Thread? = null
+    private val calar = Executors.newSingleThreadExecutor { Thread(it, "orbe-voz-corte").apply { isDaemon = true } }
 
     fun abrir(taxa: Int) = por(Abrir(taxa))
 
@@ -51,13 +53,16 @@ class AltoFalante(
     fun cortar() {
         cortes.incrementAndGet()
         fila.clear()
-        try {
-            trilha?.let {
-                it.pause()
-                it.flush()
+        // pausar é uma chamada ao audioserver: fora da thread de quem corta (a da tela)
+        trilha?.let { t ->
+            calar.execute {
+                try {
+                    t.pause()
+                    t.flush()
+                } catch (e: IllegalStateException) {
+                    // a trilha já foi solta pela thread que toca
+                }
             }
-        } catch (e: IllegalStateException) {
-            // a trilha já foi solta pela thread que toca
         }
         aoNivel(0f, 0.5f)
     }
@@ -78,6 +83,8 @@ class AltoFalante(
                 if (ger != contada) {        // houve corte: a conta recomeça
                     contada = ger
                     tocados = 0
+                    // a pausa do corte vem antes: atrasada, calaria a resposta nova
+                    calar.submit {}.get()
                 }
                 when (item) {
                     is Abrir -> if (item.taxa != taxa || trilha == null) {

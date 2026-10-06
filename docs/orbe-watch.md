@@ -495,8 +495,8 @@ Claude recusa uma mensagem que não veio do usuário. As sessões já abertas
 passam a ouvir no fim do próximo turno delas. A instalação guarda a cópia
 anterior em `settings.json.orbe-bak`.
 
-**O que o orbe fala.** A resposta ao pedido de voz e, enquanto o Claude
-trabalha nele, as etapas. O pedido leva uma marca, `(pedido do orbe <id>)`, e
+**O que o orbe fala.** A resposta ao pedido de voz e, com as etapas ligadas,
+o que o Claude faz enquanto trabalha nele. O pedido leva uma marca, `(pedido do orbe <id>)`, e
 o Stop do primeiro turno que já tem a marca no transcript deixa a última
 resposta para o orbe. A resposta a algo digitado no terminal não vai para ele.
 
@@ -509,7 +509,14 @@ com a voz calada; a que chega com ela ocupada espera, e uma mais nova toma o
 lugar dela, então a resposta espera no máximo a etapa que já está tocando. O
 orbe segue em "trabalhando" enquanto a etapa toca: com o orbe do relógio fora
 da tela, ela toca no pulso sem trazer o app de volta, e só a resposta o traz.
-`agente.falar_etapas: false` no `config.json` desliga.
+
+As etapas vêm desligadas: liga "Falar as etapas" na aba Voz do relógio ou na
+aba Conversa do app do PC (as duas são a mesma chave, `relogio.ajustes.etapas`,
+que vale para o orbe do PC e o do relógio e vai e volta pela ponte). O idioma
+(`idioma_etapas`) é "pt", que traduz cada etapa pelo Groq (`openai/gpt-oss-20b`,
+cerca de 0,3 s, guardada para a próxima igual), ou "original", como o agente
+escreveu. Sem a chave do Groq, ou com erro, a etapa sai como veio. As duas
+chaves são lidas a cada turno: mudar não reinicia o daemon.
 
 **Sessão trabalhando.** O pedido feito com a sessão no meio de um turno entra
 na fila "next" do Claude Code, a mesma do que se digita enquanto ela trabalha,

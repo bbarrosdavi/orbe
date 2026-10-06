@@ -110,6 +110,7 @@ fun TelaAjustes(
     val retrato by vm.retrato.collectAsStateWithLifecycle()
     val ligacao by vm.ligacao.collectAsStateWithLifecycle()
     val agentesPc by vm.agentesPc.collectAsStateWithLifecycle()
+    val temSaidaDeSom by vm.temSaidaDeSom.collectAsStateWithLifecycle()
     val tema = LocalTema.current
 
     val passo = remember { mutableIntStateOf(0) }
@@ -190,7 +191,7 @@ fun TelaAjustes(
                                 agentes(vm, ajustes, aparencia.skin, agentesPc, cartao)
                                 aparencia(vm, ajustes, aparencia.glitch, aparencia.linhas)
                             }
-                            Aba.VOZ -> voz(vm, ajustes, ligacao as? Ligacao.Conectada, pedirMicrofone)
+                            Aba.VOZ -> voz(vm, ajustes, ligacao as? Ligacao.Conectada, temSaidaDeSom, pedirMicrofone)
                             Aba.ATIVACAO -> {
                                 sessao(vm, ajustes, retrato, ligacao is Ligacao.Conectada, podeGravar)
                                 gestos(vm, ajustes, pedirMicrofone, calibrar)
@@ -314,14 +315,14 @@ private fun MenuEscopo.aparencia(vm: OrbeViewModel, ajustes: Ajustes, glitch: Bo
     }
 }
 
-private fun MenuEscopo.voz(vm: OrbeViewModel, ajustes: Ajustes, ponte: Ligacao.Conectada?, pedirMicrofone: () -> Unit) {
+private fun MenuEscopo.voz(vm: OrbeViewModel, ajustes: Ajustes, ponte: Ligacao.Conectada?, temSaidaDeSom: Boolean, pedirMicrofone: () -> Unit) {
     linha {
         LinhaSwitch("Microfone do relógio", ajustes.microfone) {
             vm.microfone(it)
             if (it) pedirMicrofone()
         }
     }
-    if (vm.temSaidaDeSom) {
+    if (temSaidaDeSom) {
         // o orbe de pulso fala só por aqui; o daemon do desktop também tem a voz do PC
         linha {
             LinhaSwitch(
@@ -337,6 +338,18 @@ private fun MenuEscopo.voz(vm: OrbeViewModel, ajustes: Ajustes, ponte: Ligacao.C
     }
     linha {
         LinhaSwitch("Vibrar", ajustes.vibrar, subtitulo = "ao segurar e soltar") { vm.vibrar(it) }
+    }
+    linha {
+        LinhaSwitch("Falar as etapas", ajustes.etapas, subtitulo = "o que o agente faz enquanto trabalha") { vm.etapas(it) }
+    }
+    if (ajustes.etapas) {
+        linha {
+            Linha(
+                "Idioma das etapas",
+                subtitulo = if (ajustes.idiomaEtapas == "original") "como o agente escreve" else "português",
+                aoClicar = { vm.proximoIdiomaEtapas() },
+            )
+        }
     }
 }
 

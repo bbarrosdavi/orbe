@@ -449,6 +449,21 @@ Item {
                     }
                 }
                 Grupo {
+                    titulo: "Etapas"
+                    descricao: "Enquanto o agente trabalha, o orbe fala o que ele está fazendo: a descrição de cada ferramenta. É a mesma chave da aba Voz do relógio e vale nos dois."
+                    LinhaSwitch {
+                        id: rwEtapas
+                        titulo: "Falar as etapas"
+                    }
+                    LinhaCombo {
+                        id: rwIdiomaEtapas
+                        titulo: "Idioma das etapas"
+                        itens: [{ id: "pt", nome: "Português (traduzidas pelo Groq)" },
+                                { id: "original", nome: "Como o agente escreve" }]
+                        visible: rwEtapas.ligado
+                    }
+                }
+                Grupo {
                     titulo: "Toque no orbe"
                     LinhaSpin {
                         id: rSegurar
@@ -1035,6 +1050,8 @@ Item {
         rwVozPc.ligado = !!aj.voz_pc
         rwMic.ligado = !!aj.microfone
         rwVibrar.ligado = !!aj.vibrar
+        rwEtapas.ligado = !!aj.etapas
+        rwIdiomaEtapas.valor = aj.idioma_etapas || "pt"
         rwTexto.ligado = !!aj.texto
         rwSeguir.ligado = !!aj.seguir_pc
         rwGlitch.ligado = !!aj.glitch
@@ -1069,6 +1086,8 @@ Item {
         aj.voz_pc = rwVozPc.ligado
         aj.microfone = rwMic.ligado
         aj.vibrar = rwVibrar.ligado
+        aj.etapas = rwEtapas.ligado
+        aj.idioma_etapas = rwIdiomaEtapas.efetivo
         aj.texto = rwTexto.ligado
         aj.seguir_pc = rwSeguir.ligado
         aj.glitch = rwGlitch.ligado

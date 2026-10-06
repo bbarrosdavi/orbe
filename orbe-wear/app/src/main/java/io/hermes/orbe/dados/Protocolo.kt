@@ -123,6 +123,9 @@ data class Sincronia(
     @SerialName("sacudida_fora") val sacudidaFora: Float? = null,
     @SerialName("sacudida_dentro") val sacudidaDentro: Float? = null,
     @SerialName("sair_fora") val sairFora: Float? = null,
+    /** o orbe fala as etapas do agente; a língua delas ("pt" ou "original") */
+    val etapas: Boolean = false,
+    @SerialName("idioma_etapas") val idiomaEtapas: String = "pt",
 )
 
 object Protocolo {

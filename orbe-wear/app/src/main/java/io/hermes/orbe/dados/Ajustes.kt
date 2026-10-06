@@ -61,6 +61,10 @@ data class Ajustes(
     /** tocando aqui, a resposta toca também no PC (quando a ponte é o daemon) */
     val vozPc: Boolean = false,
     val vibrar: Boolean = true,
+    /** o orbe fala as etapas do agente enquanto ele trabalha (a descrição de cada ferramenta) */
+    val etapas: Boolean = false,
+    /** a língua das etapas: [IDIOMAS_ETAPAS] */
+    val idiomaEtapas: String = "pt",
     /** a permissão do microfone já foi pedida uma vez (depois disso, só pela chave do menu) */
     val pediuMicrofone: Boolean = false,
     /** o último "ola" da ponte: o app abre com a aparência do PC antes de conectar */
@@ -105,6 +109,7 @@ data class Ajustes(
         t, agentes, voz, vozPc, microfone, vibrar, texto, glitch, linhas, tamanho, seguirPc, tamanhos,
         toques = toques.map { it.id }, live = live, fundo = fundo, ordem = skins().map { it.id },
         sacudida = sacudida, sair = sair, sacudidaFora = sacudidaFora, sacudidaDentro = sacudidaDentro, sairFora = sairFora,
+        etapas = etapas, idiomaEtapas = idiomaEtapas,
     )
 
     fun com(s: Sincronia) = copy(
@@ -122,11 +127,15 @@ data class Ajustes(
         sacudidaFora = s.sacudidaFora?.let { if (it > 0f) it else Sacudida.FORA_MIN } ?: sacudidaFora,
         sacudidaDentro = s.sacudidaDentro?.let { if (it > 0f) it else Sacudida.DENTRO_MIN } ?: sacudidaDentro,
         sairFora = s.sairFora?.let { if (it > 0f) it else 0f } ?: sairFora,
+        etapas = s.etapas,
+        idiomaEtapas = s.idiomaEtapas.takeIf { it in IDIOMAS_ETAPAS } ?: idiomaEtapas,
     )
 
     companion object {
         const val TAMANHO_MIN = 0.6f
         const val TAMANHO_MAX = 1.3f
+        /** "pt": traduzidas para o português; "original": como o agente escreve */
+        val IDIOMAS_ETAPAS = listOf("pt", "original")
     }
 }
 
@@ -149,6 +158,8 @@ class Cofre(private val ctx: Context) {
         val voz = booleanPreferencesKey("voz")
         val vozPc = booleanPreferencesKey("voz_pc")
         val vibrar = booleanPreferencesKey("vibrar")
+        val etapas = booleanPreferencesKey("etapas")
+        val idiomaEtapas = stringPreferencesKey("idioma_etapas")
         val pediuMicrofone = booleanPreferencesKey("pediu_microfone")
         val pc = stringPreferencesKey("pc")
         val agentes = stringPreferencesKey("agentes")      // "skin=agente;skin=agente"
@@ -201,6 +212,8 @@ class Cofre(private val ctx: Context) {
             voz = p[K.voz] ?: d.voz,
             vozPc = p[K.vozPc] ?: d.vozPc,
             vibrar = p[K.vibrar] ?: d.vibrar,
+            etapas = p[K.etapas] ?: d.etapas,
+            idiomaEtapas = p[K.idiomaEtapas]?.takeIf { it in Ajustes.IDIOMAS_ETAPAS } ?: d.idiomaEtapas,
             pediuMicrofone = p[K.pediuMicrofone] ?: d.pediuMicrofone,
             pc = p[K.pc] ?: d.pc,
             agentes = lerAgentes(p[K.agentes]),
@@ -233,6 +246,8 @@ class Cofre(private val ctx: Context) {
             p[K.voz] = a.voz
             p[K.vozPc] = a.vozPc
             p[K.vibrar] = a.vibrar
+            p[K.etapas] = a.etapas
+            p[K.idiomaEtapas] = a.idiomaEtapas
             p[K.pediuMicrofone] = a.pediuMicrofone
             p[K.pc] = a.pc
             p[K.agentes] = a.agentes.entries.joinToString(";") { "${it.key}=${it.value}" }

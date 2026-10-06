@@ -59,7 +59,6 @@ _AT = VCFG["ativacao"]
 AGENTE_CFG = VCFG["agente"]
 # 0 = agente ACP sempre carregado; N = descarrega N min depois da sessão.
 MANTER_MIN = float(AGENTE_CFG.get("manter_carregado_min") or 0)
-ETAPAS = AGENTE_CFG.get("falar_etapas") is not False
 
 # nenhum | openwakeword | sherpa | microwakeword
 WAKE_PROVEDOR = str(_AT["provedor"])
@@ -537,6 +536,47 @@ def transcribe_groq(wav_path: str) -> str:
     except Exception as e:
         LOG.error("Groq API: %s", e)
         return ""
+
+
+# As etapas faladas: a descrição de cada ferramenta vem na língua em que o
+# agente a escreveu (o Claude, em inglês). Medido em 2026-10-05: ~0,3 s por
+# etapa neste modelo do Groq.
+ETAPAS_MODELO = "openai/gpt-oss-20b"
+_etapas_pt: dict[str, str] = {}
+
+
+def traduzir_etapa(texto: str) -> str:
+    """A etapa em português, para falar; sem o Groq, ou com erro, como veio."""
+    if texto in _etapas_pt:
+        return _etapas_pt[texto]
+    if not GROQ_API_KEY:
+        return texto
+    try:
+        import requests
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+            json={"model": ETAPAS_MODELO, "temperature": 0, "reasoning_effort": "low",
+                  "max_completion_tokens": 200, "messages": [
+                      {"role": "system", "content":
+                       "Traduza para o português do Brasil a descrição de uma etapa de "
+                       "trabalho de um agente de programação, que será dita em voz alta. "
+                       "Responda só com a tradução, curta, sem aspas. Se já estiver em "
+                       "português, repita igual."},
+                      {"role": "user", "content": texto}]},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        pt = (resp.json()["choices"][0]["message"].get("content") or "").strip()
+    except Exception as e:
+        LOG.warning("etapa sem tradução (%s): %s", ETAPAS_MODELO, e)
+        return texto
+    if not pt:
+        return texto
+    if len(_etapas_pt) > 300:
+        _etapas_pt.clear()
+    _etapas_pt[texto] = pt
+    return pt
 
 
 # ═══════════════════════════════════════════
@@ -2730,6 +2770,11 @@ class Daemon:
         # espera no máximo a etapa que já está tocando.
         etapa = [""]
         trava_etapa = threading.Lock()
+        # lidos a cada turno: o app do relógio e o do PC mudam sem reiniciar o daemon
+        aj = vcfg.carregar()["relogio"]["ajustes"]
+        falar_etapas = aj.get("etapas") is True
+        traduzir = aj.get("idioma_etapas") != "original"
+        ordem_etapa = [0, 0]                 # a última pedida, a última que entrou
 
         def _falar_etapa():
             while self._tts_gen == gen and not partes:
@@ -2744,14 +2789,28 @@ class Daemon:
             with trava_etapa:
                 etapa[0] = ""
 
+        def _etapa(n: int, t: str):
+            # a tradução vai à rede: aqui, e não na thread que lê o agente
+            if traduzir:
+                t = traduzir_etapa(t)
+            if self._tts_gen != gen or partes or not t:
+                return
+            with trava_etapa:
+                if n < ordem_etapa[1]:       # uma mais nova já entrou
+                    return
+                ordem_etapa[1] = n
+                esperando = bool(etapa[0])
+                etapa[0] = t
+            if not esperando:
+                _falar_etapa()
+
         def a_etapa(t: str):
             if self._tts_gen != gen or partes or not t:
                 return
             with trava_etapa:
-                esperando = bool(etapa[0])
-                etapa[0] = t
-            if not esperando:
-                threading.Thread(target=_falar_etapa, name="etapa", daemon=True).start()
+                ordem_etapa[0] += 1
+                n = ordem_etapa[0]
+            threading.Thread(target=_etapa, args=(n, t), name="etapa", daemon=True).start()
 
         daemon = self
 
@@ -2764,7 +2823,7 @@ class Daemon:
             fim = ag.perguntar(pedido, ao_texto, ao_pensamento, a_ferramenta,
                                parar=_Parar(),
                                teto=600.0 if cfg["tipo"] == "claude" else 120.0,
-                               a_etapa=a_etapa if ETAPAS else None)
+                               a_etapa=a_etapa if falar_etapas else None)
             if fim not in ("end_turn", "cancelled"):
                 LOG.info("agente ACP: turno terminou com %s", fim or "?")
         except acp.ErroACP as e:

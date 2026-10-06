@@ -123,9 +123,10 @@ Em outros compositores, ligue qualquer tecla a `orb_control.py toggle`.
 
 Abra o Claude com `./claude-orbe` no lugar de `claude` e escolha "Claude Code"
 como agente do orbe em uso, na aba Agente do app (cada skin tem o seu agente,
-o mesmo no PC e no relógio). O orbe passa a falar com aquela sessão e, enquanto
-ela trabalha, fala as etapas: a descrição de cada ferramenta, a linha que o
-terminal mostra com o ponto. No Windows, o
+o mesmo no PC e no relógio). O orbe passa a falar com aquela sessão e, se você
+ligar "Falar as etapas" (aba Conversa do app ou aba Voz do relógio), fala também
+as etapas enquanto ela trabalha: a descrição de cada ferramenta, a linha que o
+terminal mostra com o ponto, traduzida para o português ou como veio. No Windows, o
 lançador é o `claude-orbe.cmd` (ver [Relógio](#relógio-wear-os)).
 
 As sessões abertas à mão, com `claude`, o relógio alcança por um hook do

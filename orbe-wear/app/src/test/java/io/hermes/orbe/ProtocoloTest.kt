@@ -1,5 +1,6 @@
 package io.hermes.orbe
 
+import io.hermes.orbe.dados.Ajustes
 import io.hermes.orbe.dados.Protocolo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -43,5 +44,16 @@ class ProtocoloTest {
     fun oAgenteDizSeTemInstancias() {
         val ola = Protocolo.ola("""{"agentes": [{"id": "claude", "nome": "Claude Code", "instancias": true}, {"id": "hermes", "nome": "Hermes"}]}""")!!
         assertEquals(listOf(true, false), ola.agentes.map { it.instancias })
+    }
+
+    @Test
+    fun asEtapasVemDesligadasEOIdiomaDesconhecidoNaoEntra() {
+        assertFalse(Ajustes().sincronia().etapas)
+        val pc = Protocolo.sincronia("""{"t": 5, "etapas": true, "idioma_etapas": "original"}""")!!
+        val aqui = Ajustes().com(pc)
+        assertTrue(aqui.etapas)
+        assertEquals("original", aqui.idiomaEtapas)
+        assertEquals("original", aqui.com(Protocolo.sincronia("""{"t": 6, "etapas": true, "idioma_etapas": "klingon"}""")!!).idiomaEtapas)
+        assertTrue(Protocolo.ajustes(aqui.sincronia()).contains("\"idioma_etapas\":\"original\""))
     }
 }

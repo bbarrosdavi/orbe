@@ -30,6 +30,7 @@ import io.hermes.orbe.orbe.Retrato
 import io.hermes.orbe.orbe.Skin
 import io.hermes.orbe.ui.Tema
 import io.hermes.orbe.ui.rgb
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -94,8 +95,12 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     private val _abreClaude = MutableStateFlow(false)
     val abreClaude: StateFlow<Boolean> = _abreClaude
 
-    /** o relógio tem alto-falante (ou fone pareado) para tocar a resposta */
-    val temSaidaDeSom = AltoFalante.temSaida(app)
+    /**
+     * o relógio tem alto-falante (ou fone pareado) para tocar a resposta. A
+     * pergunta vai ao audioserver: com ele caído, feita aqui, a tela abria travada
+     */
+    private val _temSaidaDeSom = MutableStateFlow(false)
+    val temSaidaDeSom: StateFlow<Boolean> = _temSaidaDeSom
     private val altoFalante = AltoFalante(
         aoNivel = { nivel, tom -> cena.comando("level $nivel $tom") },
         aoAcabar = {
@@ -108,7 +113,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     private val ponte: Ponte = Ponte(
         viewModelScope, Build.MODEL ?: "relógio", ::linhaDaPonte, ::olaDaPonte, ::configDaPonte,
         aoVoz = ::vozDaPonte, aoAudio = { altoFalante.tocar(it) },
-        querVoz = { temSaidaDeSom && _ajustes.value.voz },
+        querVoz = { _temSaidaDeSom.value && _ajustes.value.voz },
         querVozPc = { _ajustes.value.vozPc },
         aoAjustes = ::ajustesDaPonte,
         aoSessoes = { _sessoes.value = it },
@@ -133,6 +138,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     private val pendentes = ArrayList<(Ajustes) -> Ajustes>()
 
     init {
+        viewModelScope.launch(Dispatchers.IO) { _temSaidaDeSom.value = AltoFalante.temSaida(app) }
         cena.aoMudar = {
             if (!it.visivel) _dono.value = null
             else if (_dono.value == null) aparenciaDe(_ajustes.value).let { ap -> _dono.value = ap.skin to ap.instancia }
@@ -313,6 +319,13 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun vibrar(v: Boolean) = mudarSinc { it.copy(vibrar = v) }
+
+    fun etapas(v: Boolean) = mudarSinc { it.copy(etapas = v) }
+
+    fun proximoIdiomaEtapas() = mudarSinc { a ->
+        val l = Ajustes.IDIOMAS_ETAPAS
+        a.copy(idiomaEtapas = l[(l.indexOf(a.idiomaEtapas) + 1) % l.size])
+    }
 
     /** O agente do orbe da [skin]: o escolhido, ou o Claude (o padrão). */
     fun agenteDe(skin: Skin, a: Ajustes = _ajustes.value): String = a.agentes[skin.id].orEmpty().ifEmpty { "claude" }
