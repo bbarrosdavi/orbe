@@ -7,7 +7,8 @@ import QtQuick
 //    pressa que vai de pairar a arrancar, numa casca em volta do orbe;
 //  - orbitas: elétrons, cada um numa elipse de perfil num plano seu (tirado do
 //    id), com raio, velocidade e sentido próprios e o plano girando devagar.
-// Os sem sessão andam também, apagados e mais devagar (fantasmas). O que pediu
+// Os sem sessão andam também, em repouso, um pouco apagados e mais devagar
+// (fantasmas). O que pediu
 // a vez de falar e não a pegou para e espera no canto de baixo à esquerda.
 //
 // lista: [{ id, skin, cor ("#rrggbb" ou "" = a do tema), tipo: "ativo" | "fantasma" | "espera" }]
@@ -269,7 +270,9 @@ Item {
             z: espera || (entrando >= 1 && pos.d > 0) ? 2 : -1
             scale: escalaVisivel / resolucao
             // o principal que sai começa com o brilho de principal e apaga até o de lua
-            readonly property real alfaLua: fantasma ? 0.32 : espera ? 1 : 0.6 + 0.4 * (pos.d + 1) / 2
+            // os fantasmas (sem sessão) ficam em repouso e só um pouco apagados: em
+            // 32% sumiam na tela; o Davi pediu uns 75%
+            readonly property real alfaLua: fantasma ? 0.75 : espera ? 1 : 0.6 + 0.4 * (pos.d + 1) / 2
             opacity: sat.alfa * (1 + (alfaLua - 1) * entrando)
 
             property real acumulado: 0
