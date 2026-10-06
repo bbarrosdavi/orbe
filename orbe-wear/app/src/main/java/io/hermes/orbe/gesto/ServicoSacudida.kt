@@ -37,8 +37,8 @@ import kotlinx.coroutines.launch
  * GestureService do HinaWatch).
  *
  * O giroscópio e o acelerômetro do relógio não acordam a CPU: a janela de
- * leitura abre quando a tela acende e fecha quando ela apaga, com teto de
- * [JANELA_MS]. O detector de inclinação do pulso (wrist_tilt_gesture, que
+ * leitura abre quando a tela acende e fecha quando ela apaga; o teto de
+ * [JANELA_MS] só a fecha com a tela já apagada (com o OLED aceso ela segue). O detector de inclinação do pulso (wrist_tilt_gesture, que
  * acorda a CPU) também a abre, inclusive com a tela apagada (o relógio que só
  * acende o LCD secundário ao inclinar): aí a janela dura [JANELA_ESCURA_MS] e o
  * orbe abre acendendo a tela. Uma sacudida abre o orbe já ouvindo; duas são do
@@ -60,7 +60,9 @@ class ServicoSacudida : Service(), SensorEventListener {
     private val sacudida = Sacudida()
     private val escopo = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    private val fechar = Runnable { fecharJanela() }
+    // o teto chegou com o OLED ainda aceso (o orbe segura a tela, ou o pulso
+    // segue no mostrador): a janela continua, e só o apagar a fecha
+    private val fechar = Runnable { if (energia.isInteractive) abrirJanela("tela segue acesa") else fecharJanela() }
 
     private val tela = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -130,6 +132,8 @@ class ServicoSacudida : Service(), SensorEventListener {
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         Log.i(TAG, "ativo: giroscópio=${giro != null} inclinação=${inclinacao?.name}")
+        // criado com a tela já acesa (a reinstalação, a chave ligada no menu): o SCREEN_ON não vem
+        if (energia.isInteractive) abrirJanela("tela já acesa")
     }
 
     /**
@@ -222,7 +226,8 @@ class ServicoSacudida : Service(), SensorEventListener {
                 // durante a calibração o gesto é medido pela tela e não abre nada; logo
                 // depois de sair do orbe pela sacudida, a volta do pulso não o reabre
                 val acabouDeSair = SystemClock.uptimeMillis() - saiuEm < SAIU_MS
-                if (gesto == Gesto.UMA && !calibrando && !acabouDeSair) {
+                // com o orbe na frente, a sacudida é a do sair (MainActivity), não a de abrir
+                if (gesto == Gesto.UMA && !calibrando && !acabouDeSair && !orbeNaFrente) {
                     abrirOrbe()
                     fecharJanela()
                 }
@@ -296,6 +301,9 @@ class ServicoSacudida : Service(), SensorEventListener {
 
         /** a tela de calibração está aberta: o gesto não abre o orbe */
         @Volatile var calibrando = false
+
+        /** o orbe está na frente (MainActivity entre o onStart e o onStop) */
+        @Volatile var orbeNaFrente = false
 
         /** quando o orbe saiu pela sacudida para fora ([SystemClock.uptimeMillis]) */
         @Volatile var saiuEm = -SAIU_MS

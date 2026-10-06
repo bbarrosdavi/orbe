@@ -145,10 +145,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        ServicoSacudida.orbeNaFrente = true
         vm.entrou()
     }
 
     override fun onStop() {
+        ServicoSacudida.orbeNaFrente = false
         vm.saiu()
         super.onStop()
     }
