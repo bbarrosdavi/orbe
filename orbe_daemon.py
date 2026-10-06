@@ -2079,7 +2079,13 @@ class Daemon:
             orb_cmd(linha, relogio=False)
 
     def _relogio_quadro(self, quadro: bytes):
-        """Fala captada pelo relógio: entra na fila como a do pw-record."""
+        """Fala captada pelo relógio: entra na fila como a do pw-record, com o
+        ganho do relógio (relogio.ganho_mic): ele capta bem mais baixo que o PC,
+        e os pisos de fala (calibrados no microfone do PC) valem para os dois."""
+        ganho = float(VCFG["relogio"].get("ganho_mic", 1.0) or 1.0)
+        if ganho != 1.0 and len(quadro) >= 2:
+            pcm = np.frombuffer(quadro[: len(quadro) // 2 * 2], dtype=np.int16).astype(np.float32) * ganho
+            quadro = np.clip(pcm, -32768, 32767).astype(np.int16).tobytes()
         try:
             self.audio_queue.put_nowait(quadro)
         except queue.Full:

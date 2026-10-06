@@ -266,6 +266,11 @@ DEFAULTS = {
         "token": "",
         # com o dedo no orbe do relógio, a fala vem do microfone dele
         "microfone": True,
+        # ganho do áudio do relógio ao chegar: o microfone dele capta bem mais
+        # baixo que o do PC (fala de 600 a 2000 de RMS contra a mediana de 2740
+        # do PC, com ruído abaixo de 50), e sem isto o piso de fala do PC
+        # (conversa.fala_rms) não deixava o live ouvir sem segurar
+        "ganho_mic": 3.0,
         # o plano de fundo do relógio: "" segue o papel de parede do PC; um
         # caminho, a imagem escolhida no app
         "papel": "",
