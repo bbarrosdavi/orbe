@@ -320,10 +320,10 @@ Item {
                 property vector4d caixa: Qt.vector4d(width / 2, height / 2, width / 2, height / 2)
                 // fraco (o Davi achou 0,7 forte demais): só o bastante para separar
                 // os com sessão dos fantasmas
-                property vector4d cor: Qt.vector4d(corBrilho.r, corBrilho.g, corBrilho.b, 0.3)
-                // halo de perfil aberto que passa um pouco da silhueta da lua (a
-                // figura ocupa uns 0,5 da caixa) e zera 2 px antes da borda
-                property vector4d forma: Qt.vector4d(parent.width * 0.8, 0, 2, 1)
+                property vector4d cor: Qt.vector4d(corBrilho.r, corBrilho.g, corBrilho.b, 0.33)
+                // halo de perfil aberto, mais justo à lua (a figura ocupa uns 0,5 da
+                // caixa), e zera 2 px antes da borda
+                property vector4d forma: Qt.vector4d(parent.width * 0.65, 0, 2, 1)
             }
             Loader {
                 id: fig

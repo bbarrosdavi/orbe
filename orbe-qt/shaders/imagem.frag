@@ -88,6 +88,13 @@ layout(binding = 1) uniform sampler2D arte;
 // caminho do Qt, que não passa vetor de uniforms) elas iam para a memória a
 // cada pixel, uns 115 ms por quadro só nisso
 uniform vec4 Mu[48];
+// e os senos e cossenos delas, feitos uma vez por quadro no app: o giro do corpo
+// pai de cada membro (27 por pixel, antes até do teste da caixa) e as juntas
+// das cadeias custavam um terço do quadro em sin/cos. Mc[i], membro i: (cos,
+// sin) de A0 e de A1; Mc[NL + b], corpo b: (cos, sin) do giro; Md[i], membro
+// i: (cos, sin) de A2 (A0 = a.x, A1 = A0 + a.y, A2 = A1 + a.z, como na cadeia)
+uniform vec4 Mc[48];
+uniform vec4 Md[48];
 #endif
 
 #if IMG == 1
@@ -340,6 +347,42 @@ vec2 cadeia(vec2 q, vec2 R0, vec2 R1, vec2 R2, vec2 R3, vec3 a, int n) {
 bool dentro(vec2 q, vec4 c) {
     return q.x >= c.x && q.y >= c.y && q.x <= c.z && q.y <= c.w;
 }
+
+#if IMG == 3
+// girar v por -ângulo, com (cos, sin) do ângulo: o desfazer de um giro sem trigonometria
+vec2 desgirarCS(vec2 v, vec2 cs) {
+    return vec2(cs.x * v.x + cs.y * v.y, cs.x * v.y - cs.y * v.x);
+}
+vec2 girarCS(vec2 v, vec2 cs) {
+    return vec2(cs.x * v.x - cs.y * v.y, cs.y * v.x + cs.x * v.y);
+}
+
+// q visto no corpo b em repouso (desfeito o giro dele em volta do pescoço)
+vec2 noCorpo(vec2 q, int b, float ang) {
+#ifdef RELOGIO
+    return PIVO[b] + desgirarCS(q - PIVO[b], Mc[NL + b].xy);
+#else
+    return PIVO[b] + girar(q - PIVO[b], -ang);
+#endif
+}
+
+// a cadeia do membro i (a = os ângulos dele); no relógio, com os (cos, sin) do app
+vec2 cadeiaMembro(vec2 qb, int i, vec3 a) {
+    vec2 R0 = JUNTA[4 * i], R1 = JUNTA[4 * i + 1], R2 = JUNTA[4 * i + 2], R3 = JUNTA[4 * i + 3];
+#ifdef RELOGIO
+    vec2 c0 = Mc[i].xy, c1 = Mc[i].zw, c2 = Md[i].xy;
+    vec2 D1 = R0 + girarCS(R1 - R0, c0);
+    vec2 D2 = D1 + girarCS(R2 - R1, c1);
+    vec2 p2 = R2 + desgirarCS(qb - D2, c2);
+    if (axial(p2, R2, R3) >= 0.0) return p2;
+    vec2 p1 = R1 + desgirarCS(qb - D1, c1);
+    if (axial(p1, R1, R2) >= 0.0) return p1;
+    return R0 + desgirarCS(qb - R0, c0);
+#else
+    return cadeia(qb, R0, R1, R2, R3, a, 3);
+#endif
+}
+#endif
 #endif
 
 #if IMG == 2
@@ -426,8 +469,15 @@ void main() {
 #if IMG == 3
     // o miolo no lugar; onde um corpo saiu, a massa dele fica como sombra
     // as cabeças olham para o cursor: giram em volta do queixo e andam um pouco para ele
+#ifdef RELOGIO
+    // no relógio as cabeças ficam paradas (pedido do Davi): pintadas no lugar
+    // junto do miolo, sem o laço delas
+    vec2 olharH = vec2(0.0);
+    float girarH = 0.0;
+#else
     vec2 olharH = dg * vec2(5.5, 4.0);
     float girarH = dg.x * 0.28;
+#endif
     // O desvio só escolhe o modo (0 nada, 1 pinta, 2 só a sombra) e a escrita vem
     // depois, sem desvio: o compilador da Adreno 504 (relógio) perdia o que
     // pintar() e sombra() escreviam no acumulado de dentro deste if/else, e o
@@ -439,7 +489,7 @@ void main() {
     else if (pq > NL && pq <= NL + NB) {
         // só se o corpo saiu mesmo de cima deste pixel (parado, ele se cobre)
         int bq = pq - NL - 1;
-        if (distance(PIVO[bq] + girar(q - PIVO[bq], -M[NL + bq].x), q) > 0.35) modo = 2.0;
+        if (distance(noCorpo(q, bq, M[NL + bq].x), q) > 0.35) modo = 2.0;
     } else if (pq > NL + NB) {
         modo = length(olharH) > 0.35 || abs(girarH) > 0.004 ? 2.0 : 1.0;
     }
@@ -453,15 +503,17 @@ void main() {
     // os corpos, cada um girando em volta do pescoço
     for (int b = 0; b < NB; b++) {
         if (!dentro(q, CAIXA_C[b])) continue;
-        vec2 p = PIVO[b] + girar(q - PIVO[b], -M[NL + b].x);
+        vec2 p = noCorpo(q, b, M[NL + b].x);
         if (pecaEm(p) == NL + 1 + b) pintar(p);
     }
 #endif
-#ifndef SEM_CABECAS
+#if !defined(SEM_CABECAS) && !defined(RELOGIO)
     // as cabeças, por cima dos corpos
     if (length(olharH) > 0.35 || abs(girarH) > 0.004) {
+        // o giro é o mesmo para todas: seno e cosseno uma vez, fora do laço
+        vec2 csH = vec2(cos(girarH), sin(girarH));
         for (int h = 0; h < NH; h++) {
-            vec2 ph = QUEIXO[h] + girar(q - QUEIXO[h] - olharH, -girarH);
+            vec2 ph = QUEIXO[h] + desgirarCS(q - QUEIXO[h] - olharH, csH);
             if (!dentro(ph, CAIXA_H[h])) continue;
             if (pecaEm(ph) == NL + NB + 1 + h) pintar(ph);
         }
@@ -471,9 +523,9 @@ void main() {
     // os membros, por cima: primeiro o giro do corpo de onde saem, depois a cadeia
     for (int i = 0; i < NL; i++) {
         int pai = PAI[i];
-        vec2 qb = pai >= 0 ? PIVO[pai] + girar(q - PIVO[pai], -M[NL + pai].x) : q;
+        vec2 qb = pai >= 0 ? noCorpo(q, pai, M[NL + pai].x) : q;
         if (!dentro(qb, CAIXA_M[i])) continue;
-        vec2 p = cadeia(qb, JUNTA[4 * i], JUNTA[4 * i + 1], JUNTA[4 * i + 2], JUNTA[4 * i + 3], M[i].xyz, 3);
+        vec2 p = cadeiaMembro(qb, i, M[i].xyz);
         if (pecaEm(p) == i + 1) pintar(p);
     }
 #endif
