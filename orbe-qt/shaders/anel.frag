@@ -36,6 +36,12 @@ layout(std140, binding = 0) uniform buf {
     vec4 tempo;      // t, alfa da entrada/saída, —, —
 };
 layout(binding = 1) uniform sampler2D atlas;
+#ifdef RELOGIO
+// no relógio o laço das línguas vai até a última ativa (+1, da CPU): com um
+// limite que o compilador não conhece, ele não desenrola o laço nem predica as
+// dez línguas em todo pixel (no Adreno 504 isso custava 6x o anel parado)
+uniform float nLingua;
+#endif
 
 const float TAU = 6.283185307179586;
 const vec2 F_C = vec2(128.0, 134.0);   // centro do anel no quadro 256x256
@@ -155,7 +161,11 @@ void main() {
     cobre(A, I, fq);
 
     // línguas de chama na borda, nos ângulos das molas
+#ifdef RELOGIO
+    for (int j = 0; j < int(nLingua); j++) {
+#else
     for (int j = 0; j < 10; j++) {
+#endif
         vec4 L = lingua(j);
         if (L.z <= 0.0) continue;
         float a = L.x, rb = L.y, tip = L.z, wj = L.w;
