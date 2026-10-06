@@ -5,7 +5,7 @@ A cena pode ter passo(dt): é chamada antes de cada quadro, a 60 Hz (ou dt=).
 """
 import sys, time
 from PySide6.QtCore import QUrl, QSize, QMetaObject, Q_ARG, Qt
-from PySide6.QtGui import QGuiApplication, QOpenGLContext, QOffscreenSurface, QSurfaceFormat
+from PySide6.QtGui import QColor, QGuiApplication, QOpenGLContext, QOffscreenSurface, QSurfaceFormat
 from PySide6.QtOpenGL import QOpenGLFramebufferObject, QOpenGLFramebufferObjectFormat
 from PySide6.QtQml import QQmlEngine, QQmlComponent
 from PySide6.QtQuick import QQuickRenderControl, QQuickWindow, QQuickGraphicsDevice, QQuickRenderTarget
@@ -20,6 +20,7 @@ surf = QOffscreenSurface(); surf.setFormat(ctx.format()); surf.create()
 ctx.makeCurrent(surf)
 rc = QQuickRenderControl()
 win = QQuickWindow(rc)
+win.setColor(QColor(0, 0, 0, 0))     # fora de um Rectangle raiz, o fundo sai transparente
 win.setGraphicsDevice(QQuickGraphicsDevice.fromOpenGLContext(ctx))
 eng = QQmlEngine()
 comp = QQmlComponent(eng, QUrl.fromLocalFile(cena))

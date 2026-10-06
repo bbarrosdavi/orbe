@@ -124,22 +124,19 @@ cat > "$APP/Contents/Info.plist" <<FIM
 </dict>
 </plist>
 FIM
-# ícone: o orbe.svg rasterizado pelo Qt e empacotado pelo iconutil
+# ícone: o orbe.png (o Ophanim desenhado pelo próprio orbe) reduzido pelo Qt
+# e empacotado pelo iconutil
 ICONSET=$(mktemp -d)/orbe.iconset
 mkdir -p "$ICONSET"
-QT_QPA_PLATFORM=offscreen "$PY" - "$ORBE/orbe.svg" "$ICONSET" <<'FIM' 2>/dev/null || true
+QT_QPA_PLATFORM=offscreen "$PY" - "$ORBE/orbe.png" "$ICONSET" <<'FIM' 2>/dev/null || true
 import sys
-from PySide6.QtGui import QGuiApplication, QImage, QPainter, Qt
-from PySide6.QtSvg import QSvgRenderer
+from PySide6.QtGui import QGuiApplication, QImage
+from PySide6.QtCore import Qt
 app = QGuiApplication(sys.argv[:1])
-r = QSvgRenderer(sys.argv[1])
+fonte = QImage(sys.argv[1])
 for lado in (16, 32, 128, 256, 512):
     for esc, suf in ((1, ""), (2, "@2x")):
-        img = QImage(lado * esc, lado * esc, QImage.Format.Format_ARGB32)
-        img.fill(Qt.GlobalColor.transparent)
-        p = QPainter(img)
-        r.render(p)
-        p.end()
+        img = fonte.scaled(lado * esc, lado * esc, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         img.save(f"{sys.argv[2]}/icon_{lado}x{lado}{suf}.png")
 FIM
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/orbe.icns" 2>/dev/null || true

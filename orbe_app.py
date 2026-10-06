@@ -854,7 +854,7 @@ def _preparar_app(argv):
         f.setPointSize(13)
         app.setFont(f)
         QFont.insertSubstitution("Sans", f.family())
-        app.setWindowIcon(QIcon(str(Path(__file__).resolve().parent / "orbe.svg")))
+        app.setWindowIcon(QIcon(str(Path(__file__).resolve().parent / "orbe.png")))
         return app
     app.setFont(QFont("Adwaita Sans", 11))
     QIcon.setThemeName("Qogir")
