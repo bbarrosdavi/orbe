@@ -103,23 +103,24 @@ const vec4 CAIXA[7] = vec4[7](
 #endif
 
 #if IMG == 2
-// Olho: recorte de 505 x 609 px, uma célula. B: 0 o globo (com o branco do
-// olho preenchido por baixo da íris), 1 os raios, 250 o disco preto da íris,
-// guardado num canto vazio do recorte para andar sem rastro
-const vec2 TAM = vec2(505.0, 609.0);
+// Olho (Paranoia): recorte de 535 x 609 px, uma célula. B: 0 o globo (com o
+// branco do olho preenchido por baixo da íris), 1 a coroa de raios inteira
+// (todas as camadas, sem o céu), 250 o disco preto da íris, guardado num
+// canto vazio do recorte para andar sem rastro
+const vec2 TAM = vec2(535.0, 609.0);
 const float CELULA = 0.0;
 const vec2 ATLAS = TAM;
-const vec2 OLHO = vec2(260.0, 284.5);    // o centro do globo, no centro do item
+const vec2 OLHO = vec2(290.0, 284.5);    // o centro do globo, no centro do item
 const float RIMG = 270.0;
-const vec2 PUP = vec2(285.5, 279.6);     // o disco preto desenhado
+const vec2 PUP = vec2(315.5, 279.6);     // o disco preto desenhado
 const float RP = 42.5;
 const float RI = 44.5;                   // o disco com a borda escura dele
 const vec2 DISCO = vec2(47.5, 561.5);    // onde o disco está guardado
-const vec2 AB = vec2(250.0, 292.0);      // a abertura das pálpebras (elipse, um pouco por dentro)
+const vec2 AB = vec2(280.0, 292.0);      // a abertura das pálpebras (elipse, um pouco por dentro)
 const vec2 AR = vec2(92.0, 57.0);
 const float RAIZ = 118.0;                // onde os raios saem do globo
 #ifdef RELOGIO
-const vec4 CAIXA[1] = vec4[1](vec4(-6.0, -6.0, 511.0, 615.0));
+const vec4 CAIXA[1] = vec4[1](vec4(-6.0, -6.0, 541.0, 615.0));
 #endif
 #endif
 
@@ -384,15 +385,16 @@ void main() {
 #endif
 
 #if IMG == 2
-    // os raios fluindo, presos ao olho: uma ondulação de lado que corre do
-    // olho para fora (zero na raiz) e uma onda de brilho junto. img.x é a
-    // amplitude na ponta (px), img.y a fase do fluxo, img2.x o brilho
+    // a coroa fluindo, presa ao olho: uma ondulação de lado que corre do olho
+    // para fora (zero na raiz) e uma onda de brilho junto, em todas as camadas
+    // de raios de uma vez. img.x é a amplitude na ponta (px), img.y a fase do
+    // fluxo, img2.x o brilho
     vec2 d = q - OLHO;
     float r = max(length(d), 1e-3);
     float a = atan(d.y, d.x);
     float fr = faseRaio(a);
     float w = smoothstep(RAIZ, RAIZ + 70.0, r) * (0.45 + 0.55 * smoothstep(RAIZ, RAIZ + 200.0, r));
-    float lado = w * img.x * sin(r * 0.07 - img.y + fr);
+    float lado = w * img.x * sin(r * 0.05 - img.y + fr);
     float ar = a - lado / r;
     vec2 pr = OLHO + r * vec2(cos(ar), sin(ar));
     if (pecaEm(pr) == 1) {

@@ -252,8 +252,8 @@ Item {
         if (!humana) {
             // os raios fluem presos ao olho: a ondulação corre do olho para fora,
             // com a amplitude numa mola que cada sílaba chuta
-            var alvoA = mistura({ idle: 3.0, listening: 2.0, thinking: 5.0, tools: 3.5, speaking: 4.0 }) + 6 * falar - 3 * (1 - dG)
-            if (chute > 0) pc.vamp += chute * 25
+            var alvoA = mistura({ idle: 2.0, listening: 1.5, thinking: 3.5, tools: 2.5, speaking: 3.0 }) + 3 * falar - 2 * (1 - dG)
+            if (chute > 0) pc.vamp += chute * 12
             pc.vamp += (30 * (alvoA - pc.amp) - 7 * pc.vamp) * dt
             pc.amp = Math.max(0, pc.amp + pc.vamp * dt)
             pc.fluxo += dt * (mistura({ idle: 1.4, listening: 1.0, thinking: 2.6, tools: 3.6, speaking: 2.0 }) + 1.5 * falar)

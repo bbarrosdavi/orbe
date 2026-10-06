@@ -14,7 +14,7 @@ AQUI = Path(__file__).resolve().parent
 # recorte, ponto OLHO e RIMG de cada uma (os do imagem.frag) e, no Olho, a peça
 # guardada num canto (o disco da íris: canto, centro do canto, centro no olho,
 # lado): na pose desenhada ela volta ao lugar, e o canto fica vazio
-SKINS = {"olho": ((505, 609), (260.0, 284.5), 270.0, ((0, 514), (47.5, 561.5), (285.5, 279.6), 95)),
+SKINS = {"olho": ((535, 609), (290.0, 284.5), 270.0, ((0, 514), (47.5, 561.5), (315.5, 279.6), 95)),
          "humana": ((517, 492), (258.5, 246.0), 255.0, None)}
 
 def ler(caminho):
