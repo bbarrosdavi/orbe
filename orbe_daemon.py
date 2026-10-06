@@ -1665,11 +1665,13 @@ class Daemon:
         if "encerrar" in low:
             # três toques no relógio: a sessão de voz fecha e, com o Claude no
             # orbe, a sessão do Claude Code também (a janela do terminal fecha junto)
-            tipo = ((_RELOGIO.agente() if _RELOGIO is not None else "") or "claude") \
-                if origem == "relogio" else self._agente_cfg()["tipo"]
+            # o orbe em tela no relógio: do relógio, ou do PC seguindo o relógio
+            do_relogio = _RELOGIO is not None and (origem == "relogio" or self._orbe_do_relogio())
+            tipo = (_RELOGIO.agente() or "claude") if do_relogio else \
+                ("claude" if origem == "relogio" else self._agente_cfg()["tipo"])
             self._kill_active(hide=True)
             self._end_session("encerrar")
-            vaga = _RELOGIO.vaga() if origem == "relogio" and _RELOGIO is not None else -1
+            vaga = _RELOGIO.vaga() if do_relogio else -1
             alvo = _RELOGIO.sessao_da_vaga(vaga, tipo) if vaga >= 0 else 0
             if tipo == "claude":
                 # do relógio, a do orbe em tela; as abertas à mão (sem o canal) ficam
@@ -1758,15 +1760,25 @@ class Daemon:
     # orbe principal do PC orbitam os outros com sessão ativa e, apagados e
     # mais devagar, os sem sessão.
 
+    def _orbe_do_relogio(self) -> bool:
+        """A sessão fala com o orbe em tela no relógio: a que veio de lá e,
+        seguindo o relógio, também a do microfone do PC (depois que o relógio
+        disse qual é). Fixo, a do PC fala com o agente do PC."""
+        if _RELOGIO is None:
+            return False
+        return self._origem == "relogio" or (self._seguindo_relogio() and bool(_RELOGIO.orbe()[0]))
+
     def _orbe_em_foco(self) -> dict:
         """O orbe da sessão agora: o do relógio (skin, agente, vaga e cor da
-        instância) na sessão de lá; no PC, a skin dele."""
-        if self._origem == "relogio" and _RELOGIO is not None:
+        instância) na sessão de lá ou seguindo o relógio; senão, o do PC."""
+        if self._orbe_do_relogio():
             skin, cor = _RELOGIO.orbe()
             tipo = _RELOGIO.agente() or "claude"
             return {"skin": skin or VCFG["orbe"]["skin"], "cor": cor, "agente": tipo,
-                    "vaga": _RELOGIO.vaga() if _com_instancias(tipo) else -1, "origem": "relogio"}
-        return {"skin": VCFG["orbe"]["skin"], "cor": "", "agente": vcfg.agente_da_skin(), "vaga": -1, "origem": "pc"}
+                    "vaga": _RELOGIO.vaga() if _com_instancias(tipo) else -1, "origem": self._origem,
+                    "do_relogio": True}
+        return {"skin": VCFG["orbe"]["skin"], "cor": "", "agente": vcfg.agente_da_skin(), "vaga": -1,
+                "origem": self._origem, "do_relogio": False}
 
     def _foco_mudou(self) -> bool:
         t = self._turno
@@ -1789,8 +1801,8 @@ class Daemon:
         self.state = "listening"
         self.speech_frames = 0
         self._turno = None
-        # o orbe do PC passa ao novo foco (o do relógio)
-        self._espelhar(self._origem)
+        # seguindo o relógio, o orbe do PC passa ao novo foco
+        self._espelhar()
         orb_cmd("state listening")
 
     def _orbes_paralelos(self):
@@ -1803,8 +1815,8 @@ class Daemon:
         try:
             if self._foco_mudou():
                 self._destacar_turno()
-            # o relógio rolou para outro orbe: o do PC segue (só manda se mudou)
-            self._espelhar(self._origem)
+            # o relógio rolou para outro orbe: seguindo ele, o do PC vai junto (só manda se mudou)
+            self._espelhar()
             if self._falas and not self._busy() and self.state != "recording":
                 self._falar_da_fila()
             self._publicar_paralelos()
@@ -1818,14 +1830,11 @@ class Daemon:
             return
         t = fala["turno"]
         LOG.info("orbes: %s (vaga %d) toma a vez e fala", t["skin"], t["vaga"])
-        # o relógio e o orbe do PC passam a ele
-        if _RELOGIO is not None and t["origem"] == "relogio":
+        # o relógio rola até ele; o orbe do PC acompanha só seguindo o relógio
+        # (fixo, o principal do PC não troca)
+        if _RELOGIO is not None and t.get("do_relogio"):
             _RELOGIO.focar(t["skin"], t["agente"], t["vaga"], t["cor"])
         self._definir_origem(t["origem"])
-        linha = f"espelho {t['skin']} {t['cor'] or '-'}"
-        if linha != self._espelho:
-            self._espelho = linha
-            orb_cmd(linha, relogio=False)
         # o agente dele vira o da sessão: o que o Davi responder vai para ele
         with self._agente_lock:
             velho = self.agente
@@ -1852,7 +1861,10 @@ class Daemon:
         if _RELOGIO is None:
             return
         esperando = self._esperando()
-        lista = json.dumps(_RELOGIO.satelites({(e["skin"], e["vaga"]) for e in esperando}), ensure_ascii=False)
+        # o principal não orbita: o orbe em tela no relógio, seguindo ele; fixo, o do PC
+        principal = None if self._seguindo_relogio() else (VCFG["orbe"]["skin"], -1)
+        lista = json.dumps(_RELOGIO.satelites({(e["skin"], e["vaga"]) for e in esperando}, principal),
+                           ensure_ascii=False)
         if lista != self._satelites:
             self._satelites = lista
             orb_cmd("satelites " + lista, relogio=False)
@@ -1970,22 +1982,25 @@ class Daemon:
 
     def _definir_origem(self, origem: str):
         """Quem abriu ou tocou na sessão por último: o relógio pinta os olhos do PC."""
-        self._espelhar(origem)
+        self._espelhar()
         if origem == self._origem:
             return
         LOG.info("sessão de voz: origem %s", origem)
         self._origem = origem
         orb_cmd("olhos " + COR_OLHOS_RELOGIO if origem == "relogio" else "olhos", relogio=False)
 
-    def _espelhar(self, origem: str):
-        """Seguir o relógio (relogio.seguir): na sessão aberta ou tocada lá, o
-        orbe do PC veste o orbe em tela no relógio, a skin e a cor da
-        instância; de volta ao PC, o dele."""
+    def _seguindo_relogio(self) -> bool:
+        return bool(VCFG["relogio"].get("seguir")) and _RELOGIO is not None
+
+    def _espelhar(self):
+        """O orbe principal do PC. Fixo (relogio.seguir desligado): o daqui,
+        sempre. Seguindo o relógio: o último escolhido lá (a skin e a cor da
+        instância), venha a sessão de onde vier e com o relógio conectado ou
+        não. Ele só muda quando o agente em tela no relógio muda, e o orbe do
+        PC anima a troca (Satelites.qml); o Wi-Fi do relógio dormir e voltar
+        não troca nada. Mudar o agente no próprio PC ainda não existe."""
         linha = "espelho"
-        # com um relógio ligado, o orbe do PC é o que está na tela dele, venha a
-        # sessão de onde vier: trocar de orbe lá troca aqui (Satelites.qml anima)
-        relogio_ligado = _RELOGIO is not None and _RELOGIO.conectado()
-        if (origem == "relogio" or relogio_ligado) and VCFG["relogio"].get("seguir") and _RELOGIO is not None:
+        if self._seguindo_relogio():
             skin, cor = _RELOGIO.orbe()
             if skin:
                 linha = f"espelho {skin} {cor or '-'}"
@@ -2715,14 +2730,15 @@ class Daemon:
 
     def _agente_cfg(self) -> dict:
         """O agente da sessão: o do orbe em tela no relógio, quando ela veio de
-        lá; no PC, o da skin em uso, pelo mesmo mapa de agentes por skin.
+        lá ou quando o PC segue o relógio; fixo, no PC, o da skin em uso, pelo
+        mesmo mapa de agentes por skin.
 
         Do relógio, a instância de um orbe do Claude (ou de um agente que roda
         numa janela) é uma vaga: a sessão que está nela (pid), ou nenhuma (pid
         0: falar ali abre uma nova).
         """
-        if self._origem == "relogio":
-            tipo = (_RELOGIO.agente() if _RELOGIO is not None else "") or "claude"
+        if self._orbe_do_relogio():
+            tipo = _RELOGIO.agente() or "claude"
             # o modelo escolhido no PC só vale para o agente do PC
             modelo = AGENTE_CFG["modelo"] if tipo == AGENTE_CFG["tipo"] else ""
             vaga = _RELOGIO.vaga() if _RELOGIO is not None and _com_instancias(tipo) else -1

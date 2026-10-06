@@ -194,6 +194,55 @@ class OrbesEmParalelo(unittest.TestCase):
         self.assertFalse(any(a.cancelado for a in self.agentes.values()))
         self.assertIs(self.agentes[("ofanim_alado", 1)], d.agente)
 
+    def test_fixo_o_principal_do_pc_nao_troca(self):
+        """relogio.seguir desligado: o relógio rola até quem fala, o orbe do PC
+        fica no dele, e quem sai da órbita é o do PC, não o em tela no relógio."""
+        p, d = self.ponte, self.d
+        skin_pc = od.VCFG["orbe"]["skin"]
+        self.addCleanup(lambda: od.VCFG["orbe"].__setitem__("skin", skin_pc))
+        od.VCFG["relogio"]["seguir"] = False
+        od.VCFG["orbe"]["skin"] = "serafim_gravura"
+        self.turno("pedido ao Ophanim")
+        p.ir("olho", 3)                          # o relógio passa a outro orbe com o Ophanim pensando
+        self.tique(0.1)
+        self.turno("pedido ao olho")
+        self.tique(2.5)
+        self.assertEqual([("olho", "Resposta do olho."), ("ofanim", "Resposta do Ophanim.")], d.falado)
+        self.assertEqual([("ofanim", 0)], p.focos, "o relógio rola até quem toma a vez")
+        self.assertEqual([], [o for o in self.ordens if o.startswith("espelho ")], "fixo, o orbe do PC não troca")
+        sat = {s["id"] for s in json.loads(d._satelites)}
+        self.assertNotIn("serafim_gravura", sat, "o principal do PC não orbita")
+        self.assertIn("olho/3", sat, "o em tela no relógio orbita o do PC")
+
+    def test_seguindo_o_relogio_desconectar_nao_troca(self):
+        """Seguindo o relógio, o orbe do PC é o último escolhido lá: o Wi-Fi do
+        relógio dormir não devolve o PC ao orbe dele."""
+        p, d = self.ponte, self.d
+        p.ir("olho", 3)
+        self.tique(0.1)
+        self.assertEqual("espelho olho -", d._espelho)
+        n = len(self.ordens)
+        p.conectado = lambda: False
+        self.tique(0.3)
+        self.assertEqual("espelho olho -", d._espelho)
+        self.assertEqual([], [o for o in self.ordens[n:] if o.startswith("espelho")])
+        p.ir("ofanim_alado", 1)                  # de novo no ar, outro agente: aí troca
+        p.conectado = lambda: True
+        self.tique(0.1)
+        self.assertEqual("espelho ofanim_alado -", d._espelho)
+
+    def test_seguindo_o_relogio_o_pc_fala_com_o_agente_de_la(self):
+        """A fala no microfone do PC vai para o agente escolhido no relógio
+        (a vaga da instância) seguindo ele; fixo, para o agente do PC."""
+        p, d = self.ponte, self.d
+        d._origem = "pc"
+        p.ir("olho", 3)
+        self.assertEqual(3, d._agente_cfg()["vaga"])
+        self.assertEqual(("olho", True), (d._orbe_em_foco()["skin"], d._orbe_em_foco()["do_relogio"]))
+        od.VCFG["relogio"]["seguir"] = False
+        self.assertEqual(-1, d._agente_cfg().get("vaga", -1))
+        self.assertEqual((od.VCFG["orbe"]["skin"], False), (d._orbe_em_foco()["skin"], d._orbe_em_foco()["do_relogio"]))
+
     def test_mesmo_orbe_continua_interrompendo_como_antes(self):
         p, d = self.ponte, self.d
         self.turno("pedido ao Ophanim")

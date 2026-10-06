@@ -662,7 +662,7 @@ Item {
                     LinhaSwitch {
                         id: rSeguir
                         titulo: "Seguir o relógio"
-                        subtitulo: "a sessão aberta no relógio aparece no orbe do PC com o orbe de lá, a skin e a cor da instância"
+                        subtitulo: "o orbe do PC passa ao agente escolhido no relógio, com a troca animada; desligado, fica fixo no daqui"
                         visible: rRelogio.ligado
                     }
                 }

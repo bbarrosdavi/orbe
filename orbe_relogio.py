@@ -550,12 +550,13 @@ class PonteRelogio:
         except RuntimeError:
             pass
 
-    def satelites(self, esperando=frozenset()) -> list:
+    def satelites(self, esperando=frozenset(), principal=None) -> list:
         """Os outros orbes em volta do em tela, para o orbe do PC (Satelites.qml):
         cada sessão ativa de cada orbe da lista do relógio é um "ativo" (na cor
         da instância), cada orbe sem sessão um "fantasma", e os de [esperando]
         ({(skin, vaga)}) "espera". Os orbes de um agente com instâncias dividem
-        as vagas como no relógio (a instância k do j-ésimo de m é a vaga k·m + j)."""
+        as vagas como no relógio (a instância k do j-ésimo de m é a vaga k·m + j).
+        O [principal] ((skin, vaga)) fica de fora; sem ele, o orbe em tela aqui."""
         aj = vcfg.carregar()["relogio"]["ajustes"]
         ordem = [s for s in (aj.get("ordem") or vcfg.SKINS) if s in vcfg.SKINS]
         ordem += [s for s in vcfg.SKINS if s not in ordem]
@@ -567,8 +568,7 @@ class PonteRelogio:
         grupos: dict[str, list] = {}
         for s in ordem:
             grupos.setdefault(agente(s), []).append(s)
-        foco_skin, _ = self._orbe
-        foco_vaga = self._vaga
+        foco_skin, foco_vaga = principal if principal else (self._orbe[0], self._vaga)
         sessoes = list(self._sessoes or [])
         saida = []
         for s in ordem:
