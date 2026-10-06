@@ -549,6 +549,10 @@ class PonteRelogio:
                 saida.append({"id": s, "skin": s, "cor": "", "tipo": "fantasma"})
         return saida
 
+    def conectado(self) -> bool:
+        """Algum relógio na ponte agora."""
+        return bool(self._clientes)
+
     def mic_ativo(self) -> bool:
         """A fala está vindo do relógio agora: o microfone do PC não entra junto."""
         return time.monotonic() - self._mic_t < 0.4

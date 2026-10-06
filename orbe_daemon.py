@@ -1803,6 +1803,8 @@ class Daemon:
         try:
             if self._foco_mudou():
                 self._destacar_turno()
+            # o relógio rolou para outro orbe: o do PC segue (só manda se mudou)
+            self._espelhar(self._origem)
             if self._falas and not self._busy() and self.state != "recording":
                 self._falar_da_fila()
             self._publicar_paralelos()
@@ -1980,7 +1982,10 @@ class Daemon:
         orbe do PC veste o orbe em tela no relógio, a skin e a cor da
         instância; de volta ao PC, o dele."""
         linha = "espelho"
-        if origem == "relogio" and VCFG["relogio"].get("seguir") and _RELOGIO is not None:
+        # com um relógio ligado, o orbe do PC é o que está na tela dele, venha a
+        # sessão de onde vier: trocar de orbe lá troca aqui (Satelites.qml anima)
+        relogio_ligado = _RELOGIO is not None and _RELOGIO.conectado()
+        if (origem == "relogio" or relogio_ligado) and VCFG["relogio"].get("seguir") and _RELOGIO is not None:
             skin, cor = _RELOGIO.orbe()
             if skin:
                 linha = f"espelho {skin} {cor or '-'}"

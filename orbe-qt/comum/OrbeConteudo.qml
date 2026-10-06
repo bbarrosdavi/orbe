@@ -130,10 +130,27 @@ Item {
     }
     function aplicarEspelho() {
         if (!espelhoDepois) return
-        espelhoSkin = espelhoDepois.skin
-        espelhoCor = espelhoDepois.cor
+        var novo = espelhoDepois
         espelhoDepois = null
+        var de = { skin: skinEmUso, cor: espelhoCor.a > 0 ? espelhoCor.toString() : "" }
+        var para = { skin: novo.skin || skin, cor: novo.cor !== "transparent" && novo.cor ? String(novo.cor) : "" }
+        var muda = de.skin !== para.skin || de.cor.toLowerCase() !== para.cor.toLowerCase()
+        // com o orbe na tela e satélites em volta, a troca é orgânica: o
+        // principal encolhe e entra na órbita, e o chamado sai de onde estava
+        // crescendo até o centro
+        if (muda && visivel && fase === "run" && satelites.length) {
+            var o = luas.onde(para.skin, para.cor)
+            luas.trocar(de)
+            trocaDe = o ? o : { x: 0, y: 0, s: 0.3 }
+            trocaT = 0
+        }
+        espelhoSkin = novo.skin
+        espelhoCor = novo.cor
     }
+    // a troca do principal: de onde o chamado estava (x, y a partir do centro, escala) até o centro
+    property var trocaDe: ({ x: 0, y: 0, s: 1 })
+    property real trocaT: 1                // segundos desde a troca (anda no passo, como o resto)
+    readonly property real trocaF: trocaT >= 0.75 ? 1 : easeOutBack(trocaT / 0.75)
     function empurrarLinha(texto) {
         // tira glifos sem cobertura na fonte (emoji, nerd fonts, símbolos)
         var s = ""
@@ -206,7 +223,8 @@ Item {
             }
         }
         t += dt
-        if (satelites.length) luas.passo(dt)
+        if (trocaT < 1) trocaT += dt
+        if (satelites.length || luas.saindo) luas.passo(dt)
 
         var m = {}
         for (var e in mix) m[e] = mix[e] + ((e === estado ? 1 : 0) - mix[e]) * fator(0.16, k)
@@ -268,6 +286,14 @@ Item {
                 anchors.fill: parent
                 z: 0
                 sourceComponent: orbe.avatar ? compFigura : compAnel
+                transform: [
+                    Scale {
+                        origin.x: arte.width / 2; origin.y: arte.height / 2
+                        xScale: orbe.trocaDe.s + (1 - orbe.trocaDe.s) * orbe.trocaF
+                        yScale: xScale
+                    },
+                    Translate { x: orbe.trocaDe.x * (1 - orbe.trocaF); y: orbe.trocaDe.y * (1 - orbe.trocaF) }
+                ]
             }
         }
     }

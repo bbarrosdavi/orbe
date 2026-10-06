@@ -93,6 +93,9 @@ class PonteFalsa:
     def quer_voz(self):
         return False
 
+    def conectado(self):
+        return True
+
     def publicar(self, linha):
         pass
 
