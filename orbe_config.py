@@ -195,6 +195,9 @@ DEFAULTS = {
         # é a ELEVENLABS_API_KEY (chaves.env do orbe, senão o .env do Hermes)
         "elevenlabs_voz": "",
         "elevenlabs_modelo": "eleven_flash_v2_5",
+        # a voz de cada orbe, por provedor ({"gemini": {"olho": "Charon"}});
+        # sem uma, o orbe fala com a voz de cima
+        "orbes": {},
     },
     "conversa": {
         "silencio_fim_s": 0.90,

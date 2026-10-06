@@ -378,6 +378,35 @@ Item {
                     }
                 }
                 Grupo {
+                    titulo: "Voz de cada orbe"
+                    descricao: "Com vários orbes conversando ao mesmo tempo, cada um fala com a sua. "
+                               + "Vale para o provedor de cima; sem uma escolhida, o orbe usa a voz de cima."
+                    // Gemini e Piper têm lista; xAI e ElevenLabs, o nome ou o voice_id
+                    Repeater {
+                        id: rVozesLista
+                        model: raiz.skinsTodas
+                        LinhaCombo {
+                            readonly property string skin: modelData
+                            titulo: ponte.nomesSkin[modelData] || modelData
+                            busca: raiz.ttsEfetivo === "gemini"
+                            visible: raiz.ttsEfetivo === "gemini" || raiz.ttsEfetivo === "piper"
+                            itens: [{ id: "", nome: "A de cima" }].concat(
+                                (raiz.ttsEfetivo === "piper" ? ponte.piperVozes : ponte.geminiVozes).filter(function (v) { return v.id }))
+                            valor: ((raiz.vozesOrbes[raiz.ttsEfetivo] || {})[modelData]) || ""
+                        }
+                    }
+                    Repeater {
+                        id: rVozesTexto
+                        model: raiz.skinsTodas
+                        LinhaEntrada {
+                            readonly property string skin: modelData
+                            titulo: (ponte.nomesSkin[modelData] || modelData) + " (vazio = a de cima)"
+                            visible: !(raiz.ttsEfetivo === "gemini" || raiz.ttsEfetivo === "piper")
+                            texto: ((raiz.vozesOrbes[raiz.ttsEfetivo] || {})[modelData]) || ""
+                        }
+                    }
+                }
+                Grupo {
                     titulo: "Chaves de API"
                     descricao: "Vazia, vale a do Hermes. Preencha para usar o orbe com outro agente ou numa máquina sem o Hermes. Ficam em ~/.config/orbe/chaves.env, legível só por você."
                     Repeater {
@@ -931,6 +960,21 @@ Item {
 
     // ── estado que outras linhas leem ──
     property string skin: "ofanim"
+    // todos os orbes, e a voz de cada um por provedor (voz.orbes)
+    readonly property var skinsTodas: ["ofanim", "ofanim_alado", "serafim_gravura", "anel"]
+    property var vozesOrbes: ({})
+    function coletarVozesOrbes() {
+        var m = JSON.parse(JSON.stringify(vozesOrbes || {}))
+        var prov = ttsEfetivo
+        var lista = prov === "gemini" || prov === "piper"
+        var d = {}
+        for (var i = 0; i < skinsTodas.length; i++) {
+            var v = lista ? rVozesLista.itemAt(i).efetivo : rVozesTexto.itemAt(i).texto.trim()
+            if (v) d[skinsTodas[i]] = v
+        }
+        m[prov] = d
+        return m
+    }
     // os orbes do relógio, na ordem da lista de lá
     readonly property var skinsRelogio: ["anel", "serafim_gravura", "ofanim", "ofanim_alado"]
     // o relógio já mandou os ajustes que só ele conhecia (os toques, a ordem, os gestos);
@@ -1170,6 +1214,7 @@ Item {
         rXvoz.texto = v.xai_voz
         rEvoz.texto = v.elevenlabs_voz
         rPvoz.valor = v.piper_voz
+        vozesOrbes = v.orbes || {}
 
         rBarge.ligado = !!cv.barge_in
         rBq.valor = cv.barge_quadros
@@ -1235,6 +1280,7 @@ Item {
         v.xai_voz = rXvoz.texto.trim()
         v.elevenlabs_voz = rEvoz.texto.trim()
         v.piper_voz = rPvoz.efetivo
+        v.orbes = coletarVozesOrbes()
         cv.barge_in = rBarge.ligado
         cv.barge_quadros = Math.round(rBq.valor)
         cv.barge_rms = Math.round(rBrms.valor)

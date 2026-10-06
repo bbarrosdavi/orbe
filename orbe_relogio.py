@@ -173,6 +173,10 @@ def papel() -> list:
     return cores
 
 
+# as cores das instâncias, como no relógio (Instancias): a do tema e mais quatro
+CORES_INSTANCIA = ("", "#4DD0E1", "#81C784", "#FFB74D", "#B39DDB")
+
+
 def aparencia() -> dict:
     """O que o relógio precisa para desenhar o orbe igual ao do PC."""
     o = vcfg.carregar()["orbe"]
@@ -482,6 +486,68 @@ class PonteRelogio:
         if lista != self._sessoes:
             self._sessoes = lista
             self._difundir("sessoes " + json.dumps(lista, ensure_ascii=False))
+
+    # ── orbes em paralelo (o daemon chama) ──
+
+    def focar(self, skin: str, agente: str, vaga: int, cor: str) -> None:
+        """Um orbe que esperava a vez de falar toma o lugar: passa a ser o orbe
+        em tela daqui e do relógio ("foco"), que rola até ele."""
+        self._agente, self._vaga, self._orbe = agente, vaga, (skin, cor)
+        self._no_laco(self._difundir, "foco " + json.dumps({"skin": skin, "agente": agente, "vaga": vaga}, ensure_ascii=False))
+
+    def esperas(self, lista: list) -> None:
+        """Os orbes cuja resposta espera a vez de falar, na ordem ([{skin, vaga, cor}])."""
+        self._no_laco(self._difundir, "espera " + json.dumps(lista, ensure_ascii=False))
+
+    def _no_laco(self, f, *args) -> None:
+        """Chamado de uma thread do daemon: as filas dos clientes são do laço da ponte."""
+        loop = self._loop
+        if loop is None:
+            return
+        try:
+            loop.call_soon_threadsafe(f, *args)
+        except RuntimeError:
+            pass
+
+    def satelites(self, esperando=frozenset()) -> list:
+        """Os outros orbes em volta do em tela, para o orbe do PC (Satelites.qml):
+        cada sessão ativa de cada orbe da lista do relógio é um "ativo" (na cor
+        da instância), cada orbe sem sessão um "fantasma", e os de [esperando]
+        ({(skin, vaga)}) "espera". Os orbes de um agente com instâncias dividem
+        as vagas como no relógio (a instância k do j-ésimo de m é a vaga k·m + j)."""
+        aj = vcfg.carregar()["relogio"]["ajustes"]
+        ordem = [s for s in (aj.get("ordem") or vcfg.SKINS) if s in vcfg.SKINS]
+        ordem += [s for s in vcfg.SKINS if s not in ordem]
+        por_skin = aj.get("agentes") or {}
+
+        def agente(s):
+            return por_skin.get(s) or "claude"
+        com_inst = {a["id"] for a in self._agentes if a.get("instancias")} | {"claude"}
+        grupos: dict[str, list] = {}
+        for s in ordem:
+            grupos.setdefault(agente(s), []).append(s)
+        foco_skin, _ = self._orbe
+        foco_vaga = self._vaga
+        sessoes = list(self._sessoes or [])
+        saida = []
+        for s in ordem:
+            a = agente(s)
+            vagas = []
+            if a in com_inst:
+                m, j = len(grupos[a]), grupos[a].index(s)
+                vagas = sorted(x["vaga"] for x in sessoes if x.get("agente") == a and x.get("vaga", -1) % m == j)
+                for v in vagas:
+                    if s == foco_skin and v == foco_vaga:
+                        continue
+                    k = v // m
+                    saida.append({"id": f"{s}/{v}", "skin": s, "cor": CORES_INSTANCIA[k % len(CORES_INSTANCIA)],
+                                  "tipo": "espera" if (s, v) in esperando else "ativo"})
+            elif (s, -1) in esperando:
+                saida.append({"id": s, "skin": s, "cor": "", "tipo": "espera"})
+                continue
+            if not vagas and s != foco_skin:
+                saida.append({"id": s, "skin": s, "cor": "", "tipo": "fantasma"})
+        return saida
 
     def mic_ativo(self) -> bool:
         """A fala está vindo do relógio agora: o microfone do PC não entra junto."""

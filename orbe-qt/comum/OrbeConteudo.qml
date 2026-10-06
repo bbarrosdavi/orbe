@@ -68,6 +68,8 @@ Item {
     property real toqueS: 0                // sobe rápido, desce devagar
     property bool travado: false           // sessão travada pelo Jarvis
     property var linhas: []
+    // os outros orbes (Satelites.qml): [{ id, skin, cor, tipo: ativo | fantasma | espera }]
+    property var satelites: []
     property bool visivel: false
     property string fase: "run"            // in | run | out
     property real faseT: 0
@@ -178,6 +180,13 @@ Item {
             corOlhos = /^#[0-9a-fA-F]{6}$/.test(arg) ? arg : "transparent"
         } else if (op === "espelho") {
             espelhar(arg)
+        } else if (op === "satelites") {
+            try {
+                var l = JSON.parse(arg || "[]")
+                satelites = Array.isArray(l) ? l.filter(function (e) { return e && e.id !== undefined && e.skin }) : []
+            } catch (err) {
+                satelites = []
+            }
         }
     }
 
@@ -197,6 +206,7 @@ Item {
             }
         }
         t += dt
+        if (satelites.length) luas.passo(dt)
 
         var m = {}
         for (var e in mix) m[e] = mix[e] + ((e === estado ? 1 : 0) - mix[e]) * fator(0.16, k)
@@ -241,10 +251,24 @@ Item {
         width: orbe.orbBox
         height: orbe.orbBox
 
-        Loader {
-            id: arte
+        // os outros orbes em volta deste: a arte é irmã deles, para as luas
+        // passarem por trás e pela frente dela
+        Satelites {
+            id: luas
             anchors.fill: parent
-            sourceComponent: orbe.avatar ? compFigura : compAnel
+            lado: orbe.orbBox
+            lista: orbe.satelites
+            corTema: orbe.corTema
+            corAnel: orbe.accent
+            glitch: orbe.glitch
+            alfa: orbe.envAlfa
+
+            Loader {
+                id: arte
+                anchors.fill: parent
+                z: 0
+                sourceComponent: orbe.avatar ? compFigura : compAnel
+            }
         }
     }
 

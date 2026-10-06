@@ -1477,6 +1477,17 @@ class Daemon:
         # resposta onde o relógio pediu.
         self._origem = "pc"
         self._espelho = "espelho"   # o último "espelho" mandado ao orbe do PC
+        # Orbes em paralelo: o turno em voo, que segue em segundo plano quando
+        # o foco passa a outro orbe; as respostas desses turnos esperando a vez
+        # de falar, na ordem de chegada; e o orbe cuja voz o TTS usa.
+        self._turno: dict | None = None
+        self._turnos_fundo: list[dict] = []
+        self._falas: list[dict] = []
+        self._falas_lock = threading.Lock()
+        self._skin_falante = ""
+        self._paralelo_t = 0.0
+        self._satelites = ""        # a última lista mandada ao orbe do PC
+        self._esperas = ""          # a última fila mandada ao relógio
         self._pastas_historico: dict[str, dict[str, str]] = {}   # agente → id → pasta, do último histórico
         self._tts_destino = ""      # último DEST mandado ao worker
         self._voz_rel_taxa = 0      # taxa da voz aberta no relógio neste turno (0 = nenhuma)
@@ -1615,6 +1626,7 @@ class Daemon:
 
     def _trigger_session(self, origem: str = "pc"):
         LOG.info("⚡ trigger da sessão de voz (teclado/gesto/wake)")
+        self._skin_falante = ""
         self._definir_origem(origem)
         orb_cmd("clear")
         orb_cmd("show listening")
@@ -1733,6 +1745,119 @@ class Daemon:
         return (self.state == "processing" and not self._tts_playing
                 and self._processing_thread is not None
                 and self._processing_thread.is_alive())
+
+    # ── Orbes em paralelo ──
+    #
+    # Cada orbe do relógio (skin e, nos agentes com instâncias, a vaga) é uma
+    # conversa. O turno em voo de um orbe que perde o foco (o relógio passou a
+    # outro) não é cancelado: segue em segundo plano, sem voz, e a resposta
+    # entra na fila. Com o daemon livre, a primeira da fila toma o lugar: o
+    # relógio e o orbe do PC passam a ela, e ela fala com a voz do orbe dela.
+    # As outras esperam a vez (no PC, paradas no canto de baixo à esquerda do
+    # orbe; no relógio, em miniatura no canto de baixo à direita). Em volta do
+    # orbe principal do PC orbitam os outros com sessão ativa e, apagados e
+    # mais devagar, os sem sessão.
+
+    def _orbe_em_foco(self) -> dict:
+        """O orbe da sessão agora: o do relógio (skin, agente, vaga e cor da
+        instância) na sessão de lá; no PC, a skin dele."""
+        if self._origem == "relogio" and _RELOGIO is not None:
+            skin, cor = _RELOGIO.orbe()
+            tipo = _RELOGIO.agente() or "claude"
+            return {"skin": skin or VCFG["orbe"]["skin"], "cor": cor, "agente": tipo,
+                    "vaga": _RELOGIO.vaga() if _com_instancias(tipo) else -1, "origem": "relogio"}
+        return {"skin": VCFG["orbe"]["skin"], "cor": "", "agente": vcfg.agente_da_skin(), "vaga": -1, "origem": "pc"}
+
+    def _foco_mudou(self) -> bool:
+        t = self._turno
+        return (t is not None and not t["fundo"] and t["thread"] is self._processing_thread
+                and self._gerando() and t["chave"] != self._agente_chave())
+
+    def _destacar_turno(self):
+        """O foco foi para outro orbe com o turno deste em voo: ele segue em
+        segundo plano, com o agente dele, e a resposta espera a vez de falar."""
+        t = self._turno
+        t["fundo"] = True
+        t["thread"].destacado = True
+        self._turnos_fundo = [x for x in self._turnos_fundo if x["thread"].is_alive()] + [t]
+        LOG.info("orbes: o turno de %s (vaga %d) segue em segundo plano", t["skin"], t["vaga"])
+        with self._agente_lock:
+            if self.agente is t["ag"]:
+                self.agente = None
+                self._agente_viva = ""
+        self._processing_thread = None
+        self.state = "listening"
+        self.speech_frames = 0
+        self._turno = None
+        # o orbe do PC passa ao novo foco (o do relógio)
+        self._espelhar(self._origem)
+        orb_cmd("state listening")
+
+    def _orbes_paralelos(self):
+        """No laço, a cada quarto de segundo: destaca o turno cujo orbe perdeu o
+        foco, dá a vez à primeira resposta da fila e atualiza os satélites."""
+        agora = time.monotonic()
+        if agora - self._paralelo_t < 0.25:
+            return
+        self._paralelo_t = agora
+        try:
+            if self._foco_mudou():
+                self._destacar_turno()
+            if self._falas and not self._busy() and self.state != "recording":
+                self._falar_da_fila()
+            self._publicar_paralelos()
+        except Exception as e:
+            LOG.warning("orbes em paralelo: %s", e)
+
+    def _falar_da_fila(self):
+        with self._falas_lock:
+            fala = self._falas.pop(0) if self._falas else None
+        if fala is None:
+            return
+        t = fala["turno"]
+        LOG.info("orbes: %s (vaga %d) toma a vez e fala", t["skin"], t["vaga"])
+        # o relógio e o orbe do PC passam a ele
+        if _RELOGIO is not None and t["origem"] == "relogio":
+            _RELOGIO.focar(t["skin"], t["agente"], t["vaga"], t["cor"])
+        self._definir_origem(t["origem"])
+        linha = f"espelho {t['skin']} {t['cor'] or '-'}"
+        if linha != self._espelho:
+            self._espelho = linha
+            orb_cmd(linha, relogio=False)
+        # o agente dele vira o da sessão: o que o Davi responder vai para ele
+        with self._agente_lock:
+            velho = self.agente
+            self.agente = t["ag"]
+            self._agente_viva = t["chave"]
+        if velho is not None and velho is not t["ag"] and not self._em_uso(velho):
+            threading.Thread(target=velho.fechar, daemon=True).start()
+        self._skin_falante = t["skin"]
+        self._iniciar_aviso(fala["texto"])
+
+    def _em_uso(self, ag) -> bool:
+        """O agente ainda tem turno em segundo plano, ou resposta na fila."""
+        with self._falas_lock:
+            if any(f["turno"]["ag"] is ag for f in self._falas):
+                return True
+        return any(t["ag"] is ag and t["thread"].is_alive() for t in self._turnos_fundo)
+
+    def _esperando(self) -> list[dict]:
+        with self._falas_lock:
+            return [{"skin": f["turno"]["skin"], "vaga": f["turno"]["vaga"], "cor": f["turno"]["cor"]} for f in self._falas]
+
+    def _publicar_paralelos(self):
+        """Os satélites ao orbe do PC e a fila ao relógio, quando mudam."""
+        if _RELOGIO is None:
+            return
+        esperando = self._esperando()
+        lista = json.dumps(_RELOGIO.satelites({(e["skin"], e["vaga"]) for e in esperando}), ensure_ascii=False)
+        if lista != self._satelites:
+            self._satelites = lista
+            orb_cmd("satelites " + lista, relogio=False)
+        fila = json.dumps(esperando, ensure_ascii=False)
+        if fila != self._esperas:
+            self._esperas = fila
+            _RELOGIO.esperas(esperando)
 
     # ── Relógio (orbe-wear): o mesmo orbe no pulso, pela ponte WebSocket ──
 
@@ -1952,6 +2077,7 @@ class Daemon:
 
     def _toque_down(self, origem: str = "pc"):
         self._toque_t = time.monotonic()
+        self._skin_falante = ""
         self._definir_origem(origem)
         if self.state == "recording" and self.rec is not None and not self._tts_playing:
             # Já gravando por voz: o dedo só passa a segurar a gravação.
@@ -2271,6 +2397,8 @@ class Daemon:
         try:
             # a cada frase: um CANCEL no worker esvazia a fila, e o DEST junto
             proc.stdin.write(f"DEST pc={int(pc)} relogio={int(no_relogio)}\n")
+            # cada orbe tem a sua voz (voz.orbes no config)
+            proc.stdin.write(f"ORBE {self._skin_falante or self._orbe_em_foco()['skin']}\n")
             proc.stdin.write("SAY " + text.replace("\n", " ") + "\n")
             proc.stdin.flush()
         except OSError as e:
@@ -2764,6 +2892,10 @@ class Daemon:
             return ""
         pedido = text
         cfg = self._agente_cfg()
+        foco = self._orbe_em_foco()
+        turno = dict(foco, chave=self._agente_chave(), ag=ag, fundo=False, thread=threading.current_thread())
+        self._turno = turno
+        self._skin_falante = foco["skin"]
         instrucao = (cfg.get("instrucao_voz") or "").strip()
         # Hermes usa o SOUL do perfil; o canal do Claude manda a instrução ao conectar.
         if cfg["tipo"] not in ("hermes", "claude") and instrucao and not self._instruido:
@@ -2775,6 +2907,9 @@ class Daemon:
         pensado = [""]
 
         def ao_texto(t: str):
+            if turno["fundo"]:
+                partes.append(t)          # em segundo plano: guarda, sem voz
+                return
             if self._tts_gen != gen:
                 return
             partes.append(t)
@@ -2784,7 +2919,7 @@ class Daemon:
                 self._tts_push(sent, gen)
 
         def ao_pensamento(t: str):
-            if self._tts_gen != gen:
+            if self._tts_gen != gen or turno["fundo"]:
                 return
             if not pensado[0]:
                 orb_cmd("state thinking")
@@ -2799,7 +2934,7 @@ class Daemon:
                 pensado[0] = " "
 
         def a_ferramenta(_titulo: str, _status: str):
-            if self._tts_gen == gen:
+            if self._tts_gen == gen and not turno["fundo"]:
                 orb_cmd("state tools")
 
         # As etapas (a descrição de cada ferramenta do Claude, a linha com o
@@ -2843,7 +2978,7 @@ class Daemon:
                 _falar_etapa()
 
         def a_etapa(t: str):
-            if self._tts_gen != gen or partes or not t:
+            if self._tts_gen != gen or partes or not t or turno["fundo"]:
                 return
             with trava_etapa:
                 ordem_etapa[0] += 1
@@ -2855,6 +2990,10 @@ class Daemon:
         class _Parar:
             @staticmethod
             def is_set() -> bool:
+                # em segundo plano o turno é dele: nem o toque nem a voz do
+                # novo foco o cortam
+                if turno["fundo"]:
+                    return False
                 return daemon._interrupted.is_set() or daemon._tts_gen != gen
 
         try:
@@ -2868,10 +3007,21 @@ class Daemon:
             LOG.warning("agente ACP: %s", e)
         finally:
             self._agente_uso = time.monotonic()
-            if frase[0].strip() and self._tts_gen == gen and not self._interrupted.is_set():
-                self._tts_push(frase[0].strip(), gen)
-            if self._tts_gen == gen:
-                self._tts_drain()
+            if not turno["fundo"]:
+                if frase[0].strip() and self._tts_gen == gen and not self._interrupted.is_set():
+                    self._tts_push(frase[0].strip(), gen)
+                if self._tts_gen == gen:
+                    self._tts_drain()
+        if self._turno is turno:
+            self._turno = None
+        if turno["fundo"]:
+            texto = "".join(partes).strip()
+            if texto:
+                with self._falas_lock:
+                    self._falas.append({"turno": turno, "texto": texto, "t": time.monotonic()})
+                LOG.info("orbes: a resposta de %s (vaga %d) espera a vez (%d na fila)",
+                         turno["skin"], turno["vaga"], len(self._falas))
+            return ""
         if self._interrupted.is_set() or self._tts_gen != gen:
             return ""
         return "".join(partes).strip()
@@ -3114,6 +3264,7 @@ class Daemon:
                 self._vigiar_orbe()
                 self._poll_cmdfile()
                 self._poll_ctl()
+                self._orbes_paralelos()
                 continue
             if frame is None:
                 break
@@ -3123,6 +3274,7 @@ class Daemon:
             self._vigiar_orbe()
             self._poll_cmdfile()
             self._poll_ctl()
+            self._orbes_paralelos()
 
             rms = frame_rms(frame)
             if self.expecting_command or self.allow_interrupt:
@@ -3451,6 +3603,8 @@ class Daemon:
 
         self._tts_turn_n = 0
         resposta = self._ask_hermes(cmd)
+        if getattr(threading.current_thread(), "destacado", False):
+            return                    # foi para o fundo: a resposta está na fila
         LOG.info("Resposta: \"%s\"", resposta[:200] if resposta else "")
 
         if handle_gen != self._tts_gen or self._interrupted.is_set():

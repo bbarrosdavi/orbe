@@ -121,6 +121,23 @@ def _jarvis_tts() -> dict:
     return out
 
 
+# a chave da voz de cada provedor em _jarvis_tts
+_CHAVE_VOZ = {"gemini": "gemini_voice", "xai": "xai_voice", "piper": "piper_voice", "elevenlabs": "elevenlabs_voice"}
+
+
+def _voz_do_orbe(cfg: dict, skin: str) -> dict:
+    """A voz do orbe [skin] no provedor em uso (voz.orbes[provedor][skin]), no
+    lugar da voz geral; sem uma escolhida, a geral."""
+    chave = _CHAVE_VOZ.get(cfg["provider"])
+    if not skin or not chave:
+        return cfg
+    try:
+        voz = ((vcfg.carregar()["voz"].get("orbes") or {}).get(cfg["provider"]) or {}).get(skin) or ""
+    except Exception:
+        voz = ""
+    return dict(cfg, **{chave: str(voz)}) if voz else cfg
+
+
 def _gemini_key() -> str:
     return (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
 
@@ -485,6 +502,7 @@ class Worker:
                 return
             import websockets
             url = self._ws_url(cfg["xai_voice"], cfg["xai_language"])
+            self._warm_voz = cfg["xai_voice"]
 
             async def _open():
                 return await websockets.connect(
@@ -548,7 +566,7 @@ class Worker:
         import websockets
 
         ws_url = self._ws_url(voice_id, language)
-        warm = self._take_warm()
+        warm = self._take_warm() if voice_id == getattr(self, "_warm_voz", voice_id) else None
 
         async def _pump(ws, quente: bool):
             play = None
@@ -785,7 +803,7 @@ class Worker:
         if _is_ack(text) and self._play_ack_cache(text):
             print("DONE", flush=True)
             return
-        cfg = _jarvis_tts()
+        cfg = _voz_do_orbe(_jarvis_tts(), getattr(self, "_orbe", ""))
         provider = cfg["provider"]
         sys.stderr.write(f"say provider={provider}\n")
         ok = False
@@ -849,6 +867,10 @@ class Worker:
                 # na fila, para valer a partir da frase seguinte e não da que toca
                 self._cmds.put(("DEST", line[5:]))
                 continue
+            if line.startswith("ORBE "):
+                # o orbe que fala: cada um tem a sua voz (voz.orbes)
+                self._cmds.put(("ORBE", line[5:].strip()))
+                continue
             if line.startswith("SAY "):
                 self._cmds.put(line[4:])
         # stdin fechado = o daemon morreu: sai como num QUIT, em vez de ficar
@@ -866,7 +888,10 @@ class Worker:
             if item is None:
                 return
             if isinstance(item, tuple):
-                self._destino(item[1])
+                if item[0] == "ORBE":
+                    self._orbe = item[1]
+                else:
+                    self._destino(item[1])
                 continue
             if self.cancel.is_set():
                 self.cancel.clear()
