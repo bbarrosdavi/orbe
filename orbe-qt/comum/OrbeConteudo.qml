@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 
 // Conteúdo do orbe de voz, sem nada de Quickshell, para rodar offscreen nos
 // testes. Portado do Ring/OrbWin do orbe GTK antigo: fases de entrada e
@@ -351,6 +352,37 @@ Item {
         // até quase sumir no pé da figura
         readonly property var alfas: orbe.textoAbaixo ? [0.10, 0.24, 0.42, 0.66, 0.92]
                                                       : [0.16, 0.28, 0.42, 0.62, 0.92]
+        function xLinha(l) { return Math.max(2, orbe.textoDireita - fm.advanceWidth(l)) }
+        function yLinha(i, n) {
+            return orbe.textoAbaixo ? orbe.yTexto + i * 17 : orbe.cy - (n - 1) * 8.5 + i * 17 - fm.ascent
+        }
+        // sombra atrás das linhas: uma faixa no tom do fundo por linha, borrada
+        // junto, para o texto destacar do texto das janelas que estiverem atrás
+        Item {
+            id: sombraTexto
+            x: 0; y: 0
+            width: orbe.width; height: orbe.height
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                blurEnabled: true
+                blur: 1.0
+                blurMax: 16
+                autoPaddingEnabled: true
+            }
+            Repeater {
+                model: orbe.linhasQuebradas
+                Rectangle {
+                    readonly property int n: orbe.linhasQuebradas.length
+                    x: texto.xLinha(modelData) - 9
+                    y: texto.yLinha(index, n) - 2
+                    width: fm.advanceWidth(modelData) + 18
+                    height: 19
+                    radius: 8
+                    color: orbe.corFundo
+                    opacity: (0.6 + 0.4 * texto.alfas[5 - n + index]) * 0.9 * orbe.envAlfa
+                }
+            }
+        }
         Repeater {
             model: orbe.linhasQuebradas
             Text {
@@ -364,9 +396,8 @@ Item {
                 // contorno no tom do fundo do tema para não sumir no claro
                 style: Text.Outline
                 styleColor: Qt.rgba(orbe.corFundo.r, orbe.corFundo.g, orbe.corFundo.b, 0.8 * a)
-                x: Math.max(2, orbe.textoDireita - fm.advanceWidth(modelData))
-                y: orbe.textoAbaixo ? orbe.yTexto + index * 17
-                                    : orbe.cy - (n - 1) * 8.5 + index * 17 - fm.ascent
+                x: texto.xLinha(modelData)
+                y: texto.yLinha(index, n)
             }
         }
     }
