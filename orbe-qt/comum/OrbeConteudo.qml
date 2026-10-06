@@ -135,11 +135,12 @@ Item {
     function esconder() {
         linhas = []
         concluirTroca()             // a saída da troca vira a saída de esconder
+        // já saindo, a saída termina (encolhendo): o atalho de desativar manda
+        // "hide" duas vezes seguidas (_kill_active e _end_session no daemon), e
+        // o segundo sumia com o orbe na hora, sem a animação
         if (visivel && fase !== "out") {
             fase = "out"
             faseT = 0
-        } else {
-            visivel = false
         }
     }
     function espelhar(arg) {
