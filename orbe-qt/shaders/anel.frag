@@ -41,6 +41,16 @@ layout(binding = 1) uniform sampler2D atlas;
 // limite que o compilador não conhece, ele não desenrola o laço nem predica as
 // dez línguas em todo pixel (no Adreno 504 isso custava 6x o anel parado)
 uniform float nLingua;
+// o círculo de cada língua com o halo e uma folga (centro x, y, raio², —), da
+// CPU: fora dele ela não deixa nada no pixel e o laço pula o desenho dela. Sem
+// isso, os 16 lados da chama rodavam em toda a calota à frente da base (na
+// bancada de 2026-10-06, ~145 ms por quadro falando)
+uniform vec4 linguaC[10];
+// os 16 vértices da chama de cada língua, dois por vec4 (x, y, x, y), da CPU:
+// as contas da catmull-rom do sdLingua uma vez por quadro, não por pixel. O
+// vetor de 16 pontos e as cúbicas no laço pesavam no shader inteiro, mesmo nos
+// pixels que não passam por ele
+uniform vec4 linguaV[80];
 #endif
 
 const float TAU = 6.283185307179586;
@@ -124,6 +134,30 @@ float sdLingua(vec2 p, vec2 P[4], out float dbord) {
     return sg * dbord;
 }
 
+#ifdef RELOGIO
+vec2 verticeLingua(int j, int i) {
+    vec4 par = linguaV[j * 8 + i / 2];
+    return i - 2 * (i / 2) == 0 ? par.xy : par.zw;
+}
+
+// o sdLingua com os vértices prontos
+float sdLinguaV(vec2 p, int j, out float dbord) {
+    float d = 1e9, sg = 1.0;
+    vec2 vj = verticeLingua(j, 15);
+    for (int i = 0; i < 16; i++) {
+        vec2 vi = verticeLingua(j, i);
+        vec2 e = vj - vi, w = p - vi;
+        vec2 b = w - e * sat(dot(w, e) / max(dot(e, e), 1e-8));
+        d = min(d, dot(b, b));
+        bvec3 cond = bvec3(p.y >= vi.y, p.y < vj.y, e.x * w.y > e.y * w.x);
+        if (all(cond) || all(not(cond))) sg *= -1.0;
+        vj = vi;
+    }
+    dbord = sqrt(d);
+    return sg * dbord;
+}
+#endif
+
 void main() {
     vec2 p = qt_TexCoord0 * tam;
     float aa = max(fwidth(p.x), 1e-3);
@@ -162,10 +196,22 @@ void main() {
 
     // línguas de chama na borda, nos ângulos das molas
 #ifdef RELOGIO
+#ifndef SEM_LINGUAS
     for (int j = 0; j < int(nLingua); j++) {
+        vec2 dc = l - linguaC[j].xy;
+        if (dot(dc, dc) > linguaC[j].z) continue;
+        vec4 L = lingua(j);
+        if (L.z <= 0.0) continue;
+        vec2 dir = vec2(cos(L.x), sin(L.x));
+        if (dot(l, dir) < L.y * 0.6 || length(l) > L.z + 6.0 * esc) continue;
+        float db;
+        float sd = sdLinguaV(l, j, db);
+        adiciona(A, I, 0.16 * glowk * sat((2.5 * esc - db) / aa + 0.5));   // halo de 5 px
+        cobre(A, I, env * sat(0.5 - sd / aa));
+    }
+#endif
 #else
     for (int j = 0; j < 10; j++) {
-#endif
         vec4 L = lingua(j);
         if (L.z <= 0.0) continue;
         float a = L.x, rb = L.y, tip = L.z, wj = L.w;
@@ -184,6 +230,7 @@ void main() {
         adiciona(A, I, 0.16 * glowk * sat((2.5 * esc - db) / aa + 0.5));   // halo de 5 px
         cobre(A, I, env * sat(0.5 - sd / aa));
     }
+#endif
 
     // gotas
     for (int j = 0; j < 7; j++) {
