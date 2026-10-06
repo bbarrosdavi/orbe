@@ -218,7 +218,7 @@ DEFAULTS = {
         "rastro_niveis": True,
     },
     "orbe": {
-        # ofanim | ofanim_alado (orbe-qt/comum/Figura.qml) | serafim_gravura
+        # ofanim | ofanim_alado (orbe-qt/comum/Figura.qml) | serafim_gravura | olho | humana
         # (imagem recortada, orbe-qt/arte) | anel (rotoscope)
         "skin": "ofanim",
         "glitch": True,
@@ -229,7 +229,7 @@ DEFAULTS = {
         # escala do orbe na tela (0.6 a 1.6); 1.0 = célula de 148 px. É a de
         # cada skin que ainda não tem a sua em "tamanhos" (null)
         "tamanho": 1.0,
-        "tamanhos": {"anel": None, "serafim_gravura": None, "ofanim": None, "ofanim_alado": None},
+        "tamanhos": {"anel": None, "serafim_gravura": None, "ofanim": None, "ofanim_alado": None, "olho": None, "humana": None},
         # onde aparece o texto do raciocínio: lado | abaixo
         "texto": "lado",
         # destravado, o orbe pode ser arrastado; a posição fica em
@@ -255,7 +255,7 @@ DEFAULTS = {
         "ajustes": {
             "t": 0,
             # o agente de cada orbe da lista do relógio, pela skin; "" = Claude Code
-            "agentes": {"ofanim": "", "ofanim_alado": "", "serafim_gravura": "", "anel": ""},
+            "agentes": {"ofanim": "", "ofanim_alado": "", "serafim_gravura": "", "olho": "", "humana": "", "anel": ""},
             "voz": True,          # a resposta toca no relógio
             "voz_pc": False,      # tocando lá, toca também no PC
             "microfone": True,    # segurando o orbe, a fala vem do relógio
@@ -270,7 +270,7 @@ DEFAULTS = {
             "etapas": False,
             "idioma_etapas": "pt",
             # a escala de cada orbe do relógio; null = a de "tamanho"
-            "tamanhos": {"anel": None, "serafim_gravura": None, "ofanim": None, "ofanim_alado": None},
+            "tamanhos": {"anel": None, "serafim_gravura": None, "ofanim": None, "ofanim_alado": None, "olho": None, "humana": None},
             "seguir_pc": True,    # o avatar e o glitch vêm do orbe do PC
             # Os de baixo o PC só conhece depois de o relógio mandar os dele:
             # null é "ainda não sei", e o relógio fica com o que tem.
@@ -292,7 +292,7 @@ DEFAULTS = {
 
 # as skins do orbe, na ordem do app do desktop (o Seraphim desenhado, o Shoggoth
 # e a Entidade saíram); a lista do relógio tem a sua, em Skin.kt
-SKINS = ("ofanim", "ofanim_alado", "serafim_gravura", "anel")
+SKINS = ("ofanim", "ofanim_alado", "serafim_gravura", "olho", "humana", "anel")
 
 
 def _mesclar(base: dict, extra: dict) -> dict:

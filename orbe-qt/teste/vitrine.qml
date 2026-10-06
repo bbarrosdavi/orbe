@@ -8,11 +8,12 @@ Rectangle {
     property int lado: 148
     property real t: 0
     readonly property var skins: [["ofanim", "Ophanim"], ["ofanim_alado", "Ophanim com asas"],
-                                  ["serafim_gravura", "Seraphim (gravura)"], ["anel", "Anel de energia"]]
+                                  ["serafim_gravura", "Seraphim (gravura)"], ["olho", "Olho"], ["humana", "Humana"],
+                                  ["anel", "Anel de energia"]]
     readonly property var estados: [["listening", "ouvindo"], ["thinking", "pensando"], ["speaking", "respondendo"]]
     readonly property real syl: Math.abs(Math.sin(t * 4.6)) * (0.62 + 0.38 * Math.sin(t * 1.3))
     width: 130 + lado * 3
-    height: 26 + lado * 4
+    height: 26 + lado * skins.length
     color: "#141819"
 
     Repeater {
@@ -35,7 +36,7 @@ Rectangle {
         x: 130; y: 26
         columns: 3
         Repeater {
-            model: 12
+            model: folha.skins.length * 3
             Loader {
                 id: l
                 width: folha.lado; height: folha.lado

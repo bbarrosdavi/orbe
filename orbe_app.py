@@ -85,7 +85,7 @@ GEMINI_VOZES = [
     "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat",
 ]
 NOMES_SKIN = {"ofanim": "Ophanim", "ofanim_alado": "Ophanim com asas", "serafim_gravura": "Seraphim (gravura)",
-              "anel": "Anel de energia"}
+              "olho": "Olho", "humana": "Humana", "anel": "Anel de energia"}
 
 
 def _arquivos(pasta: Path, sufixos: tuple) -> list:

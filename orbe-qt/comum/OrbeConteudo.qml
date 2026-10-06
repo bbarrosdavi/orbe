@@ -31,10 +31,10 @@ Item {
     readonly property color corFigura: espelhoCor.a > 0 ? espelhoCor : corTema
     readonly property color corAccent: espelhoCor.a > 0 ? espelhoCor : accent
 
-    readonly property bool avatar: skinEmUso === "ofanim" || skinEmUso === "ofanim_alado" || skinEmUso === "serafim_gravura"
+    readonly property bool avatar: skinEmUso !== "anel"
     // as skins de imagem saem 5/3 maiores: o 60% do slider delas é o 100% das
     // outras (reduzida demais, a gravura perde a hachura)
-    readonly property real escala: tamanho * (skinEmUso === "serafim_gravura" ? 5 / 3 : 1)
+    readonly property real escala: tamanho * (({ serafim_gravura: 1, olho: 1, humana: 1 })[skinEmUso] ? 5 / 3 : 1)
     // ART_BOX é o tamanho visual da arte; ORB_BOX, a célula reservada para ela
     readonly property int orbBox: Math.round(148 * escala)
     readonly property int artBox: Math.round(120 * escala)
@@ -44,12 +44,12 @@ Item {
     readonly property bool textoAbaixo: textoPos === "abaixo"
     // abaixo, o texto começa onde a figura termina (medido nos renders, em
     // fração da célula a partir do centro): a linha mais antiga some ali
-    readonly property var pes: ({ ofanim: 0.39, ofanim_alado: 0.29, serafim_gravura: 0.38, anel: 0.35 })
+    readonly property var pes: ({ ofanim: 0.39, ofanim_alado: 0.29, serafim_gravura: 0.38, olho: 0.46, humana: 0.43, anel: 0.35 })
     readonly property real yTexto: Math.round(cy + orbBox * (pes[skinEmUso] || 0.35))
     // topo da figura acima do centro, em fração da célula (medido nos renders,
     // na coluna do meio, ouvindo e parada): o ponto da sessão travada fica
     // logo acima dele, perto da figura e longe da borda de cima da tela
-    readonly property var topo: ({ ofanim: 0.345, ofanim_alado: 0.277, serafim_gravura: 0.355, anel: 0.412 })
+    readonly property var topo: ({ ofanim: 0.345, ofanim_alado: 0.277, serafim_gravura: 0.355, olho: 0.38, humana: 0.40, anel: 0.412 })
     // abaixo, o orbe fica no mesmo lugar e a janela desce até a 5ª linha
     width: painel + orbBox
     height: textoAbaixo ? Math.max(orbBox, yTexto + 5 * 17 + 4) : orbBox
@@ -121,7 +121,7 @@ Item {
     }
     function espelhar(arg) {
         var v = arg.split(/\s+/)
-        var sk = ["ofanim", "ofanim_alado", "serafim_gravura", "anel"].indexOf(v[0]) >= 0 ? v[0] : ""
+        var sk = ["ofanim", "ofanim_alado", "serafim_gravura", "olho", "humana", "anel"].indexOf(v[0]) >= 0 ? v[0] : ""
         var e = { skin: sk, cor: sk && /^#[0-9a-fA-F]{6}$/.test(v[1] || "") ? v[1] : "transparent" }
         espelhoDepois = e
         if (!(visivel && fase === "out")) aplicarEspelho()
