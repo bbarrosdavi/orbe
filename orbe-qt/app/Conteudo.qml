@@ -696,7 +696,7 @@ Item {
                 // os de baixo só aparecem depois de o relógio mandar os dele
                 Grupo {
                     titulo: "Toques no orbe"
-                    descricao: "O que cada número de toques curtos faz no relógio."
+                    descricao: "O que cada número de toques faz no relógio: todos curtos, ou o último segurado."
                     visible: raiz.relogioConhecido
                     Repeater {
                         id: rwToques
@@ -705,6 +705,16 @@ Item {
                             titulo: index === 0 ? "1 toque" : (index + 1) + " toques"
                             subtitulo: raiz.descricaoToque[efetivo] || ""
                             itens: raiz.acoesToque
+                        }
+                    }
+                    Repeater {
+                        id: rwSegurar
+                        model: 4
+                        LinhaCombo {
+                            // os toques antes, o último segurado
+                            titulo: index === 0 ? "Segura" : index === 1 ? "Toca e segura" : index + " toques e segura"
+                            subtitulo: raiz.descricaoToque[efetivo] || ""
+                            itens: raiz.acoesSegurar
                         }
                     }
                     LinhaSwitch {
@@ -926,7 +936,7 @@ Item {
     // o relógio já mandou os ajustes que só ele conhecia (os toques, a ordem, os gestos);
     // antes disso, essas linhas não aparecem e nada delas vai para lá
     property bool relogioConhecido: false
-    readonly property var camposDoRelogio: ["toques", "live", "fundo", "ordem", "sacudida", "sair",
+    readonly property var camposDoRelogio: ["toques", "segurar", "live", "fundo", "ordem", "sacudida", "sair",
                                             "sacudida_fora", "sacudida_dentro", "sair_fora"]
     property var ordemRelogio: []
     // as calibrações das sacudidas, em rad/s; 0 volta ao padrão do relógio
@@ -935,11 +945,13 @@ Item {
         { id: "abrir", nome: "Abrir" }, { id: "live", nome: "Live" }, { id: "encerrar", nome: "Encerrar" },
         { id: "historico", nome: "Histórico" }, { id: "nada", nome: "Nada" }
     ]
+    readonly property var acoesSegurar: acoesToque.slice(0, 4).concat([{ id: "falar", nome: "Falar" }, { id: "nada", nome: "Nada" }])
     readonly property var descricaoToque: ({
         abrir: "fechado, abre; aberto, entra no live; no live, interrompe",
         live: "liga o live, abrindo se precisar; ligado, fecha",
         encerrar: "fecha a sessão e, com o Claude, a sessão dele no PC",
-        historico: "as sessões passadas do agente, para retomar uma"
+        historico: "as sessões passadas do agente, para retomar uma",
+        falar: "a fala vai enquanto o dedo fica no orbe"
     })
     function um(v) { return Number(v).toFixed(1).replace(".", ",") }
     function moverOrbe(i, passo) {
@@ -1070,6 +1082,8 @@ Item {
         if (relogioConhecido) {
             for (var k = 0; k < rwToques.count; k++)
                 rwToques.itemAt(k).valor = aj.toques[k] || "nada"
+            for (var s = 0; s < rwSegurar.count; s++)
+                rwSegurar.itemAt(s).valor = aj.segurar[s] || "nada"
             rwLive.ligado = !!aj.live
             rwFundo.ligado = !!aj.fundo
             rwSacudida.ligado = !!aj.sacudida
@@ -1106,6 +1120,9 @@ Item {
             aj.toques = []
             for (var k = 0; k < rwToques.count; k++)
                 aj.toques.push(rwToques.itemAt(k).efetivo)
+            aj.segurar = []
+            for (var s = 0; s < rwSegurar.count; s++)
+                aj.segurar.push(rwSegurar.itemAt(s).efetivo)
             aj.live = rwLive.ligado
             aj.fundo = rwFundo.ligado
             aj.sacudida = rwSacudida.ligado

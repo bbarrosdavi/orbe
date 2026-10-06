@@ -208,15 +208,18 @@ CAMPOS_AJUSTES = {"voz": bool, "voz_pc": bool, "microfone": bool, "vibrar": bool
 # a língua das etapas faladas: traduzidas para o português, ou como o agente escreve
 IDIOMAS_ETAPAS = ("pt", "original")
 # os que o PC só conhece pelo relógio: null no config até ele mandar os dele
-CAMPOS_DO_RELOGIO = ("toques", "live", "fundo", "ordem", "sacudida", "sair",
+CAMPOS_DO_RELOGIO = ("toques", "segurar", "live", "fundo", "ordem", "sacudida", "sair",
                      "sacudida_fora", "sacudida_dentro", "sair_fora")
 ACOES_TOQUE = ("abrir", "live", "encerrar", "historico", "nada")
+# com o último toque segurado também dá para falar (segurar para falar)
+ACOES_SEGURAR = ACOES_TOQUE + ("falar",)
 
 
 def _do_relogio(k: str, v):
     """Um dos CAMPOS_DO_RELOGIO validado; None se não serve."""
-    if k == "toques":
-        ok = isinstance(v, list) and len(v) == 4 and all(a in ACOES_TOQUE for a in v)
+    if k in ("toques", "segurar"):
+        acoes = ACOES_TOQUE if k == "toques" else ACOES_SEGURAR
+        ok = isinstance(v, list) and len(v) == 4 and all(a in acoes for a in v)
         return list(v) if ok else None
     if k == "ordem":
         if not isinstance(v, list):
