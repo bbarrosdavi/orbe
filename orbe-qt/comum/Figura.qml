@@ -597,7 +597,10 @@ if (skin in polares) {
         property vector4d glt: raiz._glt
         property vector4d geo2: raiz._geo2
         property vector4d sombra: Qt.vector4d(raiz.sombraRaio, raiz.sombraAlfa, 0, raiz.sombraLigada ? 1 : 0)
-        property vector4d corSombra: Qt.vector4d(raiz.sombraCor.r, raiz.sombraCor.g, raiz.sombraCor.b, 1)
+        // nas gravuras recortadas (Paranoia, Rei dos Ratos) a massa é preta, como no
+        // desenho: no tom do fundo do tema ela levantava as sombras e lavava a imagem
+        property vector4d corSombra: raiz.skin in raiz.polares ? Qt.vector4d(0, 0, 0, 1)
+                                     : Qt.vector4d(raiz.sombraCor.r, raiz.sombraCor.g, raiz.sombraCor.b, 1)
         property vector4d modo: Qt.vector4d(0, 1, 0, 0)
         property vector4d banda0
         property vector4d banda1
