@@ -1,11 +1,14 @@
 import QtQuick
 
-// Os outros orbes em volta do principal (o que está no relógio), como elétrons:
-// cada um numa órbita própria, inclinada num plano seu (tirado do id, para
-// não mudar quando a lista muda), com raio, velocidade e sentido próprios e o
-// plano girando devagar; passam por trás e pela frente da figura. Os sem
-// sessão orbitam também, apagados e mais devagar (fantasmas). O que pediu a vez
-// de falar e não a pegou para de orbitar e espera no canto de baixo à esquerda.
+// Os outros orbes em volta do principal (o que está no relógio), em 3D com
+// perspectiva: passam por trás e pela frente da figura, menores quanto mais
+// longe. Dois jeitos de andar (movimento, config orbe.luas):
+//  - vagalumes (padrão): soltos, cada um com uma vontade que vagueia e uma
+//    pressa que vai de pairar a arrancar, numa casca em volta do orbe;
+//  - orbitas: elétrons, cada um numa elipse de perfil num plano seu (tirado do
+//    id), com raio, velocidade e sentido próprios e o plano girando devagar.
+// Os sem sessão andam também, apagados e mais devagar (fantasmas). O que pediu
+// a vez de falar e não a pegou para e espera no canto de baixo à esquerda.
 //
 // lista: [{ id, skin, cor ("#rrggbb" ou "" = a do tema), tipo: "ativo" | "fantasma" | "espera" }]
 // Quem usa chama passo(dt) a cada quadro. Fica dentro da célula do orbe
@@ -50,11 +53,15 @@ Item {
         return (h % 100000) / 100000
     }
 
-    // a posição na órbita (dx, dy a partir do centro) e a profundidade (-1 atrás, 1 na frente)
+    // a posição na órbita já projetada (dx, dy a partir do centro), a profundidade
+    // (-1 atrás, 1 na frente) e a escala da perspectiva
     function orbita(e) {
         var id = e.id, fant = e.tipo === "fantasma"
         var r = lado * (0.25 + 0.08 * sorte(id, 1))
-        var inc = (sorte(id, 2) - 0.5) * 2.2              // a inclinação do plano
+        // o plano quase de perfil (57° a 80° da tela), como os elétrons no desenho
+        // do átomo: a elipse vista é fina e cruza o orbe, uma vez pela frente e
+        // outra por trás. De frente para a tela, a lua só rodeava a borda.
+        var inc = (1.0 + 0.4 * sorte(id, 2)) * (sorte(id, 10) < 0.5 ? -1 : 1)
         var no = sorte(id, 3) * tau + t * (0.06 + 0.1 * sorte(id, 4))   // o plano gira devagar
         var w = (0.55 + 0.6 * sorte(id, 5)) * (sorte(id, 6) < 0.5 ? -1 : 1) * (fant ? 0.45 : 1)
         var a = sorte(id, 7) * tau + w * t
@@ -63,7 +70,78 @@ Item {
         var x = Math.cos(a) * r, y = Math.sin(a) * r
         var y2 = y * Math.cos(inc), z = y * Math.sin(inc)
         var c = Math.cos(no), s = Math.sin(no)
-        return { x: x * c - y2 * s, y: x * s + y2 * c, d: z / r }
+        // perspectiva: a câmera a uns 3 raios do centro; a lua da frente cresce e
+        // se afasta do centro na tela, a de trás encolhe e se aproxima
+        var p = camera / (camera - z)
+        return { x: (x * c - y2 * s) * p, y: (x * s + y2 * c) * p, d: z / r, p: p }
+    }
+    readonly property real camera: lado * 0.95
+
+    // vagalumes | orbitas (config orbe.luas): vagalumes andam soltos, vivos;
+    // órbitas são as elipses fixas de perfil acima
+    property string movimento: "vagalumes"
+    // o estado de cada vagalume, pelo id (sobrevive à troca da lista):
+    // posição e velocidade em 3D, em px a partir do centro
+    property var enxame: ({})
+
+    // uma vontade que muda devagar e nunca se repete: três senos de frequências
+    // sem razão simples entre si, de -1 a 1
+    function onda(id, k, f) {
+        return 0.55 * Math.sin(t * f * 0.9 + sorte(id, k) * tau)
+             + 0.30 * Math.sin(t * f * 2.31 + sorte(id, k + 1) * tau)
+             + 0.15 * Math.sin(t * f * 5.17 + sorte(id, k + 2) * tau)
+    }
+
+    // um passo de vagalume: segue uma direção que vagueia, com pressa que vai de
+    // quase parado a uma arrancada, numa casca em volta do orbe (nem grudado no
+    // centro, nem longe), afastando-se dos outros. Devolve o mesmo que orbita().
+    function vagalume(e, dt) {
+        var id = e.id, fant = e.tipo === "fantasma"
+        var rMin = lado * 0.17, rMax = lado * 0.35
+        var s = enxame[id]
+        if (!s) {
+            // nasce num ponto da casca tirado do id
+            var th = sorte(id, 11) * tau, ph = Math.acos(2 * sorte(id, 12) - 1), r0 = lado * 0.27
+            s = { x: r0 * Math.sin(ph) * Math.cos(th), y: r0 * Math.sin(ph) * Math.sin(th),
+                  z: r0 * Math.cos(ph), vx: 0, vy: 0, vz: 0 }
+            enxame[id] = s
+        }
+        dt = Math.min(dt, 0.05)
+        // a pressa: a maior parte do tempo devagar, às vezes uma arrancada; os
+        // fantasmas, mais lentos
+        var q = 0.5 + 0.5 * onda(id, 20, 0.6)
+        var pressa = lado * (0.12 + 1.0 * q * q) * (fant ? 0.45 : 1)
+        var dx = onda(id, 30, 1.2), dy = onda(id, 40, 1.11), dz = onda(id, 50, 1.29)
+        var n = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1
+        dx /= n; dy /= n; dz /= n
+        // a casca: na borda dela, a vontade perde a parte que sairia (por fora ou
+        // por dentro) e o vagalume desliza em volta do orbe; quem passa ainda é
+        // puxado de volta
+        var r = Math.sqrt(s.x * s.x + s.y * s.y + s.z * s.z) || 1
+        var ux = s.x / r, uy = s.y / r, uz = s.z / r
+        var radial = dx * ux + dy * uy + dz * uz
+        if ((r > rMax * 0.85 && radial > 0) || (r < rMin * 1.2 && radial < 0)) {
+            dx -= radial * ux; dy -= radial * uy; dz -= radial * uz
+        }
+        var ax = (dx * pressa - s.vx) * 3.5, ay = (dy * pressa - s.vy) * 3.5, az = (dz * pressa - s.vz) * 3.5
+        var f = r > rMax ? -(r - rMax) * 25 : r < rMin ? (rMin - r) * 25 : 0
+        ax += f * ux; ay += f * uy; az += f * uz
+        // os outros: cada um no seu espaço
+        var perto = tamanho * 0.7
+        for (var j = 0; j < vista.length; j++) {
+            var o = enxame[vista[j].id]
+            if (!o || o === s) continue
+            var ex = s.x - o.x, ey = s.y - o.y, ez = s.z - o.z
+            var dd = Math.sqrt(ex * ex + ey * ey + ez * ez) || 1
+            if (dd < perto) {
+                var k = (perto - dd) * 6 / dd
+                ax += ex * k; ay += ey * k; az += ez * k
+            }
+        }
+        s.vx += ax * dt; s.vy += ay * dt; s.vz += az * dt
+        s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt
+        var p = Math.max(0.6, Math.min(1.6, camera / (camera - s.z)))
+        return { x: s.x * p, y: s.y * p, d: Math.max(-1, Math.min(1, s.z / rMax)), p: p }
     }
 
     // onde está agora (para a arte principal sair dali crescendo), ou null
@@ -79,12 +157,17 @@ Item {
     // o principal [de] vira satélite: entra na órbita saindo do centro
     function trocar(de) {
         saindo = { id: "_saindo", skin: de.skin, cor: de.cor || "", tipo: "ativo" }
+        delete enxame["_saindo"]
         var en = entradas
         en["_saindo"] = { t0: t, s0: lado / tamanho * 0.85 }
         entradas = en
     }
 
     onListaChanged: {
+        // quem saiu da lista leva o vagalume junto
+        var vivos = {}
+        for (var v = 0; v < lista.length; v++) vivos[lista[v].id] = true
+        for (var idv in enxame) if (!vivos[idv] && idv !== "_saindo") delete enxame[idv]
         // a lista nova trouxe o que saiu: ele continua a entrada com o id de verdade
         if (saindo) {
             for (var i = 0; i < lista.length; i++) {
@@ -93,6 +176,9 @@ Item {
                     if (en["_saindo"]) en[lista[i].id] = en["_saindo"]
                     delete en["_saindo"]
                     entradas = en
+                    // o vagalume dele segue de onde estava, com o id de verdade
+                    if (enxame["_saindo"]) enxame[lista[i].id] = enxame["_saindo"]
+                    delete enxame["_saindo"]
                     saindo = null
                     break
                 }
@@ -120,7 +206,7 @@ Item {
         Item {
             id: lua
             readonly property var e: modelData
-            property var pos: ({ x: 0, y: 0, d: 1 })
+            property var pos: ({ x: 0, y: 0, d: 1, p: 1 })
             readonly property bool espera: e.tipo === "espera"
             readonly property bool fantasma: e.tipo === "fantasma"
             // entrando na órbita vindo do centro: 0 no centro, 1 na órbita
@@ -131,7 +217,10 @@ Item {
             readonly property real alvoY: espera ? sat.lado * 0.36 : pos.y
             readonly property real px: alvoX * entrando
             readonly property real py: alvoY * entrando
-            readonly property real escNormal: espera ? 1.1 * (1 + 0.05 * Math.sin(sat.t * 3)) : 0.78 + 0.22 * (pos.d + 1) / 2
+            // o tamanho segue a perspectiva: de 0,44 lá atrás a 0,85 na frente (antes
+            // ia de 0,78 a 1, sem perspectiva; o Davi pediu as luas menores duas
+            // vezes, a segunda em 15%)
+            readonly property real escNormal: espera ? 1.1 * (1 + 0.05 * Math.sin(sat.t * 3)) : 0.58 * pos.p
             width: sat.tamanho
             height: sat.tamanho
             x: sat.width / 2 + rx - width / 2
@@ -150,7 +239,7 @@ Item {
 
             property real acumulado: 0
             function avancar(dt, quadro) {
-                if (!espera) pos = sat.orbita(e)
+                if (!espera) pos = sat.movimento === "orbitas" ? sat.orbita(e) : sat.vagalume(e, dt)
                 var en = sat.entradas[e.id]
                 if (en) {
                     entrando = sat.suave((sat.t - en.t0) / sat.duracao)

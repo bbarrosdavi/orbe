@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Effects
 
 // Conteúdo do orbe de voz, sem nada de Quickshell, para rodar offscreen nos
 // testes. Portado do Ring/OrbWin do orbe GTK antigo: fases de entrada e
@@ -19,6 +18,9 @@ Item {
     property real sombra: 0.45             // opacidade da sombra no centro
     property real tamanho: 1.0
     property string textoPos: "lado"       // lado | abaixo: onde fica o raciocínio
+    property bool textoSombra: true        // a nuvem no tom do fundo atrás do texto
+    property real textoSombraForca: 0.7    // a opacidade dela no meio (0.1 a 1.0)
+    property string luasMovimento: "vagalumes"   // vagalumes | orbitas: como os outros orbes andam
     property color corTema: "#b8cacb"      // @accent_bg_color: cor dos avatares
     property color accent: "#f3b2e3"       // --colorAccentBg: paleta do anel
     property color corFundo: "#121414"     // @window_bg_color: sombra e contorno do texto
@@ -277,6 +279,7 @@ Item {
             anchors.fill: parent
             lado: orbe.orbBox
             lista: orbe.satelites
+            movimento: orbe.luasMovimento
             corTema: orbe.corTema
             corAnel: orbe.accent
             glitch: orbe.glitch
@@ -406,32 +409,35 @@ Item {
         function yLinha(i, n) {
             return orbe.textoAbaixo ? orbe.yTexto + i * 17 : orbe.cy - (n - 1) * 8.5 + i * 17 - fm.ascent
         }
-        // sombra atrás das linhas: uma faixa no tom do fundo por linha, borrada
-        // junto, para o texto destacar do texto das janelas que estiverem atrás
-        Item {
+        // sombra atrás do texto, opcional (config: orbe.texto_sombra e a
+        // intensidade em orbe.texto_sombra_forca): uma nuvem macia em volta do
+        // bloco de linhas, para o texto destacar das janelas que estiverem atrás
+        // (shaders/sombra_texto.frag)
+        ShaderEffect {
             id: sombraTexto
+            visible: orbe.textoSombra && orbe.textoSombraForca > 0
             x: 0; y: 0
             width: orbe.width; height: orbe.height
-            layer.enabled: true
-            layer.effect: MultiEffect {
-                blurEnabled: true
-                blur: 1.0
-                blurMax: 16
-                autoPaddingEnabled: true
-            }
-            Repeater {
-                model: orbe.linhasQuebradas
-                Rectangle {
-                    readonly property int n: orbe.linhasQuebradas.length
-                    x: texto.xLinha(modelData) - 9
-                    y: texto.yLinha(index, n) - 2
-                    width: fm.advanceWidth(modelData) + 18
-                    height: 19
-                    radius: 8
-                    color: orbe.corFundo
-                    opacity: (0.6 + 0.4 * texto.alfas[5 - n + index]) * 0.9 * orbe.envAlfa
+            fragmentShader: Qt.resolvedUrl("../shaders/sombra_texto.frag.qsb")
+            readonly property var bloco: {
+                var ls = orbe.linhasQuebradas, n = ls.length
+                if (!n) return [0, 0, 0, 0]
+                var x0 = 1e9, x1 = 0
+                for (var i = 0; i < n; i++) {
+                    var xl = texto.xLinha(ls[i])
+                    x0 = Math.min(x0, xl)
+                    x1 = Math.max(x1, xl + fm.advanceWidth(ls[i]))
                 }
+                return [x0 - 4, texto.yLinha(0, n) - 1, x1 + 4, texto.yLinha(n - 1, n) + fm.height + 1]
             }
+            property vector2d tam: Qt.vector2d(width, height)
+            property vector4d caixa: Qt.vector4d(bloco[0], bloco[1], bloco[2], bloco[3])
+            property vector4d cor: Qt.vector4d(orbe.corFundo.r, orbe.corFundo.g, orbe.corFundo.b,
+                                               orbe.textoSombraForca * orbe.envAlfa)
+            // esmaecimento de 24 px para fora, cantos de 10 px; as linhas longas
+            // encostam na borda da janela, e ali a nuvem vai a zero em 24 px
+            // (em 10 ficava uma quina)
+            property vector4d forma: Qt.vector4d(24, 10, 24, 0)
         }
         Repeater {
             model: orbe.linhasQuebradas

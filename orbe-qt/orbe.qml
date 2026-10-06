@@ -48,6 +48,10 @@ ShellRoot {
         var tam = parseFloat(proprio === undefined || proprio === null ? o.tamanho : proprio)
         conteudo.tamanho = isNaN(tam) ? 1.0 : Math.min(1.6, Math.max(0.6, tam))
         conteudo.textoPos = o.texto === "abaixo" ? "abaixo" : "lado"
+        conteudo.textoSombra = o.texto_sombra === undefined ? true : !!o.texto_sombra
+        var fs = parseFloat(o.texto_sombra_forca)
+        conteudo.textoSombraForca = isNaN(fs) ? 0.7 : Math.min(1.0, Math.max(0.1, fs))
+        conteudo.luasMovimento = o.luas === "orbitas" ? "orbitas" : "vagalumes"
         raiz.mover = !!o.mover
     }
     function corCss(texto, re, padrao) {

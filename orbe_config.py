@@ -235,6 +235,13 @@ DEFAULTS = {
         "tamanhos": {"anel": None, "serafim_gravura": None, "ofanim": None, "ofanim_alado": None, "olho": None, "humana": None},
         # onde aparece o texto do raciocínio: lado | abaixo
         "texto": "lado",
+        # a nuvem no tom do fundo atrás do texto do raciocínio, e a opacidade
+        # dela no meio (0.1 a 1.0)
+        "texto_sombra": True,
+        "texto_sombra_forca": 0.7,
+        # como os outros orbes (as sessões em paralelo) andam em volta deste:
+        # vagalumes (soltos, vivos) | orbitas (elipses de perfil, como elétrons)
+        "luas": "vagalumes",
         # destravado, o orbe pode ser arrastado; a posição fica em
         # ~/.config/orbe/orbe-posicao.json (o padrão é o canto)
         "mover": False,

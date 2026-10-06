@@ -32,6 +32,7 @@ Item {
             for (var i = 0; i < cartoes.count; i++) cartoes.itemAt(i).avancar(dt)
             tamanho.avancar(dt)
             if (rSombra.visible) rSombra.avancar(dt)
+            if (rTextoSombraForca.visible) rTextoSombraForca.avancar(dt)
         }
     }
 
@@ -576,6 +577,27 @@ Item {
                         itens: [{ id: "lado", nome: "Ao lado do orbe" }, { id: "abaixo", nome: "Abaixo do orbe" }]
                     }
                     LinhaSwitch {
+                        id: rTextoSombra
+                        titulo: "Sombra atrás do texto"
+                        subtitulo: "nuvem escura e macia, para o raciocínio destacar das janelas de trás"
+                    }
+                    SliderOrbe {
+                        id: rTextoSombraForca
+                        visible: rTextoSombra.ligado
+                        titulo: "Intensidade da sombra do texto"
+                        subtitulo: "opacidade no meio da nuvem"
+                        de: 0.1; ate: 1.0; passo: 0.05
+                        marca: 0.7
+                        skin: raiz.skin
+                        glitch: rGlitch.ligado
+                    }
+                    LinhaCombo {
+                        id: rLuas
+                        titulo: "Movimento dos outros orbes"
+                        subtitulo: "como as sessões em paralelo andam em volta deste"
+                        itens: [{ id: "vagalumes", nome: "Vagalumes" }, { id: "orbitas", nome: "Órbitas" }]
+                    }
+                    LinhaSwitch {
                         id: rMover
                         titulo: "Mover o orbe pela tela"
                         subtitulo: "destravado, arrastar o orbe muda o lugar dele; travado, ele fica onde está"
@@ -1074,7 +1096,10 @@ Item {
     readonly property var aparencia: ({ skin: raiz.skin, glitch: rGlitch.ligado,
                                         vidro: rVidro.ligado, sombra: rSombra.valor,
                                         tamanho: tamanho.valor,
-                                        texto: rTexto.efetivo })
+                                        texto: rTexto.efetivo,
+                                        texto_sombra: rTextoSombra.ligado,
+                                        texto_sombra_forca: rTextoSombraForca.valor,
+                                        luas: rLuas.efetivo })
     onAparenciaChanged: if (ponte.previa) ponte.atualizarPrevia(aparencia)
     readonly property string ttsEfetivo: rTts.efetivo || ponte.ttsPerfil
 
@@ -1264,6 +1289,9 @@ Item {
         rVidro.ligado = !!o.vidro
         rSombra.definir(o.sombra === undefined ? 0.45 : o.sombra)
         rTexto.valor = o.texto || "lado"
+        rTextoSombra.ligado = o.texto_sombra === undefined ? true : !!o.texto_sombra
+        rTextoSombraForca.definir(o.texto_sombra_forca === undefined ? 0.7 : o.texto_sombra_forca)
+        rLuas.valor = o.luas || "vagalumes"
         rMover.ligado = !!o.mover
         skinDoTamanho = skin
         tamanho.definir(tamanhoDe(skin))
@@ -1327,6 +1355,9 @@ Item {
                 cfg.orbe.tamanhos[s] = Math.round(raiz.tamanhos[s] * 100) / 100
         }
         cfg.orbe.texto = rTexto.efetivo
+        cfg.orbe.texto_sombra = rTextoSombra.ligado
+        cfg.orbe.texto_sombra_forca = rTextoSombraForca.valor
+        cfg.orbe.luas = rLuas.efetivo
         cfg.orbe.mover = rMover.ligado
         // vão à parte, para o chaves.env (o config.json não guarda chave)
         cfg.chaves = {}
