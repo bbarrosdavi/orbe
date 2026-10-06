@@ -17,11 +17,15 @@ import QtQuick
 // (arte/<skin>.png); as asas giram em volta da raiz e as íris seguem o olhar.
 // Seraphim (gravura): parado, meio recolhido; ouvindo, aberto como desenhado;
 // pensando, as asas batem; falando, tremulam com a voz.
-// Olho e Humana (uma célula, deformada em volta de um polo; ver imagem.frag):
-// parado, as pontas ondulam devagar; ouvindo, esticam um pouco e o olho
-// encara quem fala, com a pupila aberta; pensando, as pontas se torcem e a
-// pupila fecha e vasculha para cima; ferramentas, as pontas tremem; falando,
-// cada sílaba chuta as molas. A Humana gira inteira, devagar (pensando, mais).
+// Olho e Humana (peças recortadas, como num Live2D; ver imagem.frag): cada
+// membro e cada raio é uma cadeia de juntas com molas, e a junta de fora
+// recebe o contrário da velocidade da de dentro, o que dá o chicote dos
+// tentáculos. Parado, uma onda lenta corre da base à ponta; ouvindo, os
+// membros se esticam e acalmam, e o olho encara quem fala com a pupila
+// aberta; pensando, se contorcem devagar (a figura não gira), e as pálpebras
+// apertam; ferramentas, espasmos; falando, cada sílaba chuta as bases e o
+// chute sobe até as pontas. Os corpos da Humana balançam em volta do pescoço,
+// levando os membros; no Olho a coroa de raios gira e as pálpebras piscam.
 Item {
     id: raiz
 
@@ -57,8 +61,9 @@ Item {
     })
     // skins de imagem: o atlas mora em arte/<skin>.png
     readonly property var imagens: ({ serafim_gravura: true, olho: true, humana: true })
-    // as de uma célula só, deformada em volta de um polo
+    // as de peças: quantas cadeias, quantas juntas em cada e quantos corpos (imagem.frag)
     readonly property var polares: ({ olho: true, humana: true })
+    readonly property var partes: ({ olho: { cadeias: 48, juntas: 2, corpos: 0 }, humana: { cadeias: 27, juntas: 3, corpos: 8 } })
 
     function raioQueCabe(w, h, d) {
         var al = alcances[skin] || alcances.ofanim
@@ -102,11 +107,8 @@ Item {
             giroRaios: 0, pupila: 1, clarao: 0,
             faseAsa: 0,
             abreAsa: 0.2, ampAsa: 0,
-            // olho e humana: as 16 molas em volta do polo
-            campo: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            vcampo: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            semCampo: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map(function () { return uni(0, 100) }),
-            giro: 0, torcao: 0, tremor: 0, encarar: 0
+            // olho e humana: as molas das peças (estadoPartes), a pupila que encara
+            pc: null, encarar: 0
         }
     }
 
@@ -122,7 +124,7 @@ Item {
         }
         s.ondas = s.ondas.filter(function (o) { return s.t - o[0] < 1.3 })
         if (skin === "serafim_gravura") evoluirGravura(dt)
-        else if (skin in polares) evoluirPolar(dt)
+        else if (skin in polares) evoluirPartes(dt)
         else {
             evoluirOfanim(dt)
             if (skin === "ofanim_alado") {
@@ -171,29 +173,91 @@ Item {
         s.faseAsa += dt * tau * (mistura({ idle: 0.2, listening: 0.1, thinking: 0.9, tools: 1.6, speaking: 0.6 }) + 0.8 * falar)
     }
 
-    function evoluirPolar(dt) {
-        var s = st, t = s.t
-        var ouvir = p("listening"), pensar = p("thinking"), ferr = p("tools")
+    function estadoPartes() {
+        var s = st
+        if (s.pc) return s.pc
+        var d = partes[skin]
+        var pc = { ang: [], vel: [], fase: [], sinal: [], sem: [], est: [], vest: [],
+                   corpo: [], vcorpo: [], fcorpo: [], giro: 0, palp: 0, vpalp: 0, piscaEm: uni(1.5, 4), piscaAte: 0 }
+        for (var i = 0; i < d.cadeias; i++) {
+            pc.ang.push([0, 0, 0]); pc.vel.push([0, 0, 0])
+            pc.fase.push(uni(0, tau)); pc.sinal.push(Math.random() < 0.5 ? -1 : 1); pc.sem.push(uni(0, 100))
+            pc.est.push(0); pc.vest.push(0)
+        }
+        for (var b = 0; b < d.corpos; b++) { pc.corpo.push(0); pc.vcorpo.push(0); pc.fcorpo.push(uni(0, tau)) }
+        s.pc = pc
+        return pc
+    }
+
+    function evoluirPartes(dt) {
+        var s = st, t = s.t, pc = estadoPartes(), d = partes[skin]
+        var ouvir = p("listening"), ferr = p("tools")
         var falar = p("speaking") * voz
         var dG = suave(desperto)
-        // a Humana gira inteira; o Olho não (só o halo se torce, e volta)
-        if (skin === "humana")
-            s.giro += dt * (mistura({ idle: 0.035, listening: 0.0, thinking: 0.45, tools: 0.12, speaking: 0.06 }) + 0.15 * falar)
-        s.torcao = mistura({ idle: 0.03, listening: 0.0, thinking: 0.16, tools: 0.05, speaking: 0.05 }) * ruido(t * 0.9, 7)
-        // as molas: cada setor busca o seu alvo, que ondula pelo estado; ao
-        // despertar, as pontas vêm recolhidas
-        var ext = mistura({ idle: 0.0, listening: 0.035, thinking: -0.015, tools: 0.0, speaking: 0.02 }) - 0.45 * (1 - dG)
-        var amp = mistura({ idle: 0.018, listening: 0.008, thinking: 0.04, tools: 0.02, speaking: 0.03 })
-        var fr = mistura({ idle: 0.45, listening: 0.3, thinking: 1.5, tools: 2.6, speaking: 1.1 })
-        // a onda nascida neste quadro (uma por sílaba) chuta todas as molas
+        var humana = skin === "humana"
+        // a onda nascida neste quadro (uma por sílaba) chuta as bases
         var chute = s.ultimaOnda === s.t && s.ondas.length ? s.ondas[s.ondas.length - 1][1] : 0
-        for (var i = 0; i < 16; i++) {
-            var alvo = ext + amp * ruido(t * fr, s.semCampo[i])
-            s.vcampo[i] += (55 * (alvo - s.campo[i]) - 6.5 * s.vcampo[i]) * dt
-            if (chute > 0) s.vcampo[i] += chute * uni(0.15, 0.55)
-            s.campo[i] += s.vcampo[i] * dt
+        var amp = humana ? mistura({ idle: 0.16, listening: 0.06, thinking: 0.30, tools: 0.12, speaking: 0.18 })
+                         : mistura({ idle: 0.13, listening: 0.05, thinking: 0.26, tools: 0.10, speaking: 0.17 })
+        var fr = humana ? mistura({ idle: 0.32, listening: 0.20, thinking: 0.26, tools: 1.8, speaking: 0.7 })
+                        : mistura({ idle: 0.55, listening: 0.40, thinking: 0.80, tools: 2.4, speaking: 1.2 })
+        var ganho = humana ? [0.45, 1.0, 1.25] : [0.7, 1.25]
+        var K = humana ? [26, 34, 42] : [30, 38], C = humana ? [4.2, 4.8, 5.4] : [4.6, 5.2]
+        var lim = humana ? [0.32, 0.7, 0.8] : [0.5, 0.75]
+        var nj = d.juntas
+        // ao despertar, as peças vêm encolhidas e se abrem
+        var enrola = (1 - dG) * 0.9
+        // espasmo das ferramentas: uma junta qualquer leva um tranco
+        if (ferr > 0.05 && Math.random() < ferr * dt * 4) {
+            var ci = sorteia(d.cadeias)
+            pc.vel[ci][sorteia(nj)] += uni(-4, 4)
         }
-        s.tremor = 0.012 * ferr
+        if (chute > 0) {
+            for (var c0 = 0; c0 < d.cadeias; c0++) {
+                if (Math.random() < 0.7) pc.vel[c0][0] += pc.sinal[c0] * chute * uni(0.6, 1.6) * (humana ? 1.2 : 1.8)
+                if (!humana) pc.vest[c0] += chute * uni(0.4, 1.2)
+            }
+        }
+        var n = Math.max(1, Math.ceil(dt / 0.012)), h = dt / n
+        for (var it = 0; it < n; it++) {
+            for (var i = 0; i < d.cadeias; i++) {
+                var a = pc.ang[i], v = pc.vel[i], sg = pc.sinal[i]
+                for (var j = 0; j < nj; j++) {
+                    var onda = Math.sin(tau * fr * t + pc.fase[i] - 1.1 * j)
+                    var alvo = sg * (amp * ganho[j] * onda - enrola * ganho[j]) + amp * 0.35 * ruido(t * fr * 1.7, pc.sem[i] + j)
+                    // o chicote: a junta de fora atrasa em relação à de dentro
+                    var acc = K[j] * (alvo - a[j]) - C[j] * v[j] - (j > 0 ? 4.0 * v[j - 1] : 0)
+                    v[j] += acc * h
+                    a[j] = Math.max(-lim[j], Math.min(lim[j], a[j] + v[j] * h))
+                }
+                if (!humana) {
+                    var ae = mistura({ idle: 0.0, listening: 0.06, thinking: -0.03, tools: 0.0, speaking: 0.04 }) - 0.55 * (1 - dG)
+                    pc.vest[i] += (40 * (ae - pc.est[i]) - 6 * pc.vest[i]) * h
+                    pc.est[i] = Math.max(-0.6, Math.min(0.5, pc.est[i] + pc.vest[i] * h))
+                }
+            }
+            if (humana) {
+                var ab = mistura({ idle: 0.04, listening: 0.02, thinking: 0.07, tools: 0.03, speaking: 0.05 })
+                for (var b = 0; b < d.corpos; b++) {
+                    var alvoB = ab * Math.sin(tau * 0.22 * t + pc.fcorpo[b]) + ab * 0.4 * ruido(t * 0.5, pc.fcorpo[b] * 7)
+                    pc.vcorpo[b] += (14 * (alvoB - pc.corpo[b]) - 3.2 * pc.vcorpo[b]) * h
+                    pc.corpo[b] = Math.max(-0.12, Math.min(0.12, pc.corpo[b] + pc.vcorpo[b] * h))
+                }
+            }
+        }
+        if (humana && chute > 0)
+            for (var b2 = 0; b2 < d.corpos; b2++) pc.vcorpo[b2] += (Math.random() < 0.5 ? -1 : 1) * chute * 0.35
+        if (!humana) {
+            // a coroa de raios gira; pensando, mais depressa
+            pc.giro += dt * (mistura({ idle: 0.06, listening: 0.02, thinking: 0.35, tools: 0.12, speaking: 0.10 }) + 0.2 * falar)
+            // as pálpebras: apertam pensando, piscam de tempos em tempos, fechadas ao despertar
+            if (t >= pc.piscaEm) { pc.piscaAte = t + 0.11; pc.piscaEm = t + uni(2.5, 6.5) }
+            var fecha = mistura({ idle: 0.06, listening: 0.0, thinking: 0.35, tools: 0.22, speaking: 0.08 })
+            if (t < pc.piscaAte) fecha = 1
+            fecha = Math.max(fecha, 1 - dG)
+            pc.vpalp += (320 * (fecha - pc.palp) - 30 * pc.vpalp) * dt
+            pc.palp = Math.max(0, Math.min(1, pc.palp + pc.vpalp * dt))
+        }
         // a pupila abre para ouvir e fecha para pensar; encarar a leva ao meio
         var dil = mistura({ idle: 1.0, listening: 1.15, thinking: 0.82, tools: 0.78, speaking: 1.04 }) + 0.12 * ouvir * mic
         s.pupila += (dil - s.pupila) * Math.min(1, dt * 5)
@@ -286,17 +350,25 @@ if (skin in polares) {
                 var vgP = [cx + ruido(t * 1.7, 21) * R * 2, cy - R * (0.6 + 0.6 * Math.abs(ruido(t * 1.1, 4)))]
                 gaze = [gaze[0] * (1 - pensar) + vgP[0] * pensar, gaze[1] * (1 - pensar) + vgP[1] * pensar]
             }
+            var pc = estadoPartes(), dd = partes[skin]
             if (repouso) {
                 gaze = [cx, cy]
                 fx.img = v4(0, 0, 0, 1)
                 fx.img2 = zero4
-                fx.campo0 = zero4; fx.campo1 = zero4; fx.campo2 = zero4; fx.campo3 = zero4
+                for (var mi = 0; mi < 48; mi++) fx["m" + mi] = zero4
             } else {
-                var c = s.campo
-                fx.img = v4(s.giro, s.torcao, 0.025 * falar + 0.006 * Math.sin(t * 1.1) * dP, s.pupila)
-                fx.img2 = v4(s.tremor, s.encarar, 0, 0)
-                fx.campo0 = v4(c[0], c[1], c[2], c[3]); fx.campo1 = v4(c[4], c[5], c[6], c[7])
-                fx.campo2 = v4(c[8], c[9], c[10], c[11]); fx.campo3 = v4(c[12], c[13], c[14], c[15])
+                fx.img = v4(pc.giro, 0, 0.025 * falar + 0.006 * Math.sin(t * 1.1) * dP, s.pupila)
+                fx.img2 = v4(0, s.encarar, pc.palp, 0)
+                for (var m = 0; m < 48; m++) {
+                    if (m < dd.cadeias) {
+                        var am = pc.ang[m]
+                        fx["m" + m] = v4(am[0], am[1], dd.juntas > 2 ? am[2] : pc.est[m], 0)
+                    } else if (m < dd.cadeias + dd.corpos) {
+                        fx["m" + m] = v4(pc.corpo[m - dd.cadeias], 0, 0, 0)
+                    } else {
+                        fx["m" + m] = zero4
+                    }
+                }
             }
         } else if (skin === "serafim_gravura") {
             var dG = suave(desperto)
@@ -446,10 +518,54 @@ if (skin in polares) {
         property vector4d w5b
         property vector4d img                 // skins de imagem: estado de cada uma (ver imagem.frag)
         property vector4d img2
-        property vector4d campo0
-        property vector4d campo1
-        property vector4d campo2
-        property vector4d campo3
+        property vector4d m0
+        property vector4d m1
+        property vector4d m2
+        property vector4d m3
+        property vector4d m4
+        property vector4d m5
+        property vector4d m6
+        property vector4d m7
+        property vector4d m8
+        property vector4d m9
+        property vector4d m10
+        property vector4d m11
+        property vector4d m12
+        property vector4d m13
+        property vector4d m14
+        property vector4d m15
+        property vector4d m16
+        property vector4d m17
+        property vector4d m18
+        property vector4d m19
+        property vector4d m20
+        property vector4d m21
+        property vector4d m22
+        property vector4d m23
+        property vector4d m24
+        property vector4d m25
+        property vector4d m26
+        property vector4d m27
+        property vector4d m28
+        property vector4d m29
+        property vector4d m30
+        property vector4d m31
+        property vector4d m32
+        property vector4d m33
+        property vector4d m34
+        property vector4d m35
+        property vector4d m36
+        property vector4d m37
+        property vector4d m38
+        property vector4d m39
+        property vector4d m40
+        property vector4d m41
+        property vector4d m42
+        property vector4d m43
+        property vector4d m44
+        property vector4d m45
+        property vector4d m46
+        property vector4d m47
         property var arte: arteImg
         property vector4d lacos: Qt.vector4d(30, 24, 10, raiz.skin === "ofanim_alado" ? 4 : 0)
     }

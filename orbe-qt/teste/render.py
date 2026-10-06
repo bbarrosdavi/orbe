@@ -2,6 +2,7 @@
 
 Uso: render.py cena.qml saida.png [quadros] [prop=valor ...]
 A cena pode ter passo(dt): é chamada antes de cada quadro, a 60 Hz (ou dt=).
+Com um %d na saída (quadro_%04d.png), grava cada quadro a partir de pular= (padrão 0).
 """
 import sys, time
 from PySide6.QtCore import QUrl, QSize, QMetaObject, Q_ARG, Qt
@@ -54,11 +55,13 @@ for i in range(quadros):
     rc.polishItems(); rc.beginFrame(); rc.sync(); rc.render(); rc.endFrame()
     gl.glFinish()
     tempos.append(time.perf_counter() - t0)
+    if "%" in saida and i >= int(props.get("pular", 0)):
+        fbo.toImage().save(saida % (i - int(props.get("pular", 0))))
 info = root.property("info")
 if info:
     print(info)
-img = fbo.toImage()
-img.save(saida)
+if "%" not in saida:
+    fbo.toImage().save(saida)
 med = sorted(tempos[5:])[len(tempos[5:]) // 2] * 1000 if len(tempos) > 6 else tempos[-1] * 1000
 js = sorted(tempos_js[5:])[len(tempos_js[5:]) // 2] * 1000 if len(tempos_js) > 6 else 0.0
 print(f"{pw}x{ph}  quadro (mediana, CPU+GPU): {med:.2f} ms  passo JS: {js:.2f} ms  primeiro: {tempos[0]*1000:.0f} ms")
