@@ -75,7 +75,8 @@ Item {
         var p = camera / (camera - z)
         return { x: (x * c - y2 * s) * p, y: (x * s + y2 * c) * p, d: z / r, p: p }
     }
-    readonly property real camera: lado * 0.95
+    // a câmera a 1,3 célula do centro: na casca, a perspectiva vai de 0,79 a 1,37
+    readonly property real camera: lado * 1.3
 
     // vagalumes | orbitas (config orbe.luas): vagalumes andam soltos, vivos;
     // órbitas são as elipses fixas de perfil acima
@@ -140,7 +141,7 @@ Item {
         }
         s.vx += ax * dt; s.vy += ay * dt; s.vz += az * dt
         s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt
-        var p = Math.max(0.6, Math.min(1.6, camera / (camera - s.z)))
+        var p = Math.max(0.7, Math.min(1.4, camera / (camera - s.z)))
         return { x: s.x * p, y: s.y * p, d: Math.max(-1, Math.min(1, s.z / rMax)), p: p }
     }
 
@@ -217,10 +218,10 @@ Item {
             readonly property real alvoY: espera ? sat.lado * 0.36 : pos.y
             readonly property real px: alvoX * entrando
             readonly property real py: alvoY * entrando
-            // o tamanho segue a perspectiva: de 0,44 lá atrás a 0,85 na frente (antes
-            // ia de 0,78 a 1, sem perspectiva; o Davi pediu as luas menores duas
-            // vezes, a segunda em 15%)
-            readonly property real escNormal: espera ? 1.1 * (1 + 0.05 * Math.sin(sat.t * 3)) : 0.58 * pos.p
+            // o tamanho segue a perspectiva: de 0,35 lá atrás a 0,6 no ponto mais
+            // perto. Na frente, a lua não passa do olho do Ophanim (o olho tem uns
+            // 22% da célula; a lua de 0,6 fica em 13% a 19%, conforme a skin)
+            readonly property real escNormal: espera ? 1.1 * (1 + 0.05 * Math.sin(sat.t * 3)) : 0.44 * pos.p
             width: sat.tamanho
             height: sat.tamanho
             x: sat.width / 2 + rx - width / 2
