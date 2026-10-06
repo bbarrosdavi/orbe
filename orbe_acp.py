@@ -208,6 +208,14 @@ class AgenteACP:
             except ErroACP as e:
                 LOG.info("session/load recusado (%s); conversa nova", e)
                 res = None
+            # O Hermes 0.21 devolve {} (antes, null) para uma sessão que ele não
+            # tem, e o pedido seguinte acaba em "refusal" sem chamar o modelo: o
+            # orbe ficava mudo com um id salvo velho. Uma sessão dele que existe
+            # volta com models e modes. Só no Hermes: outro agente pode devolver
+            # {} numa retomada válida
+            if res == {} and str((self.info.get("agentInfo") or {}).get("name", "")).startswith("hermes"):
+                LOG.info("session/load: o Hermes não tem a sessão %s; conversa nova", retomar)
+                res = None
         if res is not None:
             self.sessao = retomar
         else:
