@@ -25,7 +25,9 @@ import QtQuick
 // aberta; pensando, se contorcem devagar (a figura não gira), e as pálpebras
 // apertam; ferramentas, espasmos; falando, cada sílaba chuta as bases e o
 // chute sobe até as pontas. Os corpos da Humana balançam em volta do pescoço,
-// levando os membros; no Olho a coroa de raios gira e as pálpebras piscam.
+// levando os membros. No Olho os raios ficam presos ao globo e fluem (uma
+// ondulação que corre do olho para fora, chutada a cada sílaba); a íris anda
+// para o olhar e o olho fica bem aberto.
 Item {
     id: raiz
 
@@ -63,7 +65,7 @@ Item {
     readonly property var imagens: ({ serafim_gravura: true, olho: true, humana: true })
     // as de peças: quantas cadeias, quantas juntas em cada e quantos corpos (imagem.frag)
     readonly property var polares: ({ olho: true, humana: true })
-    readonly property var partes: ({ olho: { cadeias: 48, juntas: 2, corpos: 0 }, humana: { cadeias: 27, juntas: 3, corpos: 8 } })
+    readonly property var partes: ({ olho: { cadeias: 0, juntas: 0, corpos: 0 }, humana: { cadeias: 27, juntas: 3, corpos: 8 } })
 
     function raioQueCabe(w, h, d) {
         var al = alcances[skin] || alcances.ofanim
@@ -178,7 +180,7 @@ Item {
         if (s.pc) return s.pc
         var d = partes[skin]
         var pc = { ang: [], vel: [], fase: [], sinal: [], sem: [], est: [], vest: [],
-                   corpo: [], vcorpo: [], fcorpo: [], giro: 0, palp: 0, vpalp: 0, piscaEm: uni(1.5, 4), piscaAte: 0 }
+                   corpo: [], vcorpo: [], fcorpo: [], fluxo: 0, amp: 0, vamp: 0, brilho: 0 }
         for (var i = 0; i < d.cadeias; i++) {
             pc.ang.push([0, 0, 0]); pc.vel.push([0, 0, 0])
             pc.fase.push(uni(0, tau)); pc.sinal.push(Math.random() < 0.5 ? -1 : 1); pc.sem.push(uni(0, 100))
@@ -248,15 +250,14 @@ Item {
         if (humana && chute > 0)
             for (var b2 = 0; b2 < d.corpos; b2++) pc.vcorpo[b2] += (Math.random() < 0.5 ? -1 : 1) * chute * 0.35
         if (!humana) {
-            // a coroa de raios gira; pensando, mais depressa
-            pc.giro += dt * (mistura({ idle: 0.06, listening: 0.02, thinking: 0.35, tools: 0.12, speaking: 0.10 }) + 0.2 * falar)
-            // as pálpebras: apertam pensando, piscam de tempos em tempos, fechadas ao despertar
-            if (t >= pc.piscaEm) { pc.piscaAte = t + 0.11; pc.piscaEm = t + uni(2.5, 6.5) }
-            var fecha = mistura({ idle: 0.06, listening: 0.0, thinking: 0.35, tools: 0.22, speaking: 0.08 })
-            if (t < pc.piscaAte) fecha = 1
-            fecha = Math.max(fecha, 1 - dG)
-            pc.vpalp += (320 * (fecha - pc.palp) - 30 * pc.vpalp) * dt
-            pc.palp = Math.max(0, Math.min(1, pc.palp + pc.vpalp * dt))
+            // os raios fluem presos ao olho: a ondulação corre do olho para fora,
+            // com a amplitude numa mola que cada sílaba chuta
+            var alvoA = mistura({ idle: 3.0, listening: 2.0, thinking: 5.0, tools: 3.5, speaking: 4.0 }) + 6 * falar - 3 * (1 - dG)
+            if (chute > 0) pc.vamp += chute * 25
+            pc.vamp += (30 * (alvoA - pc.amp) - 7 * pc.vamp) * dt
+            pc.amp = Math.max(0, pc.amp + pc.vamp * dt)
+            pc.fluxo += dt * (mistura({ idle: 1.4, listening: 1.0, thinking: 2.6, tools: 3.6, speaking: 2.0 }) + 1.5 * falar)
+            pc.brilho = mistura({ idle: 0.25, listening: 0.15, thinking: 0.4, tools: 0.3, speaking: 0.45 }) + 0.5 * falar
         }
         // a pupila abre para ouvir e fecha para pensar; encarar a leva ao meio
         var dil = mistura({ idle: 1.0, listening: 1.15, thinking: 0.82, tools: 0.78, speaking: 1.04 }) + 0.12 * ouvir * mic
@@ -357,8 +358,13 @@ if (skin in polares) {
                 fx.img2 = zero4
                 for (var mi = 0; mi < 48; mi++) fx["m" + mi] = zero4
             } else {
-                fx.img = v4(pc.giro, 0, 0.025 * falar + 0.006 * Math.sin(t * 1.1) * dP, s.pupila)
-                fx.img2 = v4(0, s.encarar, pc.palp, 0)
+                if (skin === "olho") {
+                    fx.img = v4(pc.amp, pc.fluxo, 0.025 * falar + 0.006 * Math.sin(t * 1.1) * dP, 1)
+                    fx.img2 = v4(pc.brilho, s.encarar, 0, 0)
+                } else {
+                    fx.img = v4(0, 0, 0.025 * falar + 0.006 * Math.sin(t * 1.1) * dP, 1)
+                    fx.img2 = zero4
+                }
                 for (var m = 0; m < 48; m++) {
                     if (m < dd.cadeias) {
                         var am = pc.ang[m]

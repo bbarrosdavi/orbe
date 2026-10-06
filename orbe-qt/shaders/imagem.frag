@@ -103,69 +103,21 @@ const vec4 CAIXA[7] = vec4[7](
 #endif
 
 #if IMG == 2
-// Olho: recorte de 505 x 609 px, uma célula; os raios cortados um a um
+// Olho: recorte de 505 x 609 px, uma célula. B: 0 o globo (com o branco do
+// olho preenchido por baixo da íris), 1 os raios, 250 o disco preto da íris,
+// guardado num canto vazio do recorte para andar sem rastro
 const vec2 TAM = vec2(505.0, 609.0);
 const float CELULA = 0.0;
 const vec2 ATLAS = TAM;
 const vec2 OLHO = vec2(260.0, 284.5);    // o centro do globo, no centro do item
 const float RIMG = 270.0;
-const vec2 PUP = vec2(285.5, 279.6);     // a pupila desenhada
+const vec2 PUP = vec2(285.5, 279.6);     // o disco preto desenhado
 const float RP = 42.5;
+const float RI = 44.5;                   // o disco com a borda escura dele
+const vec2 DISCO = vec2(47.5, 561.5);    // onde o disco está guardado
 const vec2 AB = vec2(250.0, 292.0);      // a abertura das pálpebras (elipse, um pouco por dentro)
 const vec2 AR = vec2(92.0, 57.0);
-const float PALPEBRA = 24.0;             // a faixa da pálpebra de cima que estica para fechar
-const int NR = 48;      // raios: cadeias raiz, meio, ponta
-const vec2 JUNTA[144] = vec2[144](
-    vec2(240.0, 425.0), vec2(217.0, 474.0), vec2(218.0, 543.0),
-    vec2(288.0, 131.0), vec2(307.0, 89.0), vec2(314.0, 31.0),
-    vec2(374.0, 222.0), vec2(415.0, 192.0), vec2(470.0, 162.0),
-    vec2(130.0, 279.0), vec2(85.0, 287.0), vec2(33.0, 301.0),
-    vec2(133.0, 313.0), vec2(90.0, 335.0), vec2(38.0, 357.0),
-    vec2(183.0, 180.0), vec2(168.0, 138.0), vec2(137.0, 96.0),
-    vec2(338.0, 399.0), vec2(352.0, 438.0), vec2(381.0, 480.0),
-    vec2(252.0, 155.0), vec2(245.0, 123.0), vec2(241.0, 78.0),
-    vec2(115.0, 209.0), vec2(85.0, 190.0), vec2(44.0, 163.0),
-    vec2(156.0, 362.0), vec2(131.0, 392.0), vec2(96.0, 425.0),
-    vec2(392.0, 271.0), vec2(426.0, 258.0), vec2(468.0, 249.0),
-    vec2(227.0, 159.0), vec2(224.0, 125.0), vec2(209.0, 87.0),
-    vec2(144.0, 341.0), vec2(113.0, 359.0), vec2(71.0, 374.0),
-    vec2(161.0, 395.0), vec2(145.0, 402.0), vec2(130.0, 436.0),
-    vec2(384.0, 336.0), vec2(415.0, 350.0), vec2(455.0, 363.0),
-    vec2(321.0, 408.0), vec2(322.0, 439.0), vec2(340.0, 475.0),
-    vec2(207.0, 166.0), vec2(201.0, 135.0), vec2(179.0, 110.0),
-    vec2(156.0, 362.0), vec2(125.0, 371.0), vec2(93.0, 394.0),
-    vec2(337.0, 388.0), vec2(350.0, 414.0), vec2(368.0, 441.0),
-    vec2(204.0, 402.0), vec2(189.0, 425.0), vec2(174.0, 443.0),
-    vec2(346.0, 187.0), vec2(359.0, 165.0), vec2(383.0, 139.0),
-    vec2(229.0, 411.0), vec2(215.0, 427.0), vec2(206.0, 444.0),
-    vec2(385.0, 248.0), vec2(412.0, 242.0), vec2(434.0, 226.0),
-    vec2(407.0, 310.0), vec2(431.0, 321.0), vec2(463.0, 325.0),
-    vec2(156.0, 165.0), vec2(134.0, 153.0), vec2(120.0, 127.0),
-    vec2(319.0, 156.0), vec2(331.0, 143.0), vec2(345.0, 114.0),
-    vec2(206.0, 134.0), vec2(199.0, 113.0), vec2(196.0, 84.0),
-    vec2(353.0, 375.0), vec2(364.0, 399.0), vec2(390.0, 418.0),
-    vec2(118.0, 118.0), vec2(96.0, 104.0), vec2(74.0, 80.0),
-    vec2(407.0, 210.0), vec2(425.0, 208.0), vec2(452.0, 200.0),
-    vec2(186.0, 404.0), vec2(170.0, 423.0), vec2(150.0, 446.0),
-    vec2(119.0, 266.0), vec2(101.0, 270.0), vec2(81.0, 254.0),
-    vec2(425.0, 244.0), vec2(445.0, 238.0), vec2(469.0, 229.0),
-    vec2(119.0, 266.0), vec2(106.0, 254.0), vec2(82.0, 247.0),
-    vec2(399.0, 350.0), vec2(414.0, 364.0), vec2(436.0, 378.0),
-    vec2(111.0, 273.0), vec2(90.0, 276.0), vec2(75.0, 275.0),
-    vec2(266.0, 130.0), vec2(265.0, 111.0), vec2(267.0, 88.0),
-    vec2(144.0, 341.0), vec2(124.0, 344.0), vec2(103.0, 346.0),
-    vec2(372.0, 359.0), vec2(391.0, 370.0), vec2(410.0, 371.0),
-    vec2(134.0, 254.0), vec2(116.0, 247.0), vec2(109.0, 230.0),
-    vec2(393.0, 294.0), vec2(412.0, 292.0), vec2(433.0, 292.0),
-    vec2(152.0, 385.0), vec2(160.0, 400.0), vec2(156.0, 421.0),
-    vec2(111.0, 180.0), vec2(99.0, 166.0), vec2(83.0, 153.0),
-    vec2(158.0, 204.0), vec2(142.0, 194.0), vec2(122.0, 192.0),
-    vec2(63.0, 315.0), vec2(80.0, 316.0), vec2(99.0, 311.0),
-    vec2(344.0, 154.0), vec2(355.0, 142.0), vec2(361.0, 124.0),
-    vec2(171.0, 173.0), vec2(161.0, 163.0), vec2(157.0, 147.0),
-    vec2(368.0, 170.0), vec2(381.0, 168.0), vec2(391.0, 152.0));
-const vec4 CAIXA_M[48] = vec4[48](
-    vec4(142.0, 356.0, 313.0, 615.0), vec4(228.0, -30.0, 375.0, 195.0), vec4(307.0, 99.0, 535.0, 292.0), vec4(-24.0, 219.0, 192.0, 361.0), vec4(-24.0, 251.0, 198.0, 421.0), vec4(82.0, 42.0, 243.0, 240.0), vec4(282.0, 344.0, 435.0, 535.0), vec4(190.0, 33.0, 301.0, 204.0), vec4(-5.0, 114.0, 167.0, 262.0), vec4(45.0, 308.0, 211.0, 478.0), vec4(344.0, 203.0, 515.0, 322.0), vec4(165.0, 44.0, 278.0, 206.0), vec4(25.0, 290.0, 196.0, 422.0), vec4(94.0, 350.0, 198.0, 471.0), vec4(337.0, 288.0, 500.0, 410.0), vec4(276.0, 367.0, 382.0, 518.0), vec4(141.0, 70.0, 251.0, 209.0), vec4(50.0, 319.0, 182.0, 437.0), vec4(300.0, 352.0, 406.0, 478.0), vec4(143.0, 369.0, 238.0, 478.0), vec4(304.0, 100.0, 422.0, 230.0), vec4(182.0, 384.0, 260.0, 471.0), vec4(350.0, 190.0, 467.0, 286.0), vec4(369.0, 272.0, 499.0, 363.0), vec4(85.0, 93.0, 190.0, 200.0), vec4(288.0, 85.0, 375.0, 194.0), vec4(164.0, 54.0, 237.0, 166.0), vec4(316.0, 338.0, 427.0, 456.0), vec4(40.0, 45.0, 153.0, 154.0), vec4(380.0, 173.0, 480.0, 241.0), vec4(118.0, 372.0, 220.0, 480.0), vec4(54.0, 228.0, 148.0, 299.0), vec4(397.0, 201.0, 498.0, 273.0), vec4(57.0, 222.0, 143.0, 287.0), vec4(371.0, 321.0, 466.0, 409.0), vec4(46.0, 246.0, 134.0, 303.0), vec4(237.0, 63.0, 298.0, 159.0), vec4(78.0, 310.0, 176.0, 379.0), vec4(344.0, 329.0, 437.0, 403.0), vec4(86.0, 205.0, 163.0, 283.0), vec4(368.0, 262.0, 460.0, 326.0), vec4(126.0, 362.0, 190.0, 446.0), vec4(59.0, 129.0, 137.0, 206.0), vec4(99.0, 166.0, 186.0, 232.0), vec4(40.0, 288.0, 122.0, 343.0), vec4(318.0, 102.0, 386.0, 179.0), vec4(133.0, 123.0, 196.0, 197.0), vec4(345.0, 128.0, 415.0, 202.0));
+const float RAIZ = 118.0;                // onde os raios saem do globo
 #ifdef RELOGIO
 const vec4 CAIXA[1] = vec4[1](vec4(-6.0, -6.0, 511.0, 615.0));
 #endif
@@ -180,6 +132,7 @@ const vec2 OLHO = vec2(258.5, 246.0);    // o meio da figura, no centro do item
 const float RIMG = 255.0;
 const int NL = 27;      // membros: cadeias base, joelho ou cotovelo, tornozelo ou punho, ponta
 const int NB = 8;       // corpos: giram em volta do pescoço (PIVO), levando os membros que saem deles
+const int NH = 19;      // cabeças (rosto e cabelo): olham para o cursor, girando em volta do queixo
 const vec2 JUNTA[108] = vec2[108](
     vec2(312.0, 62.0), vec2(314.0, 40.0), vec2(328.0, 15.0), vec2(328.0, 7.0),
     vec2(240.0, 98.0), vec2(228.0, 57.0), vec2(226.0, 27.0), vec2(226.0, 15.0),
@@ -209,11 +162,14 @@ const vec2 JUNTA[108] = vec2[108](
     vec2(225.0, 441.0), vec2(225.0, 460.0), vec2(224.0, 472.0), vec2(223.0, 477.0),
     vec2(294.0, 413.0), vec2(308.0, 464.0), vec2(307.0, 475.0), vec2(302.0, 485.0));
 const vec4 CAIXA_M[27] = vec4[27](
-    vec4(253.0, -40.0, 379.0, 115.0), vec4(154.0, -55.0, 314.0, 172.0), vec4(94.0, -51.0, 278.0, 180.0), vec4(223.0, -3.0, 325.0, 125.0), vec4(82.0, 22.0, 161.0, 104.0), vec4(280.0, 5.0, 403.0, 143.0), vec4(327.0, 22.0, 482.0, 165.0), vec4(320.0, 64.0, 385.0, 130.0), vec4(378.0, 66.0, 496.0, 177.0), vec4(90.0, 85.0, 190.0, 183.0), vec4(-39.0, 49.0, 195.0, 245.0), vec4(378.0, 103.0, 513.0, 197.0), vec4(-68.0, 103.0, 184.0, 289.0), vec4(399.0, 152.0, 525.0, 259.0), vec4(-53.0, 155.0, 144.0, 307.0), vec4(391.0, 209.0, 560.0, 354.0), vec4(-47.0, 230.0, 131.0, 390.0), vec4(-5.0, 256.0, 134.0, 398.0), vec4(377.0, 273.0, 554.0, 433.0), vec4(54.0, 287.0, 194.0, 431.0), vec4(24.0, 322.0, 130.0, 450.0), vec4(102.0, 374.0, 205.0, 490.0), vec4(336.0, 391.0, 414.0, 492.0), vec4(306.0, 382.0, 401.0, 513.0), vec4(131.0, 388.0, 237.0, 521.0), vec4(187.0, 412.0, 264.0, 511.0), vec4(223.0, 347.0, 380.0, 544.0));
-const int PAI[27] = int[27](-1, 6, 5, -1, 5, 2, 2, 2, 3, 5, -1, 3, 4, -1, 4, 1, 4, 7, 1, -1, 7, 0, -1, -1, 0, -1, -1);
+    vec4(252.0, -40.0, 382.0, 133.0), vec4(141.0, -55.0, 309.0, 179.0), vec4(94.0, -51.0, 274.0, 187.0), vec4(212.0, -3.0, 340.0, 133.0), vec4(82.0, 22.0, 163.0, 127.0), vec4(282.0, 5.0, 403.0, 134.0), vec4(309.0, 22.0, 482.0, 178.0), vec4(324.0, 65.0, 395.0, 130.0), vec4(388.0, 66.0, 496.0, 178.0), vec4(90.0, 62.0, 182.0, 168.0), vec4(-39.0, 49.0, 219.0, 245.0), vec4(385.0, 103.0, 513.0, 197.0), vec4(-68.0, 106.0, 181.0, 301.0), vec4(390.0, 151.0, 525.0, 253.0), vec4(-53.0, 155.0, 138.0, 308.0), vec4(394.0, 215.0, 560.0, 354.0), vec4(-47.0, 234.0, 126.0, 390.0), vec4(-5.0, 251.0, 137.0, 398.0), vec4(388.0, 269.0, 554.0, 433.0), vec4(45.0, 301.0, 187.0, 437.0), vec4(18.0, 289.0, 169.0, 450.0), vec4(98.0, 368.0, 205.0, 490.0), vec4(337.0, 394.0, 414.0, 492.0), vec4(306.0, 388.0, 414.0, 513.0), vec4(130.0, 387.0, 245.0, 522.0), vec4(191.0, 413.0, 267.0, 511.0), vec4(232.0, 358.0, 380.0, 544.0));
+const int PAI[27] = int[27](-1, 6, 5, -1, 5, 2, 2, 2, 3, 5, -1, 3, 4, -1, -1, 1, 4, 7, -1, -1, -1, 0, -1, -1, 0, -1, -1);
 const vec2 PIVO[8] = vec2[8](vec2(238.0, 225.0), vec2(289.0, 218.0), vec2(279.0, 151.0), vec2(304.0, 183.0), vec2(163.0, 213.0), vec2(216.0, 157.0), vec2(247.0, 142.0), vec2(208.0, 215.0));
 const vec4 CAIXA_C[8] = vec4[8](
-    vec4(139.0, 193.0, 314.0, 461.0), vec4(258.0, 170.0, 496.0, 363.0), vec4(257.0, 68.0, 405.0, 190.0), vec4(283.0, 112.0, 442.0, 220.0), vec4(28.0, 183.0, 186.0, 315.0), vec4(109.0, 30.0, 253.0, 180.0), vec4(229.0, 63.0, 279.0, 157.0), vec4(24.0, 178.0, 244.0, 405.0));
+    vec4(143.0, 194.0, 310.0, 457.0), vec4(260.0, 172.0, 484.0, 351.0), vec4(260.0, 73.0, 389.0, 187.0), vec4(279.0, 82.0, 471.0, 224.0), vec4(14.0, 181.0, 188.0, 328.0), vec4(114.0, 27.0, 252.0, 179.0), vec4(231.0, 77.0, 272.0, 155.0), vec4(53.0, 183.0, 239.0, 363.0));
+const vec2 QUEIXO[19] = vec2[19](vec2(247.5, 199.0), vec2(228.2, 166.0), vec2(207.5, 211.0), vec2(281.0, 168.0), vec2(201.6, 187.0), vec2(270.4, 228.0), vec2(222.7, 228.0), vec2(245.3, 163.0), vec2(246.0, 233.0), vec2(287.8, 215.0), vec2(231.6, 197.0), vec2(293.4, 173.0), vec2(266.2, 201.0), vec2(231.5, 177.0), vec2(282.8, 189.0), vec2(268.5, 177.0), vec2(216.8, 183.0), vec2(250.8, 178.0), vec2(265.1, 163.0));
+const vec4 CAIXA_H[19] = vec4[19](
+    vec4(229.0, 168.0, 267.0, 208.0), vec4(212.0, 142.0, 245.0, 175.0), vec4(185.0, 175.0, 232.0, 220.0), vec4(266.0, 146.0, 297.0, 177.0), vec4(187.0, 165.0, 217.0, 196.0), vec4(251.0, 190.0, 290.0, 237.0), vec4(203.0, 188.0, 243.0, 237.0), vec4(228.0, 137.0, 265.0, 172.0), vec4(221.0, 191.0, 269.0, 242.0), vec4(272.0, 186.0, 306.0, 224.0), vec4(216.0, 168.0, 249.0, 206.0), vec4(280.0, 154.0, 308.0, 182.0), vec4(248.0, 168.0, 286.0, 210.0), vec4(216.0, 155.0, 249.0, 186.0), vec4(268.0, 162.0, 299.0, 198.0), vec4(252.0, 154.0, 286.0, 186.0), vec4(202.0, 159.0, 232.0, 192.0), vec4(230.0, 148.0, 271.0, 187.0), vec4(248.0, 137.0, 285.0, 172.0));
 #ifdef RELOGIO
 const vec4 CAIXA[1] = vec4[1](vec4(-6.0, -6.0, 523.0, 498.0));
 #endif
@@ -379,9 +335,9 @@ bool dentro(vec2 q, vec4 c) {
 #endif
 
 #if IMG == 2
-// o centro da pupila com o olhar: não passa das pálpebras (fica na elipse
+// o centro da íris com o olhar: não passa das pálpebras (fica na elipse
 // encolhida do raio dela)
-vec2 centroPupila(vec2 desl) {
+vec2 centroIris(vec2 desl) {
     vec2 ar = AR - RP - 1.5;
     vec2 oa = (PUP - AB) / ar, da = desl / ar;
     float A = dot(da, da), B = dot(oa, da), C = dot(oa, oa) - 1.0;
@@ -389,61 +345,9 @@ vec2 centroPupila(vec2 desl) {
     return PUP + desl * tt;
 }
 
-// a pupila (o disco preto) anda para pm; o branco do olho entre ela e as
-// pálpebras estica junto, e a borda da abertura fica no lugar. Com pm = PUP
-// devolve q
-vec2 pupila(vec2 q, vec2 pm) {
-    vec2 e = (q - AB) / AR;
-    if (dot(e, e) >= 1.0) return q;
-    vec2 v = q - pm;
-    float r = length(v);
-    vec2 u = r > 1e-4 ? v / r : vec2(1.0, 0.0);
-    vec2 om = (pm - AB) / AR, du = u / AR;
-    float A2 = dot(du, du), B2 = dot(om, du), C2 = dot(om, om) - 1.0;
-    float lam = (-B2 + sqrt(max(B2 * B2 - A2 * C2, 0.0))) / A2;
-    if (r <= RP) return PUP + v;
-    float al = clamp((r - RP) / max(lam - RP, 1e-3), 0.0, 1.0);
-    return mix(PUP + u * RP, pm + u * lam, al);
-}
-
-// as pálpebras fecham c (0 aberto, 1 fechado): a de cima estica a faixa dela
-// até a nova borda, e o que ainda se vê do olho se espreme contra a de baixo.
-// Com c = 0 devolve q; em aberto, o y do olho que se vê (-1 = coberto)
-vec2 palpebras(vec2 q, float c, out bool coberto) {
-    coberto = false;
-    if (c <= 0.001) return q;
-    float dx = (q.x - AB.x) / AR.x;
-    if (abs(dx) >= 1.0) return q;
-    float h = AR.y * sqrt(1.0 - dx * dx);
-    float eu = AB.y - h, el = AB.y + h;
-    float topo = eu - PALPEBRA;
-    float novo = eu + c * (el - eu) * 0.97;
-    if (q.y < topo || q.y > el) return q;
-    if (q.y <= novo) {
-        coberto = true;
-        return vec2(q.x, topo + (q.y - topo) / max(novo - topo, 1e-3) * (eu - topo));
-    }
-    return vec2(q.x, eu + (q.y - novo) / max(el - novo, 1e-3) * (el - eu));
-}
-
-// a íris desenhada no disco preto: fios claros em volta da pupila (que dilata
-// com dil) e o brilho; q no espaço do olho, pm o centro da pupila
-void iris(vec2 q, vec2 pm, float dil, float t) {
-    vec2 v = q - pm;
-    float r = length(v);
-    if (r > RP) return;
-    float a = atan(v.y, v.x);
-    float rp = RP * 0.42 * dil;
-    // os fios da íris, como na hachura da gravura: raios com um pouco de ruído
-    float fio = 0.5 + 0.5 * sin(a * 46.0 + 3.0 * sin(a * 7.0 + r * 0.15));
-    fio = smoothstep(0.55, 0.95, fio) * (0.55 + 0.45 * hash2(vec2(floor(a * 46.0 / TAU * 6.0), 3.0)));
-    float anel = smoothstep(rp, rp + 2.5, r) * (1.0 - smoothstep(RP * 0.80, RP * 0.97, r));
-    float tr = 0.42 * fio * anel + 0.10 * anel;
-    // a borda da pupila e o brilho
-    tr += 0.25 * (1.0 - smoothstep(0.0, 1.6, abs(r - rp))) * step(rp, r + 1.6);
-    float b = 1.0 - smoothstep(RP * 0.10, RP * 0.15, length(v - vec2(-0.32, -0.38) * RP));
-    tr = sat01(tr + b);
-    accB = tr + accB * (1.0 - tr);
+// a fase de cada raio, tirada do ângulo: vizinhos parecidos, não iguais
+float faseRaio(float a) {
+    return 3.0 * sin(a * 3.0 + 1.3) + 2.0 * sin(a * 7.0 + 0.4) + 1.3 * sin(a * 13.0 + 2.1);
 }
 #endif
 
@@ -480,41 +384,60 @@ void main() {
 #endif
 
 #if IMG == 2
-    // os raios, por trás do globo: a coroa gira inteira (img.x) em volta do
-    // olho, e cada raio dobra na raiz e no meio e estica pelo comprimento
-    vec2 qr = OLHO + girar(q - OLHO, -img.x);
-    for (int i = 0; i < NR; i++) {
-        if (!dentro(qr, CAIXA_M[i])) continue;
-        vec2 R0 = JUNTA[3 * i], R1 = JUNTA[3 * i + 1], R2 = JUNTA[3 * i + 2];
-        vec2 qe = R0 + (qr - R0) / (1.0 + M[i].z);
-        vec2 p = cadeia(qe, R0, R1, R2, R2, vec3(M[i].xy, 0.0), 2);
-        if (pecaEm(p) == i + 1) pintar(p);
+    // os raios fluindo, presos ao olho: uma ondulação de lado que corre do
+    // olho para fora (zero na raiz) e uma onda de brilho junto. img.x é a
+    // amplitude na ponta (px), img.y a fase do fluxo, img2.x o brilho
+    vec2 d = q - OLHO;
+    float r = max(length(d), 1e-3);
+    float a = atan(d.y, d.x);
+    float fr = faseRaio(a);
+    float w = smoothstep(RAIZ, RAIZ + 70.0, r) * (0.45 + 0.55 * smoothstep(RAIZ, RAIZ + 200.0, r));
+    float lado = w * img.x * sin(r * 0.07 - img.y + fr);
+    float ar = a - lado / r;
+    vec2 pr = OLHO + r * vec2(cos(ar), sin(ar));
+    if (pecaEm(pr) == 1) {
+        float B0 = accB;
+        pintar(pr);
+        float brilho = 1.0 + img2.x * w * (0.5 + 0.5 * sin(r * 0.045 - img.y * 1.6 + fr * 0.7));
+        accB = min(accA, B0 + (accB - B0) * brilho);
     }
-    // o globo: as pálpebras, a pupila que anda para o olhar (encarar a leva ao
-    // meio da abertura, olhando para quem fala) e a íris desenhada nela
-    bool coberto;
-    vec2 qo = palpebras(q, img2.z, coberto);
-    vec2 pm = centroPupila(dg * vec2(40.0, 14.0) + img2.y * (AB - PUP));
-    vec2 qp = coberto ? qo : pupila(qo, pm);
-    if (pecaEm(qp) == 0) {
-        pintar(qp);
-        if (!coberto && dot((qo - AB) / AR, (qo - AB) / AR) < 1.0) iris(qo, pm, img.w, geo.z);
-    }
+    // o globo, bem aberto e parado
+    if (pecaEm(q) == 0) pintar(q);
+    // a íris (o disco preto) anda para o olhar por cima do branco preenchido,
+    // recortada pela abertura das pálpebras; encarar a leva ao meio
+    vec2 pm = centroIris(dg * vec2(40.0, 14.0) + img2.y * (AB - PUP));
+    vec2 v = q - pm;
+    vec2 e = (q - AB) / AR;
+    if (dot(v, v) < RI * RI && dot(e, e) < 1.0) pintar(DISCO + v);
 #endif
 #if IMG == 3
     // o miolo no lugar; onde um corpo saiu, a massa dele fica como sombra
+    // as cabeças olham para o cursor: giram em volta do queixo e andam um pouco para ele
+    vec2 olharH = dg * vec2(5.5, 4.0);
+    float girarH = dg.x * 0.28;
     int pq = pecaEm(q);
     if (pq == 0) pintar(q);
-    else if (pq > NL) {
+    else if (pq > NL && pq <= NL + NB) {
         // só se o corpo saiu mesmo de cima deste pixel (parado, ele se cobre)
         int bq = pq - NL - 1;
         if (distance(PIVO[bq] + girar(q - PIVO[bq], -M[NL + bq].x), q) > 0.35) sombra(q);
+    } else if (pq > NL + NB) {
+        if (length(olharH) > 0.35 || abs(girarH) > 0.004) sombra(q);
+        else pintar(q);
     }
     // os corpos, cada um girando em volta do pescoço
     for (int b = 0; b < NB; b++) {
         if (!dentro(q, CAIXA_C[b])) continue;
         vec2 p = PIVO[b] + girar(q - PIVO[b], -M[NL + b].x);
         if (pecaEm(p) == NL + 1 + b) pintar(p);
+    }
+    // as cabeças, por cima dos corpos
+    if (length(olharH) > 0.35 || abs(girarH) > 0.004) {
+        for (int h = 0; h < NH; h++) {
+            vec2 ph = QUEIXO[h] + girar(q - QUEIXO[h] - olharH, -girarH);
+            if (!dentro(ph, CAIXA_H[h])) continue;
+            if (pecaEm(ph) == NL + NB + 1 + h) pintar(ph);
+        }
     }
     // os membros, por cima: primeiro o giro do corpo de onde saem, depois a cadeia
     for (int i = 0; i < NL; i++) {
