@@ -12,12 +12,15 @@ Conversa (texto = uma linha por mensagem; binário = PCM s16le mono 16 kHz):
                                                     voz: toca a resposta no relógio;
                                                     voz_pc: toca também no PC
   ponte   → ola {"v": 1, "orbe": {...}, "tema": {...}, "microfone": true, "voz": false,
-                 "voz_pc": false, "agentes": [{"id", "nome"}], "sessoes": [...],
+                 "voz_pc": false, "agentes": [{"id", "nome", "instancias"}], "sessoes": [...],
                  "abre_claude": false}
                                                     voz_pc: o PC pode tocar junto;
                                                     agentes: os que cada orbe pode ter;
-                                                    abre_claude: falar num orbe do Claude
-                                                    sem sessão abre uma no PC
+                                                    instancias: o agente tem uma sessão por
+                                                    instância do orbe (o Claude, e os que
+                                                    rodam numa janela do terminal);
+                                                    abre_claude: falar numa instância sem
+                                                    sessão abre uma no PC
   ponte   → show listening | state thinking | level 0.42 0.60 | mic 0.3
             line <texto> | hold 1 | hide | clear    as linhas que o orbe recebe
   ponte   → config {"orbe": {...}, "tema": {...}, "papel": [...]}   aparência, tema ou papel de parede mudaram
@@ -27,11 +30,14 @@ Conversa (texto = uma linha por mensagem; binário = PCM s16le mono 16 kHz):
                                                     encerrar: fecha a sessão e, com o Claude no
                                                     orbe, a sessão do Claude Code
   relógio → agente <id>                             o agente do orbe em tela (vazio = Claude)
-  ponte   → sessoes [{"vaga", "pid", "rotulo", "titulo", "pasta", "estado", "canal", "ouve"}]
-                                                    as sessões do Claude Code abertas no PC,
-                                                    cada uma na sua vaga (também no "ola")
-  relógio → vaga <k> | vaga                         a vaga do orbe do Claude em tela (nada: não
-                                                    é orbe do Claude)
+  ponte   → sessoes [{"agente", "vaga", "pid", "rotulo", "titulo", "pasta", "estado", "canal", "ouve"}]
+                                                    as sessões abertas no PC dos agentes com
+                                                    instâncias, cada uma na sua vaga (as vagas
+                                                    contam por agente; também no "ola")
+  relógio → vaga <k> | vaga                         a vaga do orbe em tela (nada: o agente
+                                                    dele não tem instâncias)
+  relógio → orbe <skin> <#cor | ->                  a skin e a cor da instância do orbe em tela
+                                                    ("-": a do tema), para o orbe do PC seguir
   relógio → historico                               as sessões passadas do agente do orbe em tela
   ponte   → historico {"agente", "sessoes": [{"id", "titulo", "pasta", "quando"}], "erro"}
                                                     só a quem pediu; quando em segundos
@@ -322,16 +328,18 @@ class PonteRelogio:
         self._ao_fala_fim = ao_fala_fim
         self._voz = voz
         self._voz_pc = voz_pc
-        self._agentes = list(agentes or [])   # [{"id", "nome"}]: o relógio dá um a cada orbe
-        self._abre_claude = abre_claude       # falar num orbe do Claude sem sessão abre uma (o daemon)
+        self._agentes = list(agentes or [])   # [{"id", "nome", "instancias"}]: o relógio dá um a cada orbe
+        self._abre_claude = abre_claude       # falar numa instância sem sessão abre uma (o daemon)
         self._ao_historico = ao_historico     # agente → {"agente", "sessoes", "erro"}
         self._ao_retomar = ao_retomar         # (agente, vaga, id): a sessão escolhida no histórico
         self._agente = ""             # o do orbe em tela no relógio ("agente <id>")
-        # as sessões do Claude Code: cada uma numa vaga, que não muda enquanto ela vive
-        # (com m orbes do Claude no relógio, as vagas se alternam entre eles: a
-        # instância k do j-ésimo é a vaga k·m + j; o relógio faz a conta)
-        self._vaga = -1               # a do orbe em tela ("vaga <k>"); -1 = não é orbe do Claude
-        self._vagas = {}              # pid → vaga
+        self._orbe = ("", "")         # a skin e a cor dele ("orbe <skin> <#cor>"; "" = a do tema)
+        # as sessões dos agentes com instâncias: cada uma numa vaga do agente
+        # dela, que não muda enquanto ela vive (com m orbes do agente no
+        # relógio, as vagas se alternam entre eles: a instância k do j-ésimo é
+        # a vaga k·m + j; o relógio faz a conta)
+        self._vaga = -1               # a do orbe em tela ("vaga <k>"); -1 = o agente não tem instâncias
+        self._vagas = {}              # pid → (agente, vaga)
         self._sessoes = []            # o último "sessoes" difundido
         self._trava_vagas = threading.Lock()
         self._com_voz = set()         # conexões que tocam a resposta
@@ -401,19 +409,23 @@ class PonteRelogio:
         return self._agente
 
     def vaga(self) -> int:
-        """O k do k-ésimo orbe do Claude em tela no relógio; -1 se não é um deles."""
+        """A vaga do orbe em tela no relógio; -1 se o agente dele não tem instâncias."""
         return self._vaga
 
-    def sessao_da_vaga(self, vaga: int) -> int:
-        """O pid da sessão do Claude na [vaga]; 0 com ela livre."""
-        with self._trava_vagas:
-            return next((p for p, v in self._vagas.items() if v == vaga), 0)
+    def orbe(self) -> tuple[str, str]:
+        """A skin e a cor ("#rrggbb", ou "" para a do tema) do orbe em tela no relógio."""
+        return self._orbe
 
-    def atribuir(self, pid: int, vaga: int) -> None:
+    def sessao_da_vaga(self, vaga: int, agente: str = "claude") -> int:
+        """O pid da sessão do [agente] na [vaga]; 0 com ela livre."""
+        with self._trava_vagas:
+            return next((p for p, av in self._vagas.items() if av == (agente, vaga)), 0)
+
+    def atribuir(self, pid: int, vaga: int, agente: str = "claude") -> None:
         """A sessão que o orbe acabou de abrir fica na vaga de onde foi pedida."""
         with self._trava_vagas:
-            if vaga >= 0 and all(v != vaga for p, v in self._vagas.items() if p != pid):
-                self._vagas[pid] = vaga
+            if vaga >= 0 and all(av != (agente, vaga) for p, av in self._vagas.items() if p != pid):
+                self._vagas[pid] = (agente, vaga)
         loop = self._loop
         if loop is not None:
             try:
@@ -422,27 +434,40 @@ class PonteRelogio:
                 pass
 
     def _lista_sessoes(self) -> list:
-        """Lê as sessões e acerta as vagas: a nova fica com a menor livre."""
+        """Lê as sessões e acerta as vagas: a nova fica com a menor livre do agente dela."""
+        vivas = []
         try:
-            vivas = sessao.sessoes()
+            vivas = [{"agente": "claude", "pid": s["pid"], "rotulo": sessao.rotulo(s),
+                      "titulo": sessao.titulo(s), "pasta": s["pasta"], "estado": s["estado"],
+                      "canal": s["canal"], "ouve": s["ouve"]} for s in sessao.sessoes()]
         except Exception as e:
             LOG.debug("sessões do Claude: %s", e)
-            vivas = []
+        com_janela = {a["id"] for a in self._agentes if a.get("instancias") and a.get("id") != "claude"}
+        if com_janela:
+            try:
+                import hermes_voice_terminal as terminal      # usa pty: não existe no Windows
+                for d in reversed(terminal.sessoes()):       # da mais velha: ela fica com a vaga menor
+                    if d.get("agente") in com_janela:
+                        pasta = Path(str(d.get("pasta") or "")).name
+                        vivas.append({"agente": d["agente"], "pid": int(d["pid"]),
+                                      "rotulo": pasta or str(d["pid"]), "titulo": str(d.get("titulo") or ""),
+                                      "pasta": pasta, "estado": str(d.get("estado") or "parada"),
+                                      "canal": False, "ouve": True})
+            except Exception as e:
+                LOG.debug("janelas de terminal: %s", e)
         with self._trava_vagas:
-            pids = {s["pid"] for s in vivas}
-            self._vagas = {p: v for p, v in self._vagas.items() if p in pids}
+            pids = {s["pid"]: s["agente"] for s in vivas}
+            self._vagas = {p: av for p, av in self._vagas.items() if pids.get(p) == av[0]}
             usadas = set(self._vagas.values())
             for s in vivas:
                 if s["pid"] not in self._vagas:
                     v = 0
-                    while v in usadas:
+                    while (s["agente"], v) in usadas:
                         v += 1
-                    self._vagas[s["pid"]] = v
-                    usadas.add(v)
-            return sorted(({"vaga": self._vagas[s["pid"]], "pid": s["pid"], "rotulo": sessao.rotulo(s),
-                            "titulo": sessao.titulo(s), "pasta": s["pasta"],
-                            "estado": s["estado"], "canal": s["canal"], "ouve": s["ouve"]} for s in vivas),
-                          key=lambda s: s["vaga"])
+                    self._vagas[s["pid"]] = (s["agente"], v)
+                    usadas.add((s["agente"], v))
+            return sorted((dict(s, vaga=self._vagas[s["pid"]][1]) for s in vivas),
+                          key=lambda s: (s["agente"] != "claude", s["agente"], s["vaga"]))
 
     def _atualizar_sessoes(self):
         lista = self._lista_sessoes()
@@ -658,6 +683,10 @@ class PonteRelogio:
         elif linha == "vaga" or linha.startswith("vaga "):
             k = linha[5:].strip()
             self._vaga = int(k) if k.isdigit() and int(k) < 1000 else -1
+        elif linha.startswith("orbe "):
+            skin, _, cor = linha[5:].strip().partition(" ")
+            cor = cor.strip()
+            self._orbe = (skin[:32], cor if re.fullmatch(r"#[0-9a-fA-F]{6}", cor) else "")
         elif linha == "voz acabou" and self._ao_fala_fim is not None:
             self._ao_fala_fim()
         elif linha == "historico" and self._ao_historico is not None:

@@ -220,7 +220,7 @@ class AgenteACP:
 
     def listar_sessoes(self, limite: int = 25, teto: float = 20.0) -> list[dict]:
         """As sessões passadas do agente (session/list), da mais recente: id,
-        título, pasta e quando (s; 0 sem data). ErroACP se ele não lista."""
+        título, pasta (o nome; cwd, o caminho) e quando (s; 0 sem data). ErroACP se ele não lista."""
         res = self._pedir("session/list", {}, teto) or {}
         lista = []
         for x in res.get("sessions") or []:
@@ -228,7 +228,7 @@ class AgenteACP:
             if not sid:
                 continue
             cwd = str(x.get("cwd") or "")
-            lista.append({"id": sid, "titulo": str(x.get("title") or ""),
+            lista.append({"id": sid, "titulo": str(x.get("title") or ""), "cwd": cwd,
                           "pasta": Path(cwd).name or cwd, "quando": _segundos(x.get("updatedAt"))})
         lista.sort(key=lambda d: d["quando"], reverse=True)
         return lista[:limite]

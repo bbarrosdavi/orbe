@@ -143,7 +143,7 @@ Item {
             // ═══ Agente ═══
             Pagina {
                 Grupo {
-                    descricao: "Quem responde: um agente ACP ou o Claude aberto no terminal. Cada orbe tem o seu, "
+                    descricao: "Quem responde: o agente, numa janela do terminal ou em segundo plano (abaixo). Cada orbe tem o seu, "
                                + "o mesmo no PC e no relógio: trocar a skin na Aparência troca o agente do atalho e "
                                + "da palavra de ativação. A lista com todos os orbes fica na aba Relógio."
                     LinhaCombo {
@@ -193,16 +193,27 @@ Item {
                     }
                 }
                 Grupo {
-                    titulo: "Claude no terminal"
-                    descricao: "O Claude não roda em segundo plano: sem sessão aberta, o orbe abre uma num terminal "
-                               + "no PC, pelo atalho (com o Claude escolhido acima) ou por um orbe do relógio que use o Claude."
+                    titulo: "Onde cada agente roda"
+                    descricao: "Num terminal, sem sessão aberta o orbe abre uma janela no PC com o agente, e o pedido "
+                               + "de voz aparece no chat dela; do relógio, cada instância do orbe é uma janela. Em segundo "
+                               + "plano, roda sem janela: o Claude com claude --bg, ouvindo pelo hook do orbe, e os outros por ACP."
+                    Repeater {
+                        id: rModos
+                        model: ponte.agentesModo
+                        LinhaCombo {
+                            readonly property string agente: modelData.id
+                            titulo: modelData.nome
+                            itens: [{ id: "terminal", nome: "Num terminal" }, { id: "fundo", nome: "Em segundo plano" }]
+                            valor: (ponte.cfg.agente.modos || {})[modelData.id] || "terminal"
+                        }
+                    }
                     LinhaEntrada {
                         id: rTerminal
-                        titulo: "Terminal (roda <terminal> -e claude-orbe)"
+                        titulo: "Terminal (roda <terminal> -e <agente>)"
                     }
                     LinhaEntrada {
                         id: rClaudePasta
-                        titulo: "Pasta da sessão (vazio = a pasta do usuário)"
+                        titulo: "Pasta das janelas (vazio = a pasta do usuário)"
                     }
                 }
                 Grupo {
@@ -581,11 +592,17 @@ Item {
                         subtitulo: "segurando o orbe no relógio, a fala vem de lá e não do microfone do PC"
                         visible: rRelogio.ligado
                     }
+                    LinhaSwitch {
+                        id: rSeguir
+                        titulo: "Seguir o relógio"
+                        subtitulo: "a sessão aberta no relógio aparece no orbe do PC com o orbe de lá, a skin e a cor da instância"
+                        visible: rRelogio.ligado
+                    }
                 }
                 Grupo {
                     titulo: "Agente de cada orbe"
                     descricao: "Rolar a lista do relógio troca de orbe e, com ele, de agente; no PC vale o da skin "
-                               + "em uso. O Claude abre num terminal no PC; os outros rodam em segundo plano."
+                               + "em uso. Cada agente roda onde a aba Agente diz, numa janela do terminal ou em segundo plano."
                     Repeater {
                         id: agentesOrbe
                         model: raiz.skinsRelogio
@@ -1101,9 +1118,14 @@ Item {
         rConfirma.valor = at.confirmacao
         rRelogio.ligado = !!c.relogio.ligado
         rRelogioMic.ligado = !!c.relogio.microfone
+        rSeguir.ligado = !!c.relogio.seguir
         carregarAjustes(c.relogio.ajustes)
         rTerminal.texto = a.terminal
         rClaudePasta.texto = a.claude_pasta
+        for (var m = 0; m < rModos.count; m++) {
+            var lm = rModos.itemAt(m)
+            lm.valor = (a.modos || {})[lm.agente] || "terminal"
+        }
 
         rStt.valor = v.stt_modelo
         rIdioma.texto = v.stt_idioma
@@ -1163,9 +1185,13 @@ Item {
         at.atalho = raiz.atalho
         cfg.relogio.ligado = rRelogio.ligado
         cfg.relogio.microfone = rRelogioMic.ligado
+        cfg.relogio.seguir = rSeguir.ligado
         cfg.relogio.ajustes = coletarAjustes(raiz.ajustesBase)
         a.terminal = rTerminal.texto.trim() || "ghostty"
         a.claude_pasta = rClaudePasta.texto.trim()
+        a.modos = Object.assign({}, a.modos || {})
+        for (var m = 0; m < rModos.count; m++)
+            a.modos[rModos.itemAt(m).agente] = rModos.itemAt(m).efetivo
         v.stt_modelo = rStt.efetivo
         v.stt_idioma = rIdioma.texto.trim() || "pt"
         v.tts_provedor = rTts.efetivo

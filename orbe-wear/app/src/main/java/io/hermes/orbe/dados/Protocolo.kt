@@ -28,21 +28,29 @@ data class Ola(
     @SerialName("voz_pc") val vozPc: Boolean = false,
     /** os agentes instalados no PC, para cada orbe da lista ter o seu */
     val agentes: List<AgenteInfo> = emptyList(),
-    /** as sessões do Claude Code abertas no PC; null: a ponte não as conta */
+    /** as sessões abertas no PC dos agentes com instâncias; null: a ponte não as conta */
     val sessoes: List<SessaoInfo>? = null,
-    /** falar num orbe do Claude sem sessão abre uma no PC (o daemon; o orbe de pulso não abre) */
+    /** falar numa instância sem sessão abre uma no PC (o daemon; o orbe de pulso não abre) */
     @SerialName("abre_claude") val abreClaude: Boolean = false,
 )
 
+/**
+ * Um agente do PC. Com [instancias], cada instância do orbe dele é uma sessão
+ * aberta no PC (o Claude, e os que rodam numa janela do terminal); sem, o orbe
+ * fala com uma sessão só.
+ */
 @Serializable
-data class AgenteInfo(val id: String = "", val nome: String = "")
+data class AgenteInfo(val id: String = "", val nome: String = "", val instancias: Boolean = false)
 
 /**
- * Uma sessão do Claude Code aberta no PC, na [vaga] dela: a vaga k é a
- * k-ésima instância dos orbes do Claude (Instancias) e não muda enquanto ela vive.
+ * Uma sessão aberta no PC de um agente com instâncias, na [vaga] dela: a vaga
+ * k é a k-ésima instância dos orbes do [agente] (Instancias) e não muda
+ * enquanto ela vive.
  */
 @Serializable
 data class SessaoInfo(
+    /** o agente dela (a ponte antiga só conta as do Claude) */
+    val agente: String = "claude",
     val vaga: Int = 0,
     val pid: Int = 0,
     /** a pasta e o nome da sessão (a ponte antiga só manda este) */
@@ -55,7 +63,7 @@ data class SessaoInfo(
     val estado: String = "",
     /** aberta pelo orbe (claude-orbe): o canal dele responde */
     val canal: Boolean = false,
-    /** aberta à mão, ouve o orbe pelo hook (hermes_voice_sessao.py) */
+    /** ouve o orbe: o Claude aberto à mão, pelo hook (hermes_voice_sessao.py), e as janelas dos outros agentes */
     val ouve: Boolean = false,
 )
 

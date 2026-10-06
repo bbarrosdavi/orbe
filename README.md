@@ -142,6 +142,40 @@ linha cortada em 60 caracteres (o Claude recebe o texto inteiro). Para o `claude
 digitado à mão já abrir com o canal, há uma função para o `~/.bashrc` no mesmo
 trecho.
 
+### Num terminal ou em segundo plano
+
+Cada agente roda num de dois jeitos, escolhido na aba Agente do app ("Onde
+cada agente roda", `agente.modos` no `config.json`):
+
+- **Num terminal** (o padrão do Claude Code, do OpenCode e do Gemini CLI): sem
+  sessão aberta, o orbe abre uma janela de `agente.terminal` (o Ghostty, de
+  padrão) com o agente, na pasta de `agente.claude_pasta`. O pedido de voz
+  aparece no chat da janela, como digitado, e o detalhe do trabalho fica nela.
+  O Claude vem pelo `claude-orbe`; os outros pelo `hermes_voice_terminal.py`,
+  que roda o agente num pseudo-terminal e lê a resposta pelo que cada um
+  oferece: no OpenCode, a API do servidor da TUI (`--port`), que também põe o
+  pedido no prompt; no Gemini CLI, hooks; no Hermes, o espelho de eventos da
+  TUI (`HERMES_TUI_SIDECAR_URL`). No Gemini e no Hermes o pedido é colado no
+  prompt e entra com Enter, com as mesmas travas do `claude-orbe`: só com o
+  prompt vazio e sem diálogo aberto. Interromper só solta a espera; o agente
+  segue o que estiver fazendo na janela. O modelo escolhido no app vale só
+  por ACP: na janela, vale o do agente.
+- **Em segundo plano** (o padrão do Hermes): sem janela. Os ACP rodam como
+  antes; o Claude abre com `claude --bg --dangerously-skip-permissions` e ouve
+  o orbe pelo hook de sessão (`hermes_voice_sessao.py --instalar`), e o
+  Encerrar o para com `claude stop`, guardando a conversa.
+
+Os hooks do Gemini ficam no `~/.gemini/settings.json`, postos na primeira
+janela do Gemini aberta pelo orbe (com cópia em `settings.json.orbe-bak`).
+Fora de uma janela do orbe eles saem sem fazer nada; para tirar:
+`./hermes_voice_terminal.py --remover-gemini`. Desde a 0.62, o Gemini só roda
+hooks em pasta confiada (`~/.gemini/trustedFolders.json`): fora delas, o orbe
+diz que o Gemini não confia na pasta.
+
+No relógio, cada janela aberta é uma instância dos orbes daquele agente, como
+as sessões do Claude; no PC, o atalho fala com a janela mais recente do agente
+da skin em uso, ou abre uma.
+
 ### Cancelamento de eco (opcional)
 
 Para interromper o agente falando por cima sem que ele ouça a própria voz:

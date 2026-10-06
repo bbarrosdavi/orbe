@@ -31,4 +31,17 @@ class ProtocoloTest {
         // a ponte antiga só manda o rótulo
         assertEquals("", Protocolo.sessoes("""[{"vaga": 0, "pid": 9, "rotulo": "davi-2c"}]""")!![0].titulo)
     }
+
+    @Test
+    fun aSessaoSemAgenteEDoClaude() {
+        // a ponte antiga só conta as do Claude e não diz o agente
+        assertEquals("claude", Protocolo.sessoes("""[{"vaga": 0, "pid": 9}]""")!![0].agente)
+        assertEquals("opencode", Protocolo.sessoes("""[{"agente": "opencode", "vaga": 0, "pid": 9}]""")!![0].agente)
+    }
+
+    @Test
+    fun oAgenteDizSeTemInstancias() {
+        val ola = Protocolo.ola("""{"agentes": [{"id": "claude", "nome": "Claude Code", "instancias": true}, {"id": "hermes", "nome": "Hermes"}]}""")!!
+        assertEquals(listOf(true, false), ola.agentes.map { it.instancias })
+    }
 }

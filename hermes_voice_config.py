@@ -126,9 +126,15 @@ DEFAULTS = {
         # O orbe fala as etapas do Claude enquanto ele trabalha: a descrição
         # de cada ferramenta, a mesma linha que o terminal mostra com o ponto.
         "falar_etapas": True,
-        # O Claude não roda em segundo plano: sem sessão com o canal do orbe,
-        # o daemon abre "<terminal> -e claude-orbe" no PC, na pasta dada
-        # (vazio = a pasta do usuário). Vale para o atalho e para o relógio.
+        # Onde cada agente roda: "terminal" abre uma janela do terminal no PC
+        # com o agente (o Claude pelo claude-orbe, os outros pelo
+        # hermes_voice_terminal.py), e o pedido de voz aparece no chat dela;
+        # "fundo" roda sem janela (o Claude com claude --bg, ouvindo pelo
+        # hook; os outros por ACP). O "comando" é sempre ACP.
+        "modos": {"claude": "terminal", "opencode": "terminal", "gemini": "terminal", "hermes": "fundo"},
+        # O terminal das janelas, rodado como "<terminal> -e <agente>", e a
+        # pasta em que elas abrem (vazio = a pasta do usuário). Vale para o
+        # atalho e para o relógio.
         "terminal": "ghostty",
         "claude_pasta": "",
     },
@@ -212,6 +218,10 @@ DEFAULTS = {
         # ponte WebSocket para o app do relógio (orbe-wear), servida pelo
         # hermes_voice_relogio.py; desligada, o daemon não abre porta nenhuma
         "ligado": False,
+        # a sessão aberta pelo relógio aparece no orbe do PC com o orbe dela:
+        # a skin e a cor da instância de onde foi pedida (os olhos ficam
+        # vermelhos com ou sem isto)
+        "seguir": False,
         "porta": 8777,
         # pareamento: gerado na primeira subida (hermes_voice_relogio.py mostra)
         "token": "",
@@ -306,6 +316,19 @@ def agente_da_skin(cfg: dict | None = None) -> str:
     if escolhido:
         return escolhido
     return "claude" if cfg["relogio"]["ligado"] else cfg["agente"]["tipo"]
+
+
+# os agentes que sabem rodar num terminal; o "comando" é um ACP qualquer
+MODOS_TERMINAL = ("claude", "opencode", "gemini", "hermes")
+
+
+def modo_do_agente(tipo: str, cfg: dict | None = None) -> str:
+    """ "terminal" ou "fundo": onde o [tipo] roda (agente.modos)."""
+    if tipo not in MODOS_TERMINAL:
+        return "fundo"
+    cfg = cfg or carregar()
+    modo = (cfg["agente"].get("modos") or {}).get(tipo) or DEFAULTS["agente"]["modos"].get(tipo, "fundo")
+    return "terminal" if modo == "terminal" else "fundo"
 
 
 def salvar(cfg: dict) -> None:

@@ -131,8 +131,9 @@ private const val ARCO_ROTULO = 100f
  * Os orbes ficam numa lista vertical, uma skin por página, que rola como os
  * avatares do HinaWatch: com inércia, o orbe encolhendo ao sair do centro e os
  * pontos à direita mostrando em que parte da lista se está; a coroa passa de
- * um em um. Cada orbe do Claude tem as instâncias dele, uma por sessão do
- * Claude Code aberta no PC, que passam com dois dedos na vertical ([Fileira]).
+ * um em um. Cada orbe do Claude (ou de um agente que o PC roda numa janela do
+ * terminal) tem as instâncias dele, uma por sessão aberta no PC, que passam
+ * com dois dedos na vertical ([Fileira]).
  * Com a sessão aberta, só o orbe de onde ela foi aberta mostra o estado dela.
  */
 @Composable
@@ -153,7 +154,10 @@ fun TelaOrbe(
     val ligacao by vm.ligacao.collectAsStateWithLifecycle()
     val sessoes by vm.sessoes.collectAsStateWithLifecycle()
     val abreClaude by vm.abreClaude.collectAsStateWithLifecycle()
-    val claude = remember(ajustes.agentes, ajustes.ordem) { vm.skinsClaude(ajustes) }
+    // o agente de cada skin e, nos com instâncias, os orbes dele (as vagas se alternam entre eles)
+    val grupos = remember(ajustes.agentes, ajustes.ordem, agentesPc) {
+        ajustes.skins().associateWith { vm.agenteDe(it, ajustes).let { ag -> ag to vm.skinsDoAgente(ag, ajustes) } }
+    }
     val pode by rememberUpdatedState(podeGravar)
     val podeAgora = remember { { pode() } }
     // rolado para outro orbe, a sessão segue, mas o texto e o ponto ficam com o dono
@@ -161,7 +165,6 @@ fun TelaOrbe(
     val comTexto = ajustes.texto && visto.linhas.isNotEmpty()
     val skins = remember(ajustes.ordem) { ajustes.skins() }
     val nSkins = skins.size
-    val vagas = sessoes.orEmpty().map { it.vaga }
 
     SideEffect {
         vm.cena.redonda = redonda
@@ -214,19 +217,20 @@ fun TelaOrbe(
                     // lido no desenho: a rolagem não recompõe as páginas
                     .graphicsLayer { roda(paginas.currentPage - pagina + paginas.currentPageOffsetFraction, vertical = true) },
             ) {
-                val j = claude.indexOf(skin)
+                val (ag, grupo) = grupos[skin] ?: ("claude" to emptyList())
+                val j = grupo.indexOf(skin)
                 if (j >= 0) {
-                    // as vagas se alternam entre os orbes do Claude: cada um tem as suas
-                    val m = claude.size
-                    val n = Instancias.contar(Instancias.doOrbe(vagas, j, m), abreClaude)
+                    // as vagas se alternam entre os orbes do agente: cada um tem as suas
+                    val m = grupo.size
+                    val doAgente = sessoes.orEmpty().filter { it.agente == ag }
+                    val n = Instancias.contar(Instancias.doOrbe(doAgente.map { it.vaga }, j, m), abreClaude)
                     Fileira(vm, daPagina, emTela, n, ajustes.tamanhoDe(skin), redonda, podeAgora) { k, atual ->
                         // a sessão desta instância, na cor dela; no orbe em tela o
                         // raciocínio ocupa o mesmo lugar e tem a vez
                         val cor = daPagina.copy(instancia = k).corFigura().let { Color(it[0], it[1], it[2]) }
-                        val lista = sessoes
-                        if (lista != null) {
+                        if (sessoes != null) {
                             RotuloSessao(
-                                lista.firstOrNull { it.vaga == Instancias.vaga(k, j, m) }, abreClaude, agente, cor,
+                                doAgente.firstOrNull { it.vaga == Instancias.vaga(k, j, m) }, abreClaude, agente, cor,
                                 comPe = !(atual && comTexto),
                                 Modifier.fillMaxSize(),
                             )
@@ -353,8 +357,9 @@ private fun PontosDaLista(n: Int, posicao: () -> Float, modifier: Modifier = Mod
 }
 
 /**
- * As instâncias de um orbe do Claude, uma embaixo da outra: a 0 é o próprio
- * orbe e as seguintes são as vagas dele de sessão do Claude Code no PC, e por
+ * As instâncias de um orbe com elas (do Claude, ou de um agente numa janela),
+ * uma embaixo da outra: a 0 é o próprio orbe e as seguintes são as vagas dele
+ * de sessão aberta no PC, e por
  * fim uma livre quando falar nela abre uma sessão. Dois dedos na vertical
  * passam de uma a outra, com a mesma roda da lista; um dedo continua sendo da
  * lista (de um orbe a outro), do menu e do voltar do sistema.

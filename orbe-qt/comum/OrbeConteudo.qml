@@ -22,11 +22,19 @@ Item {
     property color accent: "#f3b2e3"       // --colorAccentBg: paleta do anel
     property color corFundo: "#121414"     // @window_bg_color: sombra e contorno do texto
     property color corOlhos: "transparent" // "olhos <cor>": íris em cor própria (a sessão do relógio)
+    // "espelho <skin> <#cor|->": a sessão do relógio aparece com o orbe de lá,
+    // a skin e a cor da instância ("-": as do tema); "espelho" volta ao daqui
+    property string espelhoSkin: ""
+    property color espelhoCor: "transparent"
+    property var espelhoDepois: null       // a volta pedida no meio da saída: espera ela acabar
+    readonly property string skinEmUso: espelhoSkin || skin
+    readonly property color corFigura: espelhoCor.a > 0 ? espelhoCor : corTema
+    readonly property color corAccent: espelhoCor.a > 0 ? espelhoCor : accent
 
-    readonly property bool avatar: skin === "ofanim" || skin === "ofanim_alado" || skin === "serafim_gravura"
+    readonly property bool avatar: skinEmUso === "ofanim" || skinEmUso === "ofanim_alado" || skinEmUso === "serafim_gravura"
     // as skins de imagem saem 5/3 maiores: o 60% do slider delas é o 100% das
     // outras (reduzida demais, a gravura perde a hachura)
-    readonly property real escala: tamanho * (skin === "serafim_gravura" ? 5 / 3 : 1)
+    readonly property real escala: tamanho * (skinEmUso === "serafim_gravura" ? 5 / 3 : 1)
     // ART_BOX é o tamanho visual da arte; ORB_BOX, a célula reservada para ela
     readonly property int orbBox: Math.round(148 * escala)
     readonly property int artBox: Math.round(120 * escala)
@@ -37,7 +45,7 @@ Item {
     // abaixo, o texto começa onde a figura termina (medido nos renders, em
     // fração da célula a partir do centro): a linha mais antiga some ali
     readonly property var pes: ({ ofanim: 0.39, ofanim_alado: 0.29, serafim_gravura: 0.38, anel: 0.35 })
-    readonly property real yTexto: Math.round(cy + orbBox * (pes[skin] || 0.35))
+    readonly property real yTexto: Math.round(cy + orbBox * (pes[skinEmUso] || 0.35))
     // topo da figura acima do centro, em fração da célula (medido nos renders,
     // na coluna do meio, ouvindo e parada): o ponto da sessão travada fica
     // logo acima dele, perto da figura e longe da borda de cima da tela
@@ -83,6 +91,7 @@ Item {
 
     // ── comandos (mesma semântica do OrbWin) ──
     function mostrar(e) {
+        aplicarEspelho()
         linhas = []
         if (estados.indexOf(e) >= 0) estado = e
         if (!visivel || fase === "out") {
@@ -109,6 +118,19 @@ Item {
         } else {
             visivel = false
         }
+    }
+    function espelhar(arg) {
+        var v = arg.split(/\s+/)
+        var sk = ["ofanim", "ofanim_alado", "serafim_gravura", "anel"].indexOf(v[0]) >= 0 ? v[0] : ""
+        var e = { skin: sk, cor: sk && /^#[0-9a-fA-F]{6}$/.test(v[1] || "") ? v[1] : "transparent" }
+        espelhoDepois = e
+        if (!(visivel && fase === "out")) aplicarEspelho()
+    }
+    function aplicarEspelho() {
+        if (!espelhoDepois) return
+        espelhoSkin = espelhoDepois.skin
+        espelhoCor = espelhoDepois.cor
+        espelhoDepois = null
     }
     function empurrarLinha(texto) {
         // tira glifos sem cobertura na fonte (emoji, nerd fonts, símbolos)
@@ -154,6 +176,8 @@ Item {
             esconder()
         } else if (op === "olhos") {
             corOlhos = /^#[0-9a-fA-F]{6}$/.test(arg) ? arg : "transparent"
+        } else if (op === "espelho") {
+            espelhar(arg)
         }
     }
 
@@ -168,6 +192,7 @@ Item {
             } else if (fase === "out" && faseT >= 0.25) {
                 fase = "run"
                 visivel = false
+                aplicarEspelho()
                 saiu()
             }
         }
@@ -226,10 +251,10 @@ Item {
     Component {
         id: compFigura
         Figura {
-            skin: orbe.skin
+            skin: orbe.skinEmUso
             glitch: orbe.glitch
             peso: 1.4                       // o traço do menu some numa área de 148 px
-            cor: orbe.corTema
+            cor: orbe.corFigura
             corOlhos: orbe.corOlhos
             disco: orbe.vidro ? orbe.orbBox / 2 - 5 : -1
             zoom: orbe.envEsc
@@ -263,7 +288,7 @@ Item {
             envAlfa: orbe.envAlfa
             esc: orbe.tamanho
             glitch: orbe.glitch
-            accent: orbe.accent
+            accent: orbe.corAccent
         }
     }
 
@@ -272,10 +297,10 @@ Item {
         id: ponto
         visible: orbe.travado
         readonly property real pulso: 0.62 + 0.38 * (0.5 + 0.5 * Math.sin(orbe.t * 2.0))
-        readonly property color cor: orbe.avatar ? orbe.corTema : (arte.item ? arte.item.corAnel : orbe.accent)
+        readonly property color cor: orbe.avatar ? orbe.corFigura : (arte.item ? arte.item.corAnel : orbe.corAccent)
         x: orbe.cx
         // o ponto não passa da borda de cima
-        y: Math.max(5, orbe.cy - orbe.orbBox * (orbe.topo[orbe.skin] || 0.35) - 8)
+        y: Math.max(5, orbe.cy - orbe.orbBox * (orbe.topo[orbe.skinEmUso] || 0.35) - 8)
         Rectangle {
             x: -6; y: -6; width: 12; height: 12; radius: 6
             color: Qt.rgba(ponto.cor.r, ponto.cor.g, ponto.cor.b, 0.22 * ponto.pulso * orbe.envAlfa)

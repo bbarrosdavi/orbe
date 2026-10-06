@@ -75,9 +75,13 @@ object Estado {
  */
 object Instancias {
     /** a do tema (null) e mais quatro: ciano, verde, âmbar e violeta */
-    val cores: List<FloatArray?> = listOf(null, rgb(0x4DD0E1), rgb(0x81C784), rgb(0xFFB74D), rgb(0xB39DDB))
+    private val hex: List<Int?> = listOf(null, 0x4DD0E1, 0x81C784, 0xFFB74D, 0xB39DDB)
+    val cores: List<FloatArray?> = hex.map { it?.let(::rgb) }
 
     fun cor(instancia: Int): Int = instancia.mod(cores.size)
+
+    /** A cor da [instancia] em "#rrggbb", ou "-" na do tema: o "orbe" que a ponte recebe. */
+    fun corHex(instancia: Int): String = hex[cor(instancia)]?.let { "#%06X".format(it) } ?: "-"
 
     /**
      * Quantas instâncias a fileira tem: até a última vaga ocupada e, quando

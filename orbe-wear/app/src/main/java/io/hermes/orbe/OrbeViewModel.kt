@@ -35,6 +35,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -46,7 +47,7 @@ data class Aparencia(
     val glitch: Boolean = true,
     val linhas: Boolean = true,
     val tema: Tema = Tema.Padrao,
-    /** a instância em tela, num orbe do Claude (Instancias); 0 nos outros */
+    /** a instância em tela, num orbe de agente com instâncias (Instancias); 0 nos outros */
     val instancia: Int = 0,
     /** o fundo do menu também atrás dos orbes */
     val fundo: Boolean = true,
@@ -122,7 +123,8 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     private val _agentesPc = MutableStateFlow<List<AgenteInfo>>(emptyList())
     val agentesPc: StateFlow<List<AgenteInfo>> = _agentesPc
 
-    val aparencia: StateFlow<Aparencia> = ajustes.map(::aparenciaDe)
+    // os agentes do PC dizem quais orbes têm instâncias
+    val aparencia: StateFlow<Aparencia> = combine(ajustes, _agentesPc) { a, _ -> aparenciaDe(a) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, Aparencia())
 
     private var carregado = false
@@ -168,7 +170,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         val pc = a.pc.takeIf { it.isNotEmpty() }?.let(Protocolo::ola)
         val tema = pc?.let { Tema.de(it.tema, it.papel) } ?: Tema.Padrao
         val skin = Skin.de(if (a.seguirPc && pc != null) pc.orbe.skin else a.skin)
-        val instancia = if (skin in skinsClaude(a)) a.instancia.coerceAtLeast(0) else 0
+        val instancia = if (temInstancias(agenteDe(skin, a))) a.instancia.coerceAtLeast(0) else 0
         return if (a.seguirPc && pc != null) Aparencia(skin, pc.orbe.glitch, pc.orbe.glitch, tema, instancia, a.fundo)   // no PC as linhas vêm com o glitch
         else Aparencia(skin, a.glitch, a.linhas, tema, instancia, a.fundo)
     }
@@ -224,13 +226,15 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // o último "agente" e a última "vaga" que a ponte desta conexão recebeu; null = mandar de novo
+    // o último "agente", a última "vaga" e o último "orbe" que a ponte desta conexão recebeu; null = mandar de novo
     private var agenteEnviado: String? = null
     private var vagaEnviada: Int? = null
+    private var orbeEnviado: String? = null
 
     /**
      * A ponte fica sabendo do agente do orbe em tela (a sessão aberta daqui usa
-     * ele) e, num orbe do Claude, da vaga dele: a sessão do Claude Code que ele mostra.
+     * ele), num agente com instâncias da vaga dele (a sessão que ele mostra), e
+     * da skin e da cor dele (o orbe do PC pode seguir o daqui).
      */
     private fun enviarAgente() {
         if (ligacao.value !is Ligacao.Conectada) return
@@ -238,10 +242,12 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         val ap = aparenciaDe(a)
         val id = a.agentes[ap.skin.id].orEmpty()
         if (id != agenteEnviado && ponte.enviar("agente $id".trim())) agenteEnviado = id
-        val claude = skinsClaude(a)
-        val j = claude.indexOf(ap.skin)
-        val vaga = if (j >= 0) Instancias.vaga(ap.instancia, j, claude.size) else -1
+        val grupo = skinsDoAgente(agenteDe(ap.skin, a), a)
+        val j = grupo.indexOf(ap.skin)
+        val vaga = if (j >= 0) Instancias.vaga(ap.instancia, j, grupo.size) else -1
         if (vaga != vagaEnviada && ponte.enviar(if (vaga < 0) "vaga" else "vaga $vaga")) vagaEnviada = vaga
+        val orbe = "orbe ${ap.skin.id} ${Instancias.corHex(ap.instancia)}"
+        if (orbe != orbeEnviado && ponte.enviar(orbe)) orbeEnviado = orbe
     }
 
     private fun adormecer() {
@@ -308,9 +314,16 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
 
     fun vibrar(v: Boolean) = mudarSinc { it.copy(vibrar = v) }
 
-    /** As skins cujos orbes são do Claude (o agente padrão), na ordem da lista. */
-    fun skinsClaude(a: Ajustes = _ajustes.value): List<Skin> =
-        a.skins().filter { a.agentes[it.id].orEmpty().let { id -> id.isEmpty() || id == "claude" } }
+    /** O agente do orbe da [skin]: o escolhido, ou o Claude (o padrão). */
+    fun agenteDe(skin: Skin, a: Ajustes = _ajustes.value): String = a.agentes[skin.id].orEmpty().ifEmpty { "claude" }
+
+    /** O agente tem uma sessão por instância do orbe: o Claude, e os que o PC roda numa janela do terminal. */
+    fun temInstancias(agente: String): Boolean =
+        agente == "claude" || _agentesPc.value.any { it.id == agente && it.instancias }
+
+    /** As skins cujos orbes são do [agente], na ordem da lista; vazia se ele não tem instâncias. */
+    fun skinsDoAgente(agente: String, a: Ajustes = _ajustes.value): List<Skin> =
+        if (!temInstancias(agente)) emptyList() else a.skins().filter { agenteDe(it, a) == agente }
 
     /** O agente seguinte para o orbe da [skin], em roda: o padrão (Claude) e os do PC. */
     fun proximoAgente(skin: Skin) {
@@ -499,6 +512,7 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
         _abreClaude.value = ola.abreClaude
         agenteEnviado = null
         vagaEnviada = null
+        orbeEnviado = null
         mudar { it.copy(pc = bruto) }
         // os ajustes daqui vão ao PC; se os de lá forem mais novos, a ponte devolve os dela
         ponte.enviar(Protocolo.ajustes(_ajustes.value.sincronia()))
@@ -551,17 +565,19 @@ class OrbeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Retoma uma sessão passada no orbe em tela. Num orbe do Claude ela vai
-     * para uma instância sem sessão: a em tela, se está livre, ou a do fim.
+     * Retoma uma sessão passada no orbe em tela. Num agente com instâncias ela
+     * vai para uma instância sem sessão: a em tela, se está livre, ou a do fim.
      */
     fun retomar(id: String) {
         _historico.value = null
         val a = _ajustes.value
         val ap = aparenciaDe(a)
-        val claude = skinsClaude(a)
-        val j = claude.indexOf(ap.skin)
+        val agente = agenteDe(ap.skin, a)
+        val grupo = skinsDoAgente(agente, a)
+        val j = grupo.indexOf(ap.skin)
         if (j >= 0) {
-            val ocupadas = Instancias.doOrbe(_sessoes.value.orEmpty().map { it.vaga }, j, claude.size)
+            val vagas = _sessoes.value.orEmpty().filter { it.agente == agente }.map { it.vaga }
+            val ocupadas = Instancias.doOrbe(vagas, j, grupo.size)
             if (ap.instancia in ocupadas) instancia((ocupadas.maxOrNull() ?: -1) + 1)
         }
         enviarAgente()

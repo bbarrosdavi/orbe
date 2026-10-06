@@ -54,6 +54,15 @@ class InstanciasTest {
     }
 
     @Test
+    fun aCorQueOOrbeDoPcSegueEstaEmHex() {
+        // a 0 fica com a do tema, no PC também
+        assertEquals("-", Instancias.corHex(0))
+        assertEquals("#4DD0E1", Instancias.corHex(1))
+        assertEquals("#B39DDB", Instancias.corHex(4))
+        assertEquals("-", Instancias.corHex(Instancias.cores.size))
+    }
+
+    @Test
     fun aListaComecaPeloAnelEPeloSeraphim() {
         assertEquals(listOf(Skin.ANEL, Skin.SERAFIM_GRAVURA), Skin.entries.take(2))
     }

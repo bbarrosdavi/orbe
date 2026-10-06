@@ -449,6 +449,11 @@ class Ponte(QObject):
                 for t in ("hermes", "opencode", "gemini", "claude", "comando")]
 
     @Property("QVariant", constant=True)
+    def agentesModo(self):
+        """Os agentes que rodam num terminal ou em segundo plano (agente.modos)."""
+        return [{"id": t, "nome": acp.NOMES[t]} for t in vcfg.MODOS_TERMINAL if acp.disponivel(t)]
+
+    @Property("QVariant", constant=True)
     def perfis(self):
         return [{"id": p, "nome": p} for p in acp.perfis_hermes()]
 
