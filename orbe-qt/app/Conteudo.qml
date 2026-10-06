@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Dialogs
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import "../comum"
@@ -528,7 +529,7 @@ Item {
                         spacing: 10
                         Repeater {
                             id: cartoes
-                            model: ["ofanim", "ofanim_alado", "serafim_gravura", "anel"]
+                            model: ["ofanim", "ofanim_alado", "serafim_gravura", "olho", "humana", "anel"]
                             Cartao {
                                 width: (parent.width - 10) / 2
                                 skin: modelData
@@ -709,6 +710,18 @@ Item {
                         titulo: "Fundo atrás do orbe"
                         subtitulo: "o fundo do menu também atrás dos orbes"
                         visible: raiz.relogioConhecido
+                    }
+                    LinhaCombo {
+                        id: rwPapel
+                        titulo: "Plano de fundo"
+                        subtitulo: efetivo !== "imagem" ? "o papel de parede do PC, borrado como o fundo deste app"
+                                 : raiz.papelRelogio ? raiz.papelRelogio.split("/").pop() : "escolha a imagem"
+                        itens: [{ id: "pc", nome: "O do computador" }, { id: "imagem", nome: "Uma imagem" }]
+                        extra: Botao {
+                            texto: "Escolher…"
+                            visible: rwPapel.efetivo === "imagem"
+                            onClicado: dialogoPapel.open()
+                        }
                     }
                     // cada orbe do relógio guarda o seu tamanho
                     Repeater {
@@ -961,7 +974,7 @@ Item {
     // ── estado que outras linhas leem ──
     property string skin: "ofanim"
     // todos os orbes, e a voz de cada um por provedor (voz.orbes)
-    readonly property var skinsTodas: ["ofanim", "ofanim_alado", "serafim_gravura", "anel"]
+    readonly property var skinsTodas: ["ofanim", "ofanim_alado", "serafim_gravura", "olho", "humana", "anel"]
     property var vozesOrbes: ({})
     function coletarVozesOrbes() {
         var m = JSON.parse(JSON.stringify(vozesOrbes || {}))
@@ -975,8 +988,16 @@ Item {
         m[prov] = d
         return m
     }
+    // a imagem do fundo do relógio (relogio.papel); vazio: o papel de parede do PC
+    property string papelRelogio: ""
+    FileDialog {
+        id: dialogoPapel
+        title: "Plano de fundo do relógio"
+        nameFilters: ["Imagens (*.png *.jpg *.jpeg *.webp *.bmp)"]
+        onAccepted: raiz.papelRelogio = decodeURIComponent(String(selectedFile).replace(/^file:\/\//, ""))
+    }
     // os orbes do relógio, na ordem da lista de lá
-    readonly property var skinsRelogio: ["anel", "serafim_gravura", "ofanim", "ofanim_alado"]
+    readonly property var skinsRelogio: ["anel", "serafim_gravura", "ofanim", "ofanim_alado", "olho", "humana"]
     // o relógio já mandou os ajustes que só ele conhecia (os toques, a ordem, os gestos);
     // antes disso, essas linhas não aparecem e nada delas vai para lá
     property bool relogioConhecido: false
@@ -1199,6 +1220,8 @@ Item {
         rRelogio.ligado = !!c.relogio.ligado
         rRelogioMic.ligado = !!c.relogio.microfone
         rSeguir.ligado = !!c.relogio.seguir
+        papelRelogio = c.relogio.papel || ""
+        rwPapel.valor = papelRelogio ? "imagem" : "pc"
         carregarAjustes(c.relogio.ajustes)
         rTerminal.texto = a.terminal
         rClaudePasta.texto = a.claude_pasta
@@ -1236,7 +1259,7 @@ Item {
         // o Seraphim desenhado saiu; quem o tinha fica com o da gravura (o
         // Shoggoth e a Entidade também saíram: Ophanim)
         var sk = o.skin === "serafim" ? "serafim_gravura" : o.skin
-        skin = ["ofanim", "ofanim_alado", "serafim_gravura", "anel"].indexOf(sk) >= 0 ? sk : "ofanim"
+        skin = ["ofanim", "ofanim_alado", "serafim_gravura", "olho", "humana", "anel"].indexOf(sk) >= 0 ? sk : "ofanim"
         rGlitch.ligado = !!o.glitch
         rVidro.ligado = !!o.vidro
         rSombra.definir(o.sombra === undefined ? 0.45 : o.sombra)
@@ -1267,6 +1290,7 @@ Item {
         cfg.relogio.ligado = rRelogio.ligado
         cfg.relogio.microfone = rRelogioMic.ligado
         cfg.relogio.seguir = rSeguir.ligado
+        cfg.relogio.papel = rwPapel.efetivo === "imagem" ? papelRelogio : ""
         cfg.relogio.ajustes = coletarAjustes(raiz.ajustesBase)
         a.terminal = rTerminal.texto.trim() || "ghostty"
         a.claude_pasta = rClaudePasta.texto.trim()

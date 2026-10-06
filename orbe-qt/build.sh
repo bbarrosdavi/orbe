@@ -15,7 +15,7 @@ ALVOS="--glsl 100es,150 --msl 12 --hlsl 50"
 for s in 0:ofanim 1:ofanim_alado; do
     "$QSB" $ALVOS -DSKIN="${s%%:*}" -o "figura_${s#*:}.frag.qsb" figura.frag
 done
-for s in 1:serafim_gravura; do
+for s in 1:serafim_gravura 2:olho 3:humana; do
     "$QSB" $ALVOS -DIMG="${s%%:*}" -o "figura_${s#*:}.frag.qsb" imagem.frag
 done
 for f in pos anel; do

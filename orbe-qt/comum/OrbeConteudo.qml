@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 
 // Conteúdo do orbe de voz, sem nada de Quickshell, para rodar offscreen nos
 // testes. Portado do Ring/OrbWin do orbe GTK antigo: fases de entrada e
@@ -31,10 +32,10 @@ Item {
     readonly property color corFigura: espelhoCor.a > 0 ? espelhoCor : corTema
     readonly property color corAccent: espelhoCor.a > 0 ? espelhoCor : accent
 
-    readonly property bool avatar: skinEmUso === "ofanim" || skinEmUso === "ofanim_alado" || skinEmUso === "serafim_gravura"
+    readonly property bool avatar: skinEmUso !== "anel"
     // as skins de imagem saem 5/3 maiores: o 60% do slider delas é o 100% das
     // outras (reduzida demais, a gravura perde a hachura)
-    readonly property real escala: tamanho * (skinEmUso === "serafim_gravura" ? 5 / 3 : 1)
+    readonly property real escala: tamanho * (({ serafim_gravura: 1, olho: 1, humana: 1 })[skinEmUso] ? 5 / 3 : 1)
     // ART_BOX é o tamanho visual da arte; ORB_BOX, a célula reservada para ela
     readonly property int orbBox: Math.round(148 * escala)
     readonly property int artBox: Math.round(120 * escala)
@@ -44,12 +45,12 @@ Item {
     readonly property bool textoAbaixo: textoPos === "abaixo"
     // abaixo, o texto começa onde a figura termina (medido nos renders, em
     // fração da célula a partir do centro): a linha mais antiga some ali
-    readonly property var pes: ({ ofanim: 0.39, ofanim_alado: 0.29, serafim_gravura: 0.38, anel: 0.35 })
+    readonly property var pes: ({ ofanim: 0.39, ofanim_alado: 0.29, serafim_gravura: 0.38, olho: 0.46, humana: 0.43, anel: 0.35 })
     readonly property real yTexto: Math.round(cy + orbBox * (pes[skinEmUso] || 0.35))
     // topo da figura acima do centro, em fração da célula (medido nos renders,
     // na coluna do meio, ouvindo e parada): o ponto da sessão travada fica
     // logo acima dele, perto da figura e longe da borda de cima da tela
-    readonly property var topo: ({ ofanim: 0.345, ofanim_alado: 0.277, serafim_gravura: 0.355, anel: 0.412 })
+    readonly property var topo: ({ ofanim: 0.345, ofanim_alado: 0.277, serafim_gravura: 0.355, olho: 0.38, humana: 0.40, anel: 0.412 })
     // abaixo, o orbe fica no mesmo lugar e a janela desce até a 5ª linha
     width: painel + orbBox
     height: textoAbaixo ? Math.max(orbBox, yTexto + 5 * 17 + 4) : orbBox
@@ -123,7 +124,7 @@ Item {
     }
     function espelhar(arg) {
         var v = arg.split(/\s+/)
-        var sk = ["ofanim", "ofanim_alado", "serafim_gravura", "anel"].indexOf(v[0]) >= 0 ? v[0] : ""
+        var sk = ["ofanim", "ofanim_alado", "serafim_gravura", "olho", "humana", "anel"].indexOf(v[0]) >= 0 ? v[0] : ""
         var e = { skin: sk, cor: sk && /^#[0-9a-fA-F]{6}$/.test(v[1] || "") ? v[1] : "transparent" }
         espelhoDepois = e
         if (!(visivel && fase === "out")) aplicarEspelho()
@@ -401,6 +402,37 @@ Item {
         // até quase sumir no pé da figura
         readonly property var alfas: orbe.textoAbaixo ? [0.10, 0.24, 0.42, 0.66, 0.92]
                                                       : [0.16, 0.28, 0.42, 0.62, 0.92]
+        function xLinha(l) { return Math.max(2, orbe.textoDireita - fm.advanceWidth(l)) }
+        function yLinha(i, n) {
+            return orbe.textoAbaixo ? orbe.yTexto + i * 17 : orbe.cy - (n - 1) * 8.5 + i * 17 - fm.ascent
+        }
+        // sombra atrás das linhas: uma faixa no tom do fundo por linha, borrada
+        // junto, para o texto destacar do texto das janelas que estiverem atrás
+        Item {
+            id: sombraTexto
+            x: 0; y: 0
+            width: orbe.width; height: orbe.height
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                blurEnabled: true
+                blur: 1.0
+                blurMax: 16
+                autoPaddingEnabled: true
+            }
+            Repeater {
+                model: orbe.linhasQuebradas
+                Rectangle {
+                    readonly property int n: orbe.linhasQuebradas.length
+                    x: texto.xLinha(modelData) - 9
+                    y: texto.yLinha(index, n) - 2
+                    width: fm.advanceWidth(modelData) + 18
+                    height: 19
+                    radius: 8
+                    color: orbe.corFundo
+                    opacity: (0.6 + 0.4 * texto.alfas[5 - n + index]) * 0.9 * orbe.envAlfa
+                }
+            }
+        }
         Repeater {
             model: orbe.linhasQuebradas
             Text {
@@ -414,9 +446,8 @@ Item {
                 // contorno no tom do fundo do tema para não sumir no claro
                 style: Text.Outline
                 styleColor: Qt.rgba(orbe.corFundo.r, orbe.corFundo.g, orbe.corFundo.b, 0.8 * a)
-                x: Math.max(2, orbe.textoDireita - fm.advanceWidth(modelData))
-                y: orbe.textoAbaixo ? orbe.yTexto + index * 17
-                                    : orbe.cy - (n - 1) * 8.5 + index * 17 - fm.ascent
+                x: texto.xLinha(modelData)
+                y: texto.yLinha(index, n)
             }
         }
     }

@@ -17,10 +17,21 @@ import QtQuick
 // (arte/<skin>.png); as asas giram em volta da raiz e as íris seguem o olhar.
 // Seraphim (gravura): parado, meio recolhido; ouvindo, aberto como desenhado;
 // pensando, as asas batem; falando, tremulam com a voz.
+// Olho e Humana (peças recortadas, como num Live2D; ver imagem.frag): cada
+// membro e cada raio é uma cadeia de juntas com molas, e a junta de fora
+// recebe o contrário da velocidade da de dentro, o que dá o chicote dos
+// tentáculos. Parado, uma onda lenta corre da base à ponta; ouvindo, os
+// membros se esticam e acalmam, e o olho encara quem fala com a pupila
+// aberta; pensando, se contorcem devagar (a figura não gira), e as pálpebras
+// apertam; ferramentas, espasmos; falando, cada sílaba chuta as bases e o
+// chute sobe até as pontas. Os corpos da Humana balançam em volta do pescoço,
+// levando os membros. No Olho os raios ficam presos ao globo e fluem (uma
+// ondulação que corre do olho para fora, chutada a cada sílaba); a íris anda
+// para o olhar e o olho fica bem aberto.
 Item {
     id: raiz
 
-    property string skin: "ofanim"         // ofanim | ofanim_alado | serafim_gravura
+    property string skin: "ofanim"         // ofanim | ofanim_alado | serafim_gravura | olho | humana
     property bool glitch: true
     property real peso: 1.0                // traço mais grosso e opaco (o orbe usa mais)
     property color cor: "white"
@@ -46,10 +57,15 @@ Item {
     readonly property var alcances: ({
         ofanim: [1.55, 1.55, 1.25],
         ofanim_alado: [2.1, 1.55, 2.08],
-        serafim_gravura: [1.15, 1.3, 1.4]
+        serafim_gravura: [1.15, 1.3, 1.4],
+        olho: [1.1, 1.36, 1.36],
+        humana: [1.18, 1.13, 1.27]
     })
     // skins de imagem: o atlas mora em arte/<skin>.png
-    readonly property var imagens: ({ serafim_gravura: true })
+    readonly property var imagens: ({ serafim_gravura: true, olho: true, humana: true })
+    // as de peças: quantas cadeias, quantas juntas em cada e quantos corpos (imagem.frag)
+    readonly property var polares: ({ olho: true, humana: true })
+    readonly property var partes: ({ olho: { cadeias: 0, juntas: 0, corpos: 0 }, humana: { cadeias: 27, juntas: 3, corpos: 8 } })
 
     function raioQueCabe(w, h, d) {
         var al = alcances[skin] || alcances.ofanim
@@ -92,7 +108,9 @@ Item {
             ondas: [], ultimaOnda: -1, relampagos: [],
             giroRaios: 0, pupila: 1, clarao: 0,
             faseAsa: 0,
-            abreAsa: 0.2, ampAsa: 0
+            abreAsa: 0.2, ampAsa: 0,
+            // olho e humana: as molas das peças (estadoPartes), a pupila que encara
+            pc: null, encarar: 0
         }
     }
 
@@ -108,6 +126,7 @@ Item {
         }
         s.ondas = s.ondas.filter(function (o) { return s.t - o[0] < 1.3 })
         if (skin === "serafim_gravura") evoluirGravura(dt)
+        else if (skin in polares) evoluirPartes(dt)
         else {
             evoluirOfanim(dt)
             if (skin === "ofanim_alado") {
@@ -154,6 +173,96 @@ Item {
         var amp = mistura({ idle: 0.06, listening: 0.0, thinking: 0.35, tools: 0.22, speaking: 0.12 }) + 0.3 * falar
         s.ampAsa += (amp - s.ampAsa) * Math.min(1, dt * 3)
         s.faseAsa += dt * tau * (mistura({ idle: 0.2, listening: 0.1, thinking: 0.9, tools: 1.6, speaking: 0.6 }) + 0.8 * falar)
+    }
+
+    function estadoPartes() {
+        var s = st
+        if (s.pc) return s.pc
+        var d = partes[skin]
+        var pc = { ang: [], vel: [], fase: [], sinal: [], sem: [], est: [], vest: [],
+                   corpo: [], vcorpo: [], fcorpo: [], fluxo: 0, amp: 0, vamp: 0, brilho: 0 }
+        for (var i = 0; i < d.cadeias; i++) {
+            pc.ang.push([0, 0, 0]); pc.vel.push([0, 0, 0])
+            pc.fase.push(uni(0, tau)); pc.sinal.push(Math.random() < 0.5 ? -1 : 1); pc.sem.push(uni(0, 100))
+            pc.est.push(0); pc.vest.push(0)
+        }
+        for (var b = 0; b < d.corpos; b++) { pc.corpo.push(0); pc.vcorpo.push(0); pc.fcorpo.push(uni(0, tau)) }
+        s.pc = pc
+        return pc
+    }
+
+    function evoluirPartes(dt) {
+        var s = st, t = s.t, pc = estadoPartes(), d = partes[skin]
+        var ouvir = p("listening"), ferr = p("tools")
+        var falar = p("speaking") * voz
+        var dG = suave(desperto)
+        var humana = skin === "humana"
+        // a onda nascida neste quadro (uma por sílaba) chuta as bases
+        var chute = s.ultimaOnda === s.t && s.ondas.length ? s.ondas[s.ondas.length - 1][1] : 0
+        var amp = humana ? mistura({ idle: 0.16, listening: 0.06, thinking: 0.30, tools: 0.12, speaking: 0.18 })
+                         : mistura({ idle: 0.13, listening: 0.05, thinking: 0.26, tools: 0.10, speaking: 0.17 })
+        var fr = humana ? mistura({ idle: 0.32, listening: 0.20, thinking: 0.26, tools: 1.8, speaking: 0.7 })
+                        : mistura({ idle: 0.55, listening: 0.40, thinking: 0.80, tools: 2.4, speaking: 1.2 })
+        var ganho = humana ? [0.45, 1.0, 1.25] : [0.7, 1.25]
+        var K = humana ? [26, 34, 42] : [30, 38], C = humana ? [4.2, 4.8, 5.4] : [4.6, 5.2]
+        var lim = humana ? [0.32, 0.7, 0.8] : [0.5, 0.75]
+        var nj = d.juntas
+        // ao despertar, as peças vêm encolhidas e se abrem
+        var enrola = (1 - dG) * 0.9
+        // espasmo das ferramentas: uma junta qualquer leva um tranco
+        if (ferr > 0.05 && Math.random() < ferr * dt * 4) {
+            var ci = sorteia(d.cadeias)
+            pc.vel[ci][sorteia(nj)] += uni(-4, 4)
+        }
+        if (chute > 0) {
+            for (var c0 = 0; c0 < d.cadeias; c0++) {
+                if (Math.random() < 0.7) pc.vel[c0][0] += pc.sinal[c0] * chute * uni(0.6, 1.6) * (humana ? 1.2 : 1.8)
+                if (!humana) pc.vest[c0] += chute * uni(0.4, 1.2)
+            }
+        }
+        var n = Math.max(1, Math.ceil(dt / 0.012)), h = dt / n
+        for (var it = 0; it < n; it++) {
+            for (var i = 0; i < d.cadeias; i++) {
+                var a = pc.ang[i], v = pc.vel[i], sg = pc.sinal[i]
+                for (var j = 0; j < nj; j++) {
+                    var onda = Math.sin(tau * fr * t + pc.fase[i] - 1.1 * j)
+                    var alvo = sg * (amp * ganho[j] * onda - enrola * ganho[j]) + amp * 0.35 * ruido(t * fr * 1.7, pc.sem[i] + j)
+                    // o chicote: a junta de fora atrasa em relação à de dentro
+                    var acc = K[j] * (alvo - a[j]) - C[j] * v[j] - (j > 0 ? 4.0 * v[j - 1] : 0)
+                    v[j] += acc * h
+                    a[j] = Math.max(-lim[j], Math.min(lim[j], a[j] + v[j] * h))
+                }
+                if (!humana) {
+                    var ae = mistura({ idle: 0.0, listening: 0.06, thinking: -0.03, tools: 0.0, speaking: 0.04 }) - 0.55 * (1 - dG)
+                    pc.vest[i] += (40 * (ae - pc.est[i]) - 6 * pc.vest[i]) * h
+                    pc.est[i] = Math.max(-0.6, Math.min(0.5, pc.est[i] + pc.vest[i] * h))
+                }
+            }
+            if (humana) {
+                var ab = mistura({ idle: 0.04, listening: 0.02, thinking: 0.07, tools: 0.03, speaking: 0.05 })
+                for (var b = 0; b < d.corpos; b++) {
+                    var alvoB = ab * Math.sin(tau * 0.22 * t + pc.fcorpo[b]) + ab * 0.4 * ruido(t * 0.5, pc.fcorpo[b] * 7)
+                    pc.vcorpo[b] += (14 * (alvoB - pc.corpo[b]) - 3.2 * pc.vcorpo[b]) * h
+                    pc.corpo[b] = Math.max(-0.12, Math.min(0.12, pc.corpo[b] + pc.vcorpo[b] * h))
+                }
+            }
+        }
+        if (humana && chute > 0)
+            for (var b2 = 0; b2 < d.corpos; b2++) pc.vcorpo[b2] += (Math.random() < 0.5 ? -1 : 1) * chute * 0.35
+        if (!humana) {
+            // os raios fluem presos ao olho: a ondulação corre do olho para fora,
+            // com a amplitude numa mola que cada sílaba chuta
+            var alvoA = mistura({ idle: 2.0, listening: 1.5, thinking: 3.5, tools: 2.5, speaking: 3.0 }) + 3 * falar - 2 * (1 - dG)
+            if (chute > 0) pc.vamp += chute * 12
+            pc.vamp += (30 * (alvoA - pc.amp) - 7 * pc.vamp) * dt
+            pc.amp = Math.max(0, pc.amp + pc.vamp * dt)
+            pc.fluxo += dt * (mistura({ idle: 1.4, listening: 1.0, thinking: 2.6, tools: 3.6, speaking: 2.0 }) + 1.5 * falar)
+            pc.brilho = mistura({ idle: 0.25, listening: 0.15, thinking: 0.4, tools: 0.3, speaking: 0.45 }) + 0.5 * falar
+        }
+        // a pupila abre para ouvir e fecha para pensar; encarar a leva ao meio
+        var dil = mistura({ idle: 1.0, listening: 1.15, thinking: 0.82, tools: 0.78, speaking: 1.04 }) + 0.12 * ouvir * mic
+        s.pupila += (dil - s.pupila) * Math.min(1, dt * 5)
+        s.encarar += (ouvir - s.encarar) * Math.min(1, dt * 4)
     }
 
     // base (u, v) do plano do anel i, girando em eixos diferentes
@@ -233,7 +342,41 @@ Item {
         }
 
         var R, gaze, i
-if (skin === "serafim_gravura") {
+if (skin in polares) {
+            var dP = suave(desperto)
+            R = Rb * (0.3 + 0.7 * dP)
+            gaze = olharAlvo ? [olharAlvo.x, olharAlvo.y] : vagar(cx, cy, R)
+            if (pensar > 0.05) {
+                // pensando, a pupila vasculha para cima
+                var vgP = [cx + ruido(t * 1.7, 21) * R * 2, cy - R * (0.6 + 0.6 * Math.abs(ruido(t * 1.1, 4)))]
+                gaze = [gaze[0] * (1 - pensar) + vgP[0] * pensar, gaze[1] * (1 - pensar) + vgP[1] * pensar]
+            }
+            var pc = estadoPartes(), dd = partes[skin]
+            if (repouso) {
+                gaze = [cx, cy]
+                fx.img = v4(0, 0, 0, 1)
+                fx.img2 = zero4
+                for (var mi = 0; mi < 48; mi++) fx["m" + mi] = zero4
+            } else {
+                if (skin === "olho") {
+                    fx.img = v4(pc.amp, pc.fluxo, 0.025 * falar + 0.006 * Math.sin(t * 1.1) * dP, 1)
+                    fx.img2 = v4(pc.brilho, s.encarar, 0, 0)
+                } else {
+                    fx.img = v4(0, 0, 0.025 * falar + 0.006 * Math.sin(t * 1.1) * dP, 1)
+                    fx.img2 = zero4
+                }
+                for (var m = 0; m < 48; m++) {
+                    if (m < dd.cadeias) {
+                        var am = pc.ang[m]
+                        fx["m" + m] = v4(am[0], am[1], dd.juntas > 2 ? am[2] : pc.est[m], 0)
+                    } else if (m < dd.cadeias + dd.corpos) {
+                        fx["m" + m] = v4(pc.corpo[m - dd.cadeias], 0, 0, 0)
+                    } else {
+                        fx["m" + m] = zero4
+                    }
+                }
+            }
+        } else if (skin === "serafim_gravura") {
             var dG = suave(desperto)
             R = Rb * (0.3 + 0.7 * dG)
             gaze = olharAlvo ? [olharAlvo.x, olharAlvo.y] : vagar(cx, cy, R)
@@ -380,6 +523,55 @@ if (skin === "serafim_gravura") {
         property vector4d w5a
         property vector4d w5b
         property vector4d img                 // skins de imagem: estado de cada uma (ver imagem.frag)
+        property vector4d img2
+        property vector4d m0
+        property vector4d m1
+        property vector4d m2
+        property vector4d m3
+        property vector4d m4
+        property vector4d m5
+        property vector4d m6
+        property vector4d m7
+        property vector4d m8
+        property vector4d m9
+        property vector4d m10
+        property vector4d m11
+        property vector4d m12
+        property vector4d m13
+        property vector4d m14
+        property vector4d m15
+        property vector4d m16
+        property vector4d m17
+        property vector4d m18
+        property vector4d m19
+        property vector4d m20
+        property vector4d m21
+        property vector4d m22
+        property vector4d m23
+        property vector4d m24
+        property vector4d m25
+        property vector4d m26
+        property vector4d m27
+        property vector4d m28
+        property vector4d m29
+        property vector4d m30
+        property vector4d m31
+        property vector4d m32
+        property vector4d m33
+        property vector4d m34
+        property vector4d m35
+        property vector4d m36
+        property vector4d m37
+        property vector4d m38
+        property vector4d m39
+        property vector4d m40
+        property vector4d m41
+        property vector4d m42
+        property vector4d m43
+        property vector4d m44
+        property vector4d m45
+        property vector4d m46
+        property vector4d m47
         property var arte: arteImg
         property vector4d lacos: Qt.vector4d(30, 24, 10, raiz.skin === "ofanim_alado" ? 4 : 0)
     }
@@ -405,7 +597,10 @@ if (skin === "serafim_gravura") {
         property vector4d glt: raiz._glt
         property vector4d geo2: raiz._geo2
         property vector4d sombra: Qt.vector4d(raiz.sombraRaio, raiz.sombraAlfa, 0, raiz.sombraLigada ? 1 : 0)
-        property vector4d corSombra: Qt.vector4d(raiz.sombraCor.r, raiz.sombraCor.g, raiz.sombraCor.b, 1)
+        // nas gravuras recortadas (Paranoia, Rei dos Ratos) a massa é preta, como no
+        // desenho: no tom do fundo do tema ela levantava as sombras e lavava a imagem
+        property vector4d corSombra: raiz.skin in raiz.polares ? Qt.vector4d(0, 0, 0, 1)
+                                     : Qt.vector4d(raiz.sombraCor.r, raiz.sombraCor.g, raiz.sombraCor.b, 1)
         property vector4d modo: Qt.vector4d(0, 1, 0, 0)
         property vector4d banda0
         property vector4d banda1

@@ -85,7 +85,7 @@ GEMINI_VOZES = [
     "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat",
 ]
 NOMES_SKIN = {"ofanim": "Ophanim", "ofanim_alado": "Ophanim com asas", "serafim_gravura": "Seraphim (gravura)",
-              "anel": "Anel de energia"}
+              "olho": "Paranoia", "humana": "Rei dos Ratos", "anel": "Anel de energia"}
 
 
 def _arquivos(pasta: Path, sufixos: tuple) -> list:
@@ -854,7 +854,7 @@ def _preparar_app(argv):
         f.setPointSize(13)
         app.setFont(f)
         QFont.insertSubstitution("Sans", f.family())
-        app.setWindowIcon(QIcon(str(Path(__file__).resolve().parent / "orbe.svg")))
+        app.setWindowIcon(QIcon(str(Path(__file__).resolve().parent / "orbe.png")))
         return app
     app.setFont(QFont("Adwaita Sans", 11))
     QIcon.setThemeName("Qogir")

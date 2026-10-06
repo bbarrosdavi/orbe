@@ -6,6 +6,15 @@
 // recorte, pixel a pixel. Formato de saída igual ao do figura.frag: r = traço,
 // g = massa escura por baixo dele, que o pos.frag pinta no tom do fundo.
 //
+// Olho e Humana: peças recortadas, como num Live2D. B do atlas é o id da
+// peça de cada pixel (0 = o miolo, que não sai do lugar). Cada peça é uma
+// cadeia articulada (os membros: base, joelho ou cotovelo, tornozelo ou punho,
+// ponta; os raios: raiz, meio, ponta) ou um corpo que gira em volta do
+// pescoço, levando os membros que saem dele. Para cada pixel, a peça é lida
+// no lugar de repouso pela transformação inversa da cadeia, e só vale onde o
+// id do atlas é o dela: é corte, não deformação da imagem. Os ângulos de cada
+// junta vêm das molas da Figura (m0..m47), com a física lá.
+//
 // Uma variante por imagem (-DIMG=n no build.sh).
 
 layout(location = 0) in vec2 qt_TexCoord0;
@@ -19,6 +28,58 @@ layout(std140, binding = 0) uniform buf {
     vec2 olhar;      // para onde os olhos olham
     vec4 geo;        // R (já com o desdobrar), lim, t, peso
     vec4 img;        // gravura: abertura das asas (1 = como desenhadas), batida (fração da dobra), escala extra, —
+                     // olho: giro da coroa de raios, —, escala extra, pupila (1 = como desenhada)
+    vec4 img2;       // olho: —, quanto encara (0 = como desenhado), quanto as pálpebras fecham (0 a 1), —
+    // as juntas das peças: na Humana, mi = (base, joelho, tornozelo, —) do membro i
+    // e m(NL+b).x o giro do corpo b; no Olho, mi = (raiz, meio, quanto estica, —) do raio i
+    vec4 m0;
+    vec4 m1;
+    vec4 m2;
+    vec4 m3;
+    vec4 m4;
+    vec4 m5;
+    vec4 m6;
+    vec4 m7;
+    vec4 m8;
+    vec4 m9;
+    vec4 m10;
+    vec4 m11;
+    vec4 m12;
+    vec4 m13;
+    vec4 m14;
+    vec4 m15;
+    vec4 m16;
+    vec4 m17;
+    vec4 m18;
+    vec4 m19;
+    vec4 m20;
+    vec4 m21;
+    vec4 m22;
+    vec4 m23;
+    vec4 m24;
+    vec4 m25;
+    vec4 m26;
+    vec4 m27;
+    vec4 m28;
+    vec4 m29;
+    vec4 m30;
+    vec4 m31;
+    vec4 m32;
+    vec4 m33;
+    vec4 m34;
+    vec4 m35;
+    vec4 m36;
+    vec4 m37;
+    vec4 m38;
+    vec4 m39;
+    vec4 m40;
+    vec4 m41;
+    vec4 m42;
+    vec4 m43;
+    vec4 m44;
+    vec4 m45;
+    vec4 m46;
+    vec4 m47;
 };
 layout(binding = 1) uniform sampler2D arte;
 
@@ -38,6 +99,80 @@ const vec4 CAIXA[7] = vec4[7](
     vec4(-6.0, 90.0, 151.0, 449.0), vec4(240.0, 119.0, 388.0, 396.0),
     vec4(58.0, 231.0, 197.0, 441.0), vec4(196.0, 230.0, 317.0, 446.0),
     vec4(99.0, 48.0, 291.0, 401.0));
+#endif
+#endif
+
+#if IMG == 2
+// Olho (Paranoia): recorte de 535 x 609 px, uma célula. B: 0 o globo (com o
+// branco do olho preenchido por baixo da íris), 1 a coroa de raios inteira
+// (todas as camadas, sem o céu), 250 o disco preto da íris, guardado num
+// canto vazio do recorte para andar sem rastro
+const vec2 TAM = vec2(535.0, 609.0);
+const float CELULA = 0.0;
+const vec2 ATLAS = TAM;
+const vec2 OLHO = vec2(290.0, 284.5);    // o centro do globo, no centro do item
+const float RIMG = 270.0;
+const vec2 PUP = vec2(315.5, 279.6);     // o disco preto desenhado
+const float RP = 42.5;
+const float RI = 44.5;                   // o disco com a borda escura dele
+const vec2 DISCO = vec2(47.5, 561.5);    // onde o disco está guardado
+const vec2 AB = vec2(280.0, 292.0);      // a abertura das pálpebras (elipse, um pouco por dentro)
+const vec2 AR = vec2(92.0, 57.0);
+const float RAIZ = 118.0;                // onde os raios saem do globo
+#ifdef RELOGIO
+const vec4 CAIXA[1] = vec4[1](vec4(-6.0, -6.0, 541.0, 615.0));
+#endif
+#endif
+
+#if IMG == 3
+// Humana: recorte de 517 x 492 px (o JPG a 60%), uma célula
+const vec2 TAM = vec2(517.0, 492.0);
+const float CELULA = 0.0;
+const vec2 ATLAS = TAM;
+const vec2 OLHO = vec2(258.5, 246.0);    // o meio da figura, no centro do item
+const float RIMG = 255.0;
+const int NL = 27;      // membros: cadeias base, joelho ou cotovelo, tornozelo ou punho, ponta
+const int NB = 8;       // corpos: giram em volta do pescoço (PIVO), levando os membros que saem deles
+const int NH = 19;      // cabeças (rosto e cabelo): olham para o cursor, girando em volta do queixo
+const vec2 JUNTA[108] = vec2[108](
+    vec2(312.0, 62.0), vec2(314.0, 40.0), vec2(328.0, 15.0), vec2(328.0, 7.0),
+    vec2(240.0, 98.0), vec2(228.0, 57.0), vec2(226.0, 27.0), vec2(226.0, 15.0),
+    vec2(201.0, 105.0), vec2(187.0, 76.0), vec2(172.0, 35.0), vec2(166.0, 24.0),
+    vec2(280.0, 80.0), vec2(267.0, 56.0), vec2(266.0, 44.0), vec2(266.0, 38.0),
+    vec2(131.0, 69.0), vec2(122.0, 65.0), vec2(111.0, 53.0), vec2(109.0, 50.0),
+    vec2(328.0, 94.0), vec2(346.0, 76.0), vec2(355.0, 58.0), vec2(358.0, 52.0),
+    vec2(382.0, 109.0), vec2(398.0, 93.0), vec2(425.0, 80.0), vec2(430.0, 74.0),
+    vec2(352.0, 107.0), vec2(352.0, 96.0), vec2(352.0, 88.0), vec2(352.0, 85.0),
+    vec2(423.0, 140.0), vec2(439.0, 126.0), vec2(451.0, 112.0), vec2(456.0, 107.0),
+    vec2(149.0, 142.0), vec2(133.0, 126.0), vec2(127.0, 124.0), vec2(123.0, 122.0),
+    vec2(116.0, 166.0), vec2(86.0, 148.0), vec2(48.0, 129.0), vec2(36.0, 123.0),
+    vec2(423.0, 140.0), vec2(453.0, 149.0), vec2(463.0, 152.0), vec2(469.0, 152.0),
+    vec2(101.0, 206.0), vec2(46.0, 183.0), vec2(24.0, 184.0), vec2(11.0, 189.0),
+    vec2(445.0, 212.0), vec2(461.0, 196.0), vec2(479.0, 196.0), vec2(485.0, 194.0),
+    vec2(77.0, 234.0), vec2(28.0, 230.0), vec2(15.0, 239.0), vec2(6.0, 246.0),
+    vec2(448.0, 270.0), vec2(464.0, 284.0), vec2(496.0, 294.0), vec2(504.0, 298.0),
+    vec2(71.0, 293.0), vec2(32.0, 320.0), vec2(21.0, 325.0), vec2(12.0, 330.0),
+    vec2(80.0, 305.0), vec2(52.0, 333.0), vec2(47.0, 342.0), vec2(42.0, 348.0),
+    vec2(440.0, 336.0), vec2(473.0, 369.0), vec2(487.0, 371.0), vec2(497.0, 373.0),
+    vec2(136.0, 344.0), vec2(110.0, 370.0), vec2(109.0, 378.0), vec2(111.0, 384.0),
+    vec2(80.0, 360.0), vec2(77.0, 382.0), vec2(69.0, 400.0), vec2(66.0, 406.0),
+    vec2(162.0, 418.0), vec2(147.0, 434.0), vec2(148.0, 447.0), vec2(146.0, 452.0),
+    vec2(365.0, 427.0), vec2(374.0, 437.0), vec2(378.0, 455.0), vec2(381.0, 459.0),
+    vec2(363.0, 427.0), vec2(353.0, 442.0), vec2(356.0, 465.0), vec2(359.0, 471.0),
+    vec2(180.0, 429.0), vec2(187.0, 443.0), vec2(180.0, 469.0), vec2(179.0, 476.0),
+    vec2(225.0, 441.0), vec2(225.0, 460.0), vec2(224.0, 472.0), vec2(223.0, 477.0),
+    vec2(294.0, 413.0), vec2(308.0, 464.0), vec2(307.0, 475.0), vec2(302.0, 485.0));
+const vec4 CAIXA_M[27] = vec4[27](
+    vec4(252.0, -40.0, 382.0, 133.0), vec4(141.0, -55.0, 309.0, 179.0), vec4(94.0, -51.0, 274.0, 187.0), vec4(212.0, -3.0, 340.0, 133.0), vec4(82.0, 22.0, 163.0, 127.0), vec4(282.0, 5.0, 403.0, 134.0), vec4(309.0, 22.0, 482.0, 178.0), vec4(324.0, 65.0, 395.0, 130.0), vec4(388.0, 66.0, 496.0, 178.0), vec4(90.0, 62.0, 182.0, 168.0), vec4(-39.0, 49.0, 219.0, 245.0), vec4(385.0, 103.0, 513.0, 197.0), vec4(-68.0, 106.0, 181.0, 301.0), vec4(390.0, 151.0, 525.0, 253.0), vec4(-53.0, 155.0, 138.0, 308.0), vec4(394.0, 215.0, 560.0, 354.0), vec4(-47.0, 234.0, 126.0, 390.0), vec4(-5.0, 251.0, 137.0, 398.0), vec4(388.0, 269.0, 554.0, 433.0), vec4(45.0, 301.0, 187.0, 437.0), vec4(18.0, 289.0, 169.0, 450.0), vec4(98.0, 368.0, 205.0, 490.0), vec4(337.0, 394.0, 414.0, 492.0), vec4(306.0, 388.0, 414.0, 513.0), vec4(130.0, 387.0, 245.0, 522.0), vec4(191.0, 413.0, 267.0, 511.0), vec4(232.0, 358.0, 380.0, 544.0));
+const int PAI[27] = int[27](-1, 6, 5, -1, 5, 2, 2, 2, 3, 5, -1, 3, 4, -1, -1, 1, 4, 7, -1, -1, -1, 0, -1, -1, 0, -1, -1);
+const vec2 PIVO[8] = vec2[8](vec2(238.0, 225.0), vec2(289.0, 218.0), vec2(279.0, 151.0), vec2(304.0, 183.0), vec2(163.0, 213.0), vec2(216.0, 157.0), vec2(247.0, 142.0), vec2(208.0, 215.0));
+const vec4 CAIXA_C[8] = vec4[8](
+    vec4(143.0, 194.0, 310.0, 457.0), vec4(260.0, 172.0, 484.0, 351.0), vec4(260.0, 73.0, 389.0, 187.0), vec4(279.0, 82.0, 471.0, 224.0), vec4(14.0, 181.0, 188.0, 328.0), vec4(114.0, 27.0, 252.0, 179.0), vec4(231.0, 77.0, 272.0, 155.0), vec4(53.0, 183.0, 239.0, 363.0));
+const vec2 QUEIXO[19] = vec2[19](vec2(247.5, 199.0), vec2(228.2, 166.0), vec2(207.5, 211.0), vec2(281.0, 168.0), vec2(201.6, 187.0), vec2(270.4, 228.0), vec2(222.7, 228.0), vec2(245.3, 163.0), vec2(246.0, 233.0), vec2(287.8, 215.0), vec2(231.6, 197.0), vec2(293.4, 173.0), vec2(266.2, 201.0), vec2(231.5, 177.0), vec2(282.8, 189.0), vec2(268.5, 177.0), vec2(216.8, 183.0), vec2(250.8, 178.0), vec2(265.1, 163.0));
+const vec4 CAIXA_H[19] = vec4[19](
+    vec4(229.0, 168.0, 267.0, 208.0), vec4(212.0, 142.0, 245.0, 175.0), vec4(185.0, 175.0, 232.0, 220.0), vec4(266.0, 146.0, 297.0, 177.0), vec4(187.0, 165.0, 217.0, 196.0), vec4(251.0, 190.0, 290.0, 237.0), vec4(203.0, 188.0, 243.0, 237.0), vec4(228.0, 137.0, 265.0, 172.0), vec4(221.0, 191.0, 269.0, 242.0), vec4(272.0, 186.0, 306.0, 224.0), vec4(216.0, 168.0, 249.0, 206.0), vec4(280.0, 154.0, 308.0, 182.0), vec4(248.0, 168.0, 286.0, 210.0), vec4(216.0, 155.0, 249.0, 186.0), vec4(268.0, 162.0, 299.0, 198.0), vec4(252.0, 154.0, 286.0, 186.0), vec4(202.0, 159.0, 232.0, 192.0), vec4(230.0, 148.0, 271.0, 187.0), vec4(248.0, 137.0, 285.0, 172.0));
+#ifdef RELOGIO
+const vec4 CAIXA[1] = vec4[1](vec4(-6.0, -6.0, 523.0, 498.0));
 #endif
 #endif
 
@@ -130,6 +265,93 @@ void asa(float cel, vec2 q, vec2 raiz, float ang, vec2 olho, vec2 raio, vec2 des
     camada(cel, iris(ql, olho, raio, desl));
 }
 
+#if IMG >= 2
+// o gradiente do recorte por pixel, tirado uma vez fora dos desvios (as peças
+// giram, o que não muda o tamanho da pegada): as leituras dentro dos laços
+// não podem usar derivadas implícitas
+vec2 gX = vec2(0.0), gY = vec2(0.0);
+
+vec4 lerPeca(vec2 uv) {
+#ifdef RELOGIO
+    return ler(uv, 1.0);
+#else
+    vec2 dx = gX * 0.25, dy = gY * 0.25;
+    vec2 ox = dx * kRed, oy = dy * kRed;
+    vec4 v = 0.5 * (0.5 * (textureGrad(arte, uv - ox - oy, 2.0 * dx, 2.0 * dy) + textureGrad(arte, uv + ox - oy, 2.0 * dx, 2.0 * dy))
+                  + 0.5 * (textureGrad(arte, uv - ox + oy, 2.0 * dx, 2.0 * dy) + textureGrad(arte, uv + ox + oy, 2.0 * dx, 2.0 * dy)));
+    float vb = textureGrad(arte, uv, gX * 2.83, gY * 2.83).r;
+    v.r = sat01(v.r + REALCE * kRed * (v.r - vb));
+    return v;
+#endif
+}
+
+// o id da peça no ponto p do recorte (B do atlas): lido no centro do texel,
+// no nível 0 (gradiente zero), o filtro devolve o texel exato
+int pecaEm(vec2 p) {
+    vec2 t = clamp(floor(p), vec2(0.0), TAM - 1.0) + 0.5;
+    return int(textureGrad(arte, t / ATLAS, vec2(0.0), vec2(0.0)).b * 255.0 + 0.5);
+}
+
+// a peça lida em p, por cima do que já foi pintado
+void pintar(vec2 p) {
+    vec2 qc = clamp(p, vec2(0.5), TAM - 0.5);
+    vec2 rg = lerPeca(qc / ATLAS).rg;
+    rg *= step(0.0, p.x) * step(0.0, p.y) * step(p.x, TAM.x) * step(p.y, TAM.y);
+    accB = rg.r + accB * (1.0 - rg.g);
+    accA = rg.g + accA * (1.0 - rg.g);
+}
+
+// só a massa escura em p, sem o traço: o lugar que uma peça deixou ao se mexer
+void sombra(vec2 p) {
+    float g = lerPeca(clamp(p, vec2(0.5), TAM - 0.5) / ATLAS).g;
+    accB = accB * (1.0 - g);
+    accA = g + accA * (1.0 - g);
+}
+
+float axial(vec2 p, vec2 a, vec2 b) {
+    vec2 d = b - a;
+    return dot(p - a, d) / max(dot(d, d), 1e-3);
+}
+
+// de onde vem o pixel q numa cadeia de n ossos (n = 2 ou 3) com as juntas
+// R[0..n] em repouso e os ângulos a (cada um relativo ao osso de antes): o
+// osso de cada pixel é o mais de fora em que ele cai depois da junta; no lado
+// de fora de uma dobra, o osso de dentro continua (sem fresta)
+vec2 cadeia(vec2 q, vec2 R0, vec2 R1, vec2 R2, vec2 R3, vec3 a, int n) {
+    float A0 = a.x, A1 = a.x + a.y, A2 = A1 + a.z;
+    vec2 D1 = R0 + girar(R1 - R0, A0);
+    vec2 D2 = D1 + girar(R2 - R1, A1);
+    if (n >= 3) {
+        vec2 p2 = R2 + girar(q - D2, -A2);
+        if (axial(p2, R2, R3) >= 0.0) return p2;
+    }
+    vec2 p1 = R1 + girar(q - D1, -A1);
+    if (axial(p1, R1, R2) >= 0.0) return p1;
+    return R0 + girar(q - R0, -A0);
+}
+
+bool dentro(vec2 q, vec4 c) {
+    return q.x >= c.x && q.y >= c.y && q.x <= c.z && q.y <= c.w;
+}
+#endif
+
+#if IMG == 2
+// o centro da íris com o olhar: não passa das pálpebras (fica na elipse
+// encolhida do raio dela)
+vec2 centroIris(vec2 desl) {
+    vec2 ar = AR - RP - 1.5;
+    vec2 oa = (PUP - AB) / ar, da = desl / ar;
+    float A = dot(da, da), B = dot(oa, da), C = dot(oa, oa) - 1.0;
+    float tt = A > 1e-6 ? clamp((-B + sqrt(max(B * B - A * C, 0.0))) / A, 0.0, 1.0) : 1.0;
+    return PUP + desl * tt;
+}
+
+// a fase de cada raio, tirada do ângulo: vizinhos parecidos, não iguais
+float faseRaio(float a) {
+    return 3.0 * sin(a * 3.0 + 1.3) + 2.0 * sin(a * 7.0 + 0.4) + 1.3 * sin(a * 13.0 + 2.1);
+}
+#endif
+
 void main() {
     vec2 p = qt_TexCoord0 * tam;
     float s = geo.x / RIMG * (1.0 + img.z);
@@ -139,6 +361,11 @@ void main() {
     // a pegada de um pixel no atlas é a mesma na figura toda (o giro das asas
     // não a muda): o nível que o trilinear acharia pelas derivadas, uma vez só
     lod0 = log2(max(length(dFdx(q)), length(dFdy(q))) * float(textureSize(arte, 0).x) / ATLAS.x);
+#endif
+#if IMG >= 2
+    gX = dFdx(q) / ATLAS;
+    gY = dFdy(q) / ATLAS;
+    vec4 M[48] = vec4[48](m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41, m42, m43, m44, m45, m46, m47);
 #endif
     // direção do olhar, saturada: longe, a íris vai até a borda
     vec2 g = olhar - centro;
@@ -155,6 +382,73 @@ void main() {
     asa(4.0, q, vec2(175.0, 254.0), -0.35 * dobra, vec2(157.0, 313.0), vec2(8.0, 9.0), dg * 2.5);
     asa(5.0, q, vec2(216.0, 254.0), 0.35 * dobra, vec2(225.0, 313.0), vec2(8.0, 9.0), dg * 2.5);
     camada(6.0, iris(q, vec2(192.5, 220.5), vec2(32.0, 17.5), dg * vec2(9.0, 1.5)));
+#endif
+
+#if IMG == 2
+    // a coroa fluindo, presa ao olho: uma ondulação de lado que corre do olho
+    // para fora (zero na raiz) e uma onda de brilho junto, em todas as camadas
+    // de raios de uma vez. img.x é a amplitude na ponta (px), img.y a fase do
+    // fluxo, img2.x o brilho
+    vec2 d = q - OLHO;
+    float r = max(length(d), 1e-3);
+    float a = atan(d.y, d.x);
+    float fr = faseRaio(a);
+    float w = smoothstep(RAIZ, RAIZ + 70.0, r) * (0.45 + 0.55 * smoothstep(RAIZ, RAIZ + 200.0, r));
+    float lado = w * img.x * sin(r * 0.05 - img.y + fr);
+    float ar = a - lado / r;
+    vec2 pr = OLHO + r * vec2(cos(ar), sin(ar));
+    if (pecaEm(pr) == 1) {
+        float B0 = accB;
+        pintar(pr);
+        float brilho = 1.0 + img2.x * w * (0.5 + 0.5 * sin(r * 0.045 - img.y * 1.6 + fr * 0.7));
+        accB = min(accA, B0 + (accB - B0) * brilho);
+    }
+    // o globo, bem aberto e parado
+    if (pecaEm(q) == 0) pintar(q);
+    // a íris (o disco preto) anda para o olhar por cima do branco preenchido,
+    // recortada pela abertura das pálpebras; encarar a leva ao meio
+    vec2 pm = centroIris(dg * vec2(40.0, 14.0) + img2.y * (AB - PUP));
+    vec2 v = q - pm;
+    vec2 e = (q - AB) / AR;
+    if (dot(v, v) < RI * RI && dot(e, e) < 1.0) pintar(DISCO + v);
+#endif
+#if IMG == 3
+    // o miolo no lugar; onde um corpo saiu, a massa dele fica como sombra
+    // as cabeças olham para o cursor: giram em volta do queixo e andam um pouco para ele
+    vec2 olharH = dg * vec2(5.5, 4.0);
+    float girarH = dg.x * 0.28;
+    int pq = pecaEm(q);
+    if (pq == 0) pintar(q);
+    else if (pq > NL && pq <= NL + NB) {
+        // só se o corpo saiu mesmo de cima deste pixel (parado, ele se cobre)
+        int bq = pq - NL - 1;
+        if (distance(PIVO[bq] + girar(q - PIVO[bq], -M[NL + bq].x), q) > 0.35) sombra(q);
+    } else if (pq > NL + NB) {
+        if (length(olharH) > 0.35 || abs(girarH) > 0.004) sombra(q);
+        else pintar(q);
+    }
+    // os corpos, cada um girando em volta do pescoço
+    for (int b = 0; b < NB; b++) {
+        if (!dentro(q, CAIXA_C[b])) continue;
+        vec2 p = PIVO[b] + girar(q - PIVO[b], -M[NL + b].x);
+        if (pecaEm(p) == NL + 1 + b) pintar(p);
+    }
+    // as cabeças, por cima dos corpos
+    if (length(olharH) > 0.35 || abs(girarH) > 0.004) {
+        for (int h = 0; h < NH; h++) {
+            vec2 ph = QUEIXO[h] + girar(q - QUEIXO[h] - olharH, -girarH);
+            if (!dentro(ph, CAIXA_H[h])) continue;
+            if (pecaEm(ph) == NL + NB + 1 + h) pintar(ph);
+        }
+    }
+    // os membros, por cima: primeiro o giro do corpo de onde saem, depois a cadeia
+    for (int i = 0; i < NL; i++) {
+        int pai = PAI[i];
+        vec2 qb = pai >= 0 ? PIVO[pai] + girar(q - PIVO[pai], -M[NL + pai].x) : q;
+        if (!dentro(qb, CAIXA_M[i])) continue;
+        vec2 p = cadeia(qb, JUNTA[4 * i], JUNTA[4 * i + 1], JUNTA[4 * i + 2], JUNTA[4 * i + 3], M[i].xyz, 3);
+        if (pecaEm(p) == i + 1) pintar(p);
+    }
 #endif
 
     float A = min(accB, accA);

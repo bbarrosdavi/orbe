@@ -62,7 +62,7 @@ class PonteFalsa:
     def __init__(self):
         self._agente, self._vaga, self._orbe = "claude", 0, ("ofanim", "")
         self._agentes = [{"id": "claude", "instancias": True}]
-        # com os quatro orbes do Claude, a vaga v é do orbe v % 4
+        # com os seis orbes do Claude, a vaga v é do orbe v % 6
         self._sessoes = [{"agente": "claude", "vaga": 0, "pid": 100}, {"agente": "claude", "vaga": 1, "pid": 101},
                          {"agente": "claude", "vaga": 3, "pid": 103}]
         self.focos, self.filas = [], []
@@ -141,7 +141,7 @@ class OrbesEmParalelo(unittest.TestCase):
         od.VCFG["relogio"]["seguir"] = True
         self.agentes = {("ofanim", 0): AgenteFalso("A", 0.6, "Resposta do Ophanim."),
                         ("ofanim_alado", 1): AgenteFalso("B", 0.9, "Resposta do alado."),
-                        ("anel", 3): AgenteFalso("C", 1.6, "Resposta do anel.")}
+                        ("olho", 3): AgenteFalso("C", 1.6, "Resposta do olho.")}
         self.d = daemon_falso(self.ponte, self.agentes)
 
     def turno(self, pedido):
@@ -170,21 +170,21 @@ class OrbesEmParalelo(unittest.TestCase):
         self.tique(0.1)
         self.assertIsNone(d._processing_thread, "o turno do Ophanim devia ter ido para o fundo")
         self.turno("pedido ao alado")
-        p.ir("anel", 3)                          # e a um terceiro, com o segundo pensando
+        p.ir("olho", 3)                          # e a um terceiro, com o segundo pensando
         self.tique(0.1)
-        self.turno("pedido ao anel")
-        # A (0,6 s) e B (0,9 s) acabam com o anel ainda pensando: esperam, na ordem de chegada
+        self.turno("pedido ao olho")
+        # A (0,6 s) e B (0,9 s) acabam com o olho ainda pensando: esperam, na ordem de chegada
         self.tique(1.0)
         self.assertEqual([("ofanim", 0), ("ofanim_alado", 1)], [(f["turno"]["skin"], f["turno"]["vaga"]) for f in d._falas])
         sat = {s["id"]: s["tipo"] for s in json.loads(d._satelites)}
         self.assertEqual("espera", sat["ofanim/0"])
         self.assertEqual("espera", sat["ofanim_alado/1"])
-        self.assertNotIn("anel/3", sat, "o orbe em tela não é satélite")
+        self.assertNotIn("olho/3", sat, "o orbe em tela não é satélite")
         self.assertEqual("fantasma", sat["serafim_gravura"])
         self.assertIn([("ofanim", 0), ("ofanim_alado", 1)], p.filas)
-        # o anel responde; depois cada um toma o lugar e fala com a voz dele
+        # o olho responde; depois cada um toma o lugar e fala com a voz dele
         self.tique(1.5)
-        self.assertEqual([("anel", "Resposta do anel."), ("ofanim", "Resposta do Ophanim."),
+        self.assertEqual([("olho", "Resposta do olho."), ("ofanim", "Resposta do Ophanim."),
                           ("ofanim_alado", "Resposta do alado.")], d.falado)
         self.assertEqual([("ofanim", 0), ("ofanim_alado", 1)], p.focos)
         self.assertIn("espelho ofanim -", self.ordens)
