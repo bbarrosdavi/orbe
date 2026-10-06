@@ -18,7 +18,7 @@ done
 for s in 1:serafim_gravura 2:olho 3:humana; do
     "$QSB" $ALVOS -DIMG="${s%%:*}" -o "figura_${s#*:}.frag.qsb" imagem.frag
 done
-for f in pos anel sombra_texto; do
+for f in pos anel nuvem; do
     [ -f "$f.frag" ] && "$QSB" $ALVOS -o "$f.frag.qsb" "$f.frag"
 done
 rm -f figura.frag.qsb

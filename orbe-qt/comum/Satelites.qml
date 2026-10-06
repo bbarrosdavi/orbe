@@ -32,6 +32,10 @@ Item {
     property var entradas: ({})
     // o principal que acabou de sair, até a lista nova chegar com ele
     property var saindo: null
+    property real saindoT0: 0
+    // se a lista não o trouxer (fantasma, com os fantasmas escondidos), ele
+    // apaga depois da troca e sai
+    readonly property real apagar: 0.5
     readonly property var vista: {
         var l = lista.filter(function (e) { return e.id !== chamado })
         if (saindo && !l.some(function (e) { return mesmo(e, saindo) })) l.push(saindo)
@@ -176,6 +180,7 @@ Item {
         delete estados["_saindo"]
         if (estadoPrincipal && de.skin !== "anel") estados["_saindo"] = estadoPrincipal
         saindo = { id: "_saindo", skin: de.skin, cor: de.cor || "", tipo: "ativo" }
+        saindoT0 = t
         delete enxame["_saindo"]
         chamado = chamadoEm && chamadoEm.id ? chamadoEm.id : ""
         var c = chamado ? enxame[chamado] : null
@@ -224,6 +229,11 @@ Item {
             if (it) it.avancar(dt, quadro)
         }
         for (var id in entradas) if (t - entradas[id].t0 > duracao) delete entradas[id]
+        if (saindo && t - saindoT0 > duracao + apagar) {
+            saindo = null
+            delete enxame["_saindo"]
+            delete estados["_saindo"]
+        }
     }
 
     function suave(p) { p = Math.max(0, Math.min(1, p)); return p * p * (3 - 2 * p) }
@@ -273,7 +283,10 @@ Item {
             // os fantasmas (sem sessão) ficam em repouso e só um pouco apagados: em
             // 32% sumiam na tela; o Davi pediu uns 75%
             readonly property real alfaLua: fantasma ? 0.75 : espera ? 1 : 0.6 + 0.4 * (pos.d + 1) / 2
-            opacity: sat.alfa * (1 + (alfaLua - 1) * entrando)
+            // o "_saindo" que a lista não trouxe apaga depois da troca
+            readonly property real sumindo: e.id === "_saindo"
+                ? 1 - Math.max(0, Math.min(1, (sat.t - sat.saindoT0 - sat.duracao) / sat.apagar)) : 1
+            opacity: sat.alfa * (1 + (alfaLua - 1) * entrando) * sumindo
 
             property real acumulado: 0
             function avancar(dt, quadro) {
@@ -293,6 +306,23 @@ Item {
                 }
             }
 
+            // as luas com sessão ativa brilham por trás, como vagalume aceso, na cor
+            // da instância (a primeira instância, sem cor própria, no destaque do
+            // tema); os fantasmas ficam apagados
+            ShaderEffect {
+                visible: !lua.fantasma
+                anchors.centerIn: parent
+                width: parent.width * 2.2
+                height: width
+                fragmentShader: Qt.resolvedUrl("../shaders/nuvem.frag.qsb")
+                readonly property color corBrilho: lua.e.cor ? lua.e.cor : sat.corAnel
+                property vector2d tam: Qt.vector2d(width, height)
+                property vector4d caixa: Qt.vector4d(width / 2, height / 2, width / 2, height / 2)
+                property vector4d cor: Qt.vector4d(corBrilho.r, corBrilho.g, corBrilho.b, 0.7)
+                // halo de perfil aberto que passa da silhueta da lua (raio de uma caixa
+                // de lua; a figura ocupa a metade dele) e zera 2 px antes da borda
+                property vector4d forma: Qt.vector4d(parent.width * 0.95, 0, 2, 1)
+            }
             Loader {
                 id: fig
                 anchors.fill: parent

@@ -1,10 +1,10 @@
 #version 440
-// A sombra atrás do texto do raciocínio: uma nuvem no tom do fundo em volta do
-// bloco de linhas, cheia no meio e esmaecendo devagar para fora, para o texto
-// destacar das janelas que estiverem atrás. Uma faixa por linha (o desenho
-// anterior) parecia marca-texto. A janela termina rente ao texto, e um borrão
-// comum seria cortado na borda dela com uma quina dura: aqui a nuvem chega a
-// zero antes da borda.
+// Uma nuvem macia em volta de uma caixa, cheia no meio e esmaecendo devagar
+// para fora, e zerada antes da borda do item. Dois usos:
+// - a sombra atrás do texto do raciocínio, no tom do fundo em volta do bloco
+//   de linhas (uma faixa por linha parecia marca-texto; a janela termina rente
+//   ao texto e um borrão comum seria cortado na borda dela com uma quina dura);
+// - o brilho atrás das luas com sessão ativa (caixa de um ponto: vira um halo).
 layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
 layout(std140, binding = 0) uniform buf {
@@ -13,7 +13,8 @@ layout(std140, binding = 0) uniform buf {
     vec2 tam;        // tamanho do item, em px
     vec4 caixa;      // o bloco de texto: x0, y0, x1, y1 em px
     vec4 cor;        // rgb do fundo do tema; a = a intensidade
-    vec4 forma;      // x = largura do esmaecimento (px), y = raio dos cantos, z = margem da janela (px)
+    vec4 forma;      // x = largura do esmaecimento (px), y = raio dos cantos, z = margem da janela (px),
+                     // w = 1: perfil aberto (halo); 0: de sino (sombra do texto)
 };
 
 // distância até uma caixa de cantos arredondados (negativa dentro)
@@ -31,7 +32,7 @@ void main() {
     // perfil de sino, sem degrau
     float u = clamp((d + 0.3 * forma.x) / (1.3 * forma.x), 0.0, 1.0);
     float a = 1.0 - u * u * (3.0 - 2.0 * u);
-    a *= a;
+    if (forma.w < 0.5) a *= a;
     // perto da borda da janela, vai a zero
     float borda = min(min(p.x, tam.x - p.x), min(p.y, tam.y - p.y));
     a *= smoothstep(0.0, forma.z, borda);

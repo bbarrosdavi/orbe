@@ -596,6 +596,12 @@ Item {
                         titulo: "Outros orbes em volta"
                         subtitulo: "as sessões em paralelo como mini orbes em volta deste"
                     }
+                    LinhaSwitch {
+                        id: rLuasSoAtivas
+                        visible: rLuasLigadas.ligado
+                        titulo: "Só os com sessão ativa"
+                        subtitulo: "desligado, os sem sessão também orbitam, em repouso e sem brilho"
+                    }
                     LinhaCombo {
                         id: rLuas
                         visible: rLuasLigadas.ligado
@@ -1106,7 +1112,8 @@ Item {
                                         texto_sombra: rTextoSombra.ligado,
                                         texto_sombra_forca: rTextoSombraForca.valor,
                                         luas: rLuas.efetivo,
-                                        luas_ligadas: rLuasLigadas.ligado })
+                                        luas_ligadas: rLuasLigadas.ligado,
+                                        luas_so_ativas: rLuasSoAtivas.ligado })
     onAparenciaChanged: if (ponte.previa) ponte.atualizarPrevia(aparencia)
     readonly property string ttsEfetivo: rTts.efetivo || ponte.ttsPerfil
 
@@ -1300,6 +1307,7 @@ Item {
         rTextoSombraForca.definir(o.texto_sombra_forca === undefined ? 0.7 : o.texto_sombra_forca)
         rLuas.valor = o.luas || "vagalumes"
         rLuasLigadas.ligado = o.luas_ligadas === undefined ? true : !!o.luas_ligadas
+        rLuasSoAtivas.ligado = !!o.luas_so_ativas
         rMover.ligado = !!o.mover
         skinDoTamanho = skin
         tamanho.definir(tamanhoDe(skin))
@@ -1367,6 +1375,7 @@ Item {
         cfg.orbe.texto_sombra_forca = rTextoSombraForca.valor
         cfg.orbe.luas = rLuas.efetivo
         cfg.orbe.luas_ligadas = rLuasLigadas.ligado
+        cfg.orbe.luas_so_ativas = rLuasSoAtivas.ligado
         cfg.orbe.mover = rMover.ligado
         // vão à parte, para o chaves.env (o config.json não guarda chave)
         cfg.chaves = {}

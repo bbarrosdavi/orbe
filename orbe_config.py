@@ -242,6 +242,9 @@ DEFAULTS = {
         # os outros orbes (as sessões em paralelo) como mini orbes em volta deste;
         # desligado, nenhum aparece, nem o que espera a vez de falar
         "luas_ligadas": True,
+        # só os com sessão ativa; desligado, os sem sessão orbitam também, em
+        # repouso e sem o brilho dos ativos
+        "luas_so_ativas": False,
         # como eles andam: vagalumes (soltos, vivos) | orbitas (elipses de
         # perfil, como elétrons)
         "luas": "vagalumes",

@@ -53,6 +53,7 @@ ShellRoot {
         conteudo.textoSombraForca = isNaN(fs) ? 0.7 : Math.min(1.0, Math.max(0.1, fs))
         conteudo.luasMovimento = o.luas === "orbitas" ? "orbitas" : "vagalumes"
         conteudo.luasLigadas = o.luas_ligadas === undefined ? true : !!o.luas_ligadas
+        conteudo.luasSoAtivas = !!o.luas_so_ativas
         raiz.mover = !!o.mover
     }
     function corCss(texto, re, padrao) {

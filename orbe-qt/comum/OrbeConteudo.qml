@@ -22,6 +22,7 @@ Item {
     property real textoSombraForca: 0.7    // a opacidade dela no meio (0.1 a 1.0)
     property string luasMovimento: "vagalumes"   // vagalumes | orbitas: como os outros orbes andam
     property bool luasLigadas: true        // os outros orbes como mini orbes em volta deste
+    property bool luasSoAtivas: false      // só os com sessão ativa (sem os fantasmas)
     // desligadas no meio de uma troca, a lua do principal que saía não fica parada na tela
     onLuasLigadasChanged: if (!luasLigadas) luas.saindo = null
     property color corTema: "#b8cacb"      // @accent_bg_color: cor dos avatares
@@ -149,7 +150,7 @@ Item {
         // com o orbe na tela e satélites em volta, os dois trocam de lugar: o
         // chamado sai de onde estava crescendo até o centro, e o principal
         // encolhe indo para onde o chamado estava (Satelites.trocar)
-        if (muda && visivel && fase === "run" && satelites.length && luasLigadas) {
+        if (muda && visivel && fase === "run" && luas.lista.length && luasLigadas) {
             var o = luas.onde(para.skin, para.cor)
             // a lua do que sai começa do tamanho visível dele: o raio da figura
             // dele aqui (com a sombra, cabe no disco) sobre o raio na caixa de lua
@@ -316,7 +317,9 @@ Item {
             id: luas
             anchors.fill: parent
             lado: orbe.orbBox
-            lista: orbe.luasLigadas ? orbe.satelites : []
+            lista: !orbe.luasLigadas ? []
+                 : orbe.luasSoAtivas ? orbe.satelites.filter(function (e) { return e.tipo !== "fantasma" })
+                 : orbe.satelites
             movimento: orbe.luasMovimento
             corTema: orbe.corTema
             corAnel: orbe.accent
@@ -453,13 +456,13 @@ Item {
         // sombra atrás do texto, opcional (config: orbe.texto_sombra e a
         // intensidade em orbe.texto_sombra_forca): uma nuvem macia em volta do
         // bloco de linhas, para o texto destacar das janelas que estiverem atrás
-        // (shaders/sombra_texto.frag)
+        // (shaders/nuvem.frag)
         ShaderEffect {
             id: sombraTexto
             visible: orbe.textoSombra && orbe.textoSombraForca > 0
             x: 0; y: 0
             width: orbe.width; height: orbe.height
-            fragmentShader: Qt.resolvedUrl("../shaders/sombra_texto.frag.qsb")
+            fragmentShader: Qt.resolvedUrl("../shaders/nuvem.frag.qsb")
             readonly property var bloco: {
                 var ls = orbe.linhasQuebradas, n = ls.length
                 if (!n) return [0, 0, 0, 0]
