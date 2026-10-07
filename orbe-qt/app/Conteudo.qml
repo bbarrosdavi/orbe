@@ -337,7 +337,7 @@ Item {
                     LinhaCombo {
                         id: rSttProv
                         titulo: "Provedor"
-                        itens: [{ id: "", nome: "Automático (Groq, senão Gemini)" }, { id: "groq", nome: "Groq (Whisper)" },
+                        itens: [{ id: "", nome: "Automático" }, { id: "groq", nome: "Groq (Whisper)" },
                                 { id: "gemini", nome: "Gemini" }, { id: "compat", nome: "Compatível com OpenAI" }]
                     }
                     LinhaCombo {
