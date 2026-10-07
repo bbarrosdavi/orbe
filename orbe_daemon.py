@@ -1435,6 +1435,7 @@ class Daemon:
         self._chat_id = None
         self._voice_session = None
         self._tts_gen = 0
+        self._so_relogio: set[str] = set()   # falas pedidas pelo relógio: só no alto-falante dele
         self._tts_sent_q = queue.Queue()
         self._tts_play_q = queue.Queue()
         self._tts_done = threading.Event()
@@ -1967,7 +1968,7 @@ class Daemon:
                 ao_quadro=self._relogio_quadro if rc["microfone"] else None,
                 voz=True, voz_pc=True, agentes=agentes, abre_claude=True,
                 ao_historico=self._historico, ao_retomar=self._retomar,
-                ao_raciocinio=self._raciocinio, ao_dizer=self._speak)
+                ao_raciocinio=self._raciocinio, ao_dizer=self._dizer_no_relogio)
             if ponte.iniciar():
                 _RELOGIO = ponte
         except Exception as e:
@@ -2503,6 +2504,14 @@ class Daemon:
             except OSError:
                 pass
 
+    def _dizer_no_relogio(self, texto: str):
+        """O relógio pediu uma fala (as instruções da calibração): sai só pelo alto-falante dele."""
+        s = _clean_tts(texto)
+        if len(s) < 2:
+            return
+        self._so_relogio.add(s)
+        self._tts_push(s)
+
     def _voz_destino(self) -> tuple[bool, bool]:
         """(PC, relógio): na sessão do relógio, onde ele pediu; senão, só o PC."""
         rel = _RELOGIO
@@ -2516,7 +2525,9 @@ class Daemon:
         if not proc or proc.poll() is not None or not proc.stdin:
             LOG.warning("TTS worker morto")
             return
-        pc, no_relogio = self._voz_destino()
+        so_relogio = text in self._so_relogio and _RELOGIO is not None
+        self._so_relogio.discard(text)
+        pc, no_relogio = (False, True) if so_relogio else self._voz_destino()
         try:
             # a cada frase: um CANCEL no worker esvazia a fila, e o DEST junto
             proc.stdin.write(f"DEST pc={int(pc)} relogio={int(no_relogio)}\n")
@@ -2550,6 +2561,9 @@ class Daemon:
                 if line.startswith("ERR"):
                     LOG.warning("TTS %s", line)
                 break
+        if so_relogio:
+            # fala avulsa, fora de turno: o relógio toca o que recebeu e fecha a voz
+            self._fechar_voz_relogio("fim")
 
     def _tts_push(self, sentence: str, gen: int | None = None, etapa: bool = False):
         """[etapa]: a descrição de uma ferramenta do agente, dita no meio do
