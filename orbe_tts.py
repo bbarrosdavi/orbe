@@ -49,9 +49,10 @@ def _player(rate: int) -> list[str]:
             "--channels", "1", "-"]
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 ACK_DIR = vcfg.dado("confirmacoes", "cache/voice_ack")
-ACK_PHRASES = (
-    "Sim?", "Pois não?", "Manda.", "Escuto.",
-)
+# Sem confirmações curtas: o orbe não responde "Sim?" nem "Manda." a nada
+# (o daemon já não atendia a ativação com elas). Vazia, o cache delas não é
+# preenchido nem tocado.
+ACK_PHRASES: tuple[str, ...] = ()
 
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
 
