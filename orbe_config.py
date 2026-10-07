@@ -324,6 +324,17 @@ DEFAULTS = {
 # e a Entidade saíram); a lista do relógio tem a sua, em Skin.kt
 # a ordem padrão dos orbes do relógio vem daqui: skin nova entra no fim, para
 # não deslocar o slot das que já existem
+# o raciocínio (effort) de cada agente, pelo tipo: "" = o padrão do agente.
+# Vale na abertura da sessão: o Claude pelo --effort, o Hermes pelo --reasoning
+NIVEIS_RACIOCINIO = ("", "low", "medium", "high", "max")
+NOMES_RACIOCINIO = {"": "padrão", "low": "baixo", "medium": "médio", "high": "alto", "max": "máximo"}
+
+
+def raciocinio(cfg: dict, tipo: str) -> str:
+    v = (cfg.get("raciocinio") or {}).get(tipo or "claude") or ""
+    return v if v in NIVEIS_RACIOCINIO else ""
+
+
 SKINS = ("ofanim", "ofanim_alado", "serafim_gravura", "olho", "humana", "anel", "serafim_positivo")
 
 

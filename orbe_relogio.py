@@ -255,7 +255,7 @@ IDIOMAS_ETAPAS = ("pt", "original")
 # os que o PC só conhece pelo relógio: null no config até ele mandar os dele
 CAMPOS_DO_RELOGIO = ("toques", "segurar", "live", "fundo", "ordem", "sacudida", "sair",
                      "sacudida_fora", "sacudida_dentro", "sair_fora")
-ACOES_TOQUE = ("abrir", "live", "encerrar", "historico", "nada")
+ACOES_TOQUE = ("abrir", "live", "encerrar", "historico", "proximo", "anterior", "raciocinio", "nada")
 # com o último toque segurado também dá para falar (segurar para falar)
 ACOES_SEGURAR = ACOES_TOQUE + ("falar",)
 
@@ -380,7 +380,8 @@ class PonteRelogio:
 
     def __init__(self, porta: int, token: str, ao_controle, ao_comando, ao_quadro=None,
                  host: str = "0.0.0.0", ao_fala_fim=None, voz: bool = False, voz_pc: bool = False,
-                 agentes=None, abre_claude: bool = False, ao_historico=None, ao_retomar=None):
+                 agentes=None, abre_claude: bool = False, ao_historico=None, ao_retomar=None,
+                 ao_raciocinio=None):
         self.porta = int(porta)
         self.host = host
         self._token = token.strip().lower().encode()
@@ -393,6 +394,7 @@ class PonteRelogio:
         self._agentes = list(agentes or [])   # [{"id", "nome", "instancias"}]: o relógio dá um a cada orbe
         self._abre_claude = abre_claude       # falar numa instância sem sessão abre uma (o daemon)
         self._ao_historico = ao_historico     # agente → {"agente", "sessoes", "erro"}
+        self._ao_raciocinio = ao_raciocinio   # agente → troca o nível de raciocínio dele
         self._ao_retomar = ao_retomar         # (agente, vaga, id): a sessão escolhida no histórico
         self._agente = ""             # o do orbe em tela no relógio ("agente <id>")
         self._orbe = ("", "")         # a skin e a cor dele ("orbe <skin> <#cor>"; "" = a do tema)
@@ -819,6 +821,8 @@ class PonteRelogio:
             self._ao_fala_fim()
         elif linha == "historico" and self._ao_historico is not None:
             self._historico(ws)
+        elif linha == "raciocinio" and self._ao_raciocinio is not None:
+            threading.Thread(target=self._ao_raciocinio, args=(self._agente,), name="raciocinio", daemon=True).start()
 
     def _historico(self, ws):
         """Lista fora do laço (um agente ACP pode subir para isso) e responde só a quem pediu."""

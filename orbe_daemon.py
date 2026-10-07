@@ -898,6 +898,8 @@ def _abrir_claude(pasta: str, espera: float = 60.0, nova: bool = False, retomar:
     antes = {int(s["pid"]) for s in vivas}
     if nova or _CLAUDE_JANELA is None or _CLAUDE_JANELA.poll() is not None:
         claude = [str(Path(__file__).resolve().parent / "claude-orbe"), "--dangerously-skip-permissions"]
+        if vcfg.raciocinio(VCFG, "claude"):
+            claude += ["--effort", vcfg.raciocinio(VCFG, "claude")]
         if retomar:
             claude += ["--resume", retomar]
         terminal = [AGENTE_CFG.get("terminal") or "ghostty", "-e", *claude]
@@ -940,6 +942,8 @@ def _abrir_claude_fundo(pasta: str, espera: float = 60.0, nova: bool = False, re
             return _CLAUDE_FUNDO
     antes = {s["pid"] for s in vivas}
     argv = ["claude", "--bg", "--dangerously-skip-permissions"] + (["--resume", retomar] if retomar else [])
+    if vcfg.raciocinio(VCFG, "claude"):
+        argv += ["--effort", vcfg.raciocinio(VCFG, "claude")]
     try:
         r = subprocess.run(argv, cwd=pasta, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -1962,7 +1966,8 @@ class Daemon:
                 ao_comando=self._relogio_comando,
                 ao_quadro=self._relogio_quadro if rc["microfone"] else None,
                 voz=True, voz_pc=True, agentes=agentes, abre_claude=True,
-                ao_historico=self._historico, ao_retomar=self._retomar)
+                ao_historico=self._historico, ao_retomar=self._retomar,
+                ao_raciocinio=self._raciocinio)
             if ponte.iniciar():
                 _RELOGIO = ponte
         except Exception as e:
@@ -2000,6 +2005,24 @@ class Daemon:
         finally:
             if proprio:
                 ag.fechar()
+
+    def _raciocinio(self, agente: str):
+        """Passa o raciocínio do agente do orbe do relógio ao nível seguinte e avisa;
+        vale na próxima sessão dele."""
+        tipo = agente or "claude"
+        if tipo not in ("claude", "hermes"):
+            self._speak(f"O {acp.NOMES.get(tipo, tipo)} não deixa escolher o raciocínio")
+            return
+        cfg = vcfg.carregar()
+        niveis = vcfg.NIVEIS_RACIOCINIO
+        novo = niveis[(niveis.index(vcfg.raciocinio(cfg, tipo)) + 1) % len(niveis)]
+        cfg.setdefault("raciocinio", {})[tipo] = novo
+        vcfg.salvar(cfg)
+        VCFG.setdefault("raciocinio", {})[tipo] = novo
+        nome = vcfg.NOMES_RACIOCINIO[novo]
+        LOG.info("raciocínio do %s: %s", tipo, novo or "padrão")
+        orb_cmd(f"line Raciocínio {nome}: vale na próxima sessão")
+        self._speak(f"Raciocínio {nome}")
 
     def _retomar(self, agente: str, vaga: int, sid: str):
         """Retoma a sessão escolhida no histórico do relógio, no orbe dele."""

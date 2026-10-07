@@ -95,7 +95,10 @@ def comando(agente: dict, hermes_rt: list[str] | None = None) -> tuple[list[str]
             # numa instalação nova): o hermes recusaria e o orbe ficaria mudo
             perfil = "default"
         base = list(hermes_rt) if hermes_rt else [HERMES_LAUNCHER]
-        return base + ([] if perfil == "default" else ["-p", perfil]) + ["acp", "--accept-hooks"], {}
+        import orbe_config
+        nivel = orbe_config.raciocinio(orbe_config.carregar(), "hermes")
+        return (base + ([] if perfil == "default" else ["-p", perfil]) + (["--reasoning", nivel] if nivel else [])
+                + ["acp", "--accept-hooks"]), {}
     if tipo == "opencode":
         return [shutil.which("opencode") or "opencode", "acp"], {}
     if tipo == "gemini":
