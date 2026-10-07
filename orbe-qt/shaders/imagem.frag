@@ -306,12 +306,29 @@ float pesoCotovelo(float cel, vec2 p) {
     return textureLod(arte, (qc + vec2(cel * CELULA, 0.0)) / ATLAS, 0.0).b;
 }
 
+#ifdef RELOGIO
+const int PASSOS = 6;     // no relógio: erro abaixo de 6 px do atlas no pior ângulo (~1-2 px na tela)
+#else
+const int PASSOS = 10;
+#endif
+
+// perto da caixa da camada, com folga do maior deslocamento das articulações:
+// longe dela a asa não chega a esse pixel e não precisa ser resolvida
+bool perto(vec2 p, int cel, float folga) {
+#ifdef RELOGIO
+    vec4 cx = CAIXA[cel];
+    return p.x > cx.x - folga && p.y > cx.y - folga && p.x < cx.z + folga && p.y < cx.w + folga;
+#else
+    return true;
+#endif
+}
+
 // asa do meio: o ponto de repouso que, girado na base (leque a partir da raiz
 // r) e no cotovelo e (peso do atlas), cai em p. Ponto fixo amortecido, 10
 // passos (o protótipo aprovado; sem amortecer, oscila)
 vec2 repousoMeio(vec2 p, vec2 r, vec2 e, float lado, float cel, float base, float cot) {
     vec2 s = p;
-    for (int k = 0; k < 10; k++) {
+    for (int k = 0; k < PASSOS; k++) {
         float wb = suave01((length(s - r) - 25.0) / 35.0);
         vec2 qb = r + girar(p - r, -base * lado * wb);
         vec2 n = e + girar(qb - e, -cot * lado * pesoCotovelo(cel, s));
@@ -325,7 +342,7 @@ vec2 repousoMeio(vec2 p, vec2 r, vec2 e, float lado, float cel, float base, floa
 vec2 repousoVert(vec2 p, vec2 r, vec2 j, float sent, float base, float joe) {
     vec2 u = normalize(j - r);
     vec2 s = p;
-    for (int k = 0; k < 10; k++) {
+    for (int k = 0; k < PASSOS; k++) {
         float wb = suave01((length(s - r) - 20.0) / 30.0);
         vec2 qb = r + girar(p - r, -base * sent * wb);
         float w = suave01(dot(s - j, u) / 30.0) * clamp((length(s - j) - 8.0) / 7.0, 0.0, 1.0);
@@ -502,21 +519,27 @@ void main() {
     // contorno em C é das do meio), as de baixo; o núcleo por cima. p: o
     // ponto no espaço do texel (o centro do texel i em i)
     vec2 pp = q - 0.5;
-    vec2 s0 = repousoVert(pp, vec2(175.0, 184.0), vec2(162.0, 118.0), 1.0, img.w, img2.x) + 0.5;
+    vec2 s0 = pp + 0.5;
+    if (perto(pp, 0, 70.0)) s0 = repousoVert(pp, vec2(175.0, 184.0), vec2(162.0, 118.0), 1.0, img.w, img2.x) + 0.5;
     camada(0.0, iris(s0, vec2(162.0, 118.0), vec2(9.0, 9.0), dg * 3.0));
-    vec2 s1 = repousoVert(pp, vec2(216.0, 184.0), vec2(219.0, 117.0), -1.0, img.w, img2.x) + 0.5;
+    vec2 s1 = pp + 0.5;
+    if (perto(pp, 1, 70.0)) s1 = repousoVert(pp, vec2(216.0, 184.0), vec2(219.0, 117.0), -1.0, img.w, img2.x) + 0.5;
     camada(1.0, iris(s1, vec2(219.0, 117.0), vec2(9.0, 9.0), dg * 3.0));
     const vec3 ESP_E = vec3(220.3, 25.0, 100.0);
     const vec3 ESP_D = vec3(220.3, 367.0, 292.0);
-    vec2 s2 = espelhaEspinho(repousoMeio(pp, vec2(145.0, 214.0), vec2(110.0, 124.0), 1.0, 2.0, img.x, img.y), ESP_E) + 0.5;
+    vec2 s2 = pp + 0.5;
+    if (perto(pp, 2, 110.0)) s2 = espelhaEspinho(repousoMeio(pp, vec2(145.0, 214.0), vec2(110.0, 124.0), 1.0, 2.0, img.x, img.y), ESP_E) + 0.5;
     camada(2.0, iris(s2, vec2(74.0, 151.0), vec2(11.0, 6.0), dg * vec2(3.0, 0.8)));
     camadaM(2.0, q, step(abs(pp.y - ESP_E.x), meiaEspinho(pp.x, ESP_E) - 1e-6));
-    vec2 s3 = espelhaEspinho(repousoMeio(pp, vec2(246.0, 214.0), vec2(279.0, 128.0), -1.0, 3.0, img.x, img.y), ESP_D) + 0.5;
+    vec2 s3 = pp + 0.5;
+    if (perto(pp, 3, 110.0)) s3 = espelhaEspinho(repousoMeio(pp, vec2(246.0, 214.0), vec2(279.0, 128.0), -1.0, 3.0, img.x, img.y), ESP_D) + 0.5;
     camada(3.0, iris(s3, vec2(308.0, 150.0), vec2(11.0, 6.0), dg * vec2(3.0, 0.8)));
     camadaM(3.0, q, step(abs(pp.y - ESP_D.x), meiaEspinho(pp.x, ESP_D) - 1e-6));
-    vec2 s4 = repousoVert(pp, vec2(175.0, 254.0), vec2(157.0, 313.0), -1.0, img2.z, img2.y) + 0.5;
+    vec2 s4 = pp + 0.5;
+    if (perto(pp, 4, 70.0)) s4 = repousoVert(pp, vec2(175.0, 254.0), vec2(157.0, 313.0), -1.0, img2.z, img2.y) + 0.5;
     camada(4.0, iris(s4, vec2(157.0, 313.0), vec2(8.0, 9.0), dg * 2.5));
-    vec2 s5 = repousoVert(pp, vec2(216.0, 254.0), vec2(225.0, 313.0), 1.0, img2.z, img2.y) + 0.5;
+    vec2 s5 = pp + 0.5;
+    if (perto(pp, 5, 70.0)) s5 = repousoVert(pp, vec2(216.0, 254.0), vec2(225.0, 313.0), 1.0, img2.z, img2.y) + 0.5;
     camada(5.0, iris(s5, vec2(225.0, 313.0), vec2(8.0, 9.0), dg * 2.5));
     camada(6.0, iris(q, vec2(192.5, 220.5), vec2(32.0, 17.5), dg * vec2(9.0, 1.5)));
 #endif
