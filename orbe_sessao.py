@@ -160,34 +160,67 @@ def _inicio(p: Path) -> dict:
     return ini
 
 
-def passadas(limite: int = 25) -> list[dict]:
-    """As conversas do Claude Code abertas no terminal que não estão vivas, da
-    mais recente para a mais velha: id, título, pasta, cwd e quando (s). As do
-    claude -p (o SDK, os hooks) ficam de fora: não são conversa do Davi."""
+# As entradas cujas conversas o histórico mostra: o terminal ("" nas antigas) e a
+# extensão do VS Code (a mesma conversa retoma no terminal); as do claude -p (o
+# SDK, os hooks) ficam de fora: não são conversa do Davi.
+ENTRADAS_CONVERSA = ("", "cli", "claude-vscode")
+
+
+def _conversa(p: Path, quando: float) -> dict | None:
+    """A conversa de um transcript, como o histórico mostra; None se não há o que retomar."""
+    ini = _inicio(p)
+    if not ini or ini["entrypoint"] not in ENTRADAS_CONVERSA or not Path(ini["cwd"]).is_dir():
+        return None                     # o --resume roda na pasta da conversa: sem ela, não há onde
+    cwd = ini["cwd"]
+    nome = titulo({"sessao": p.stem, "cwd": cwd}) or ini.get("pedido", "")
+    if not nome:
+        return None                     # aberta e fechada sem conversa: nada a retomar
+    return {"id": p.stem, "titulo": nome, "pasta": Path(cwd).name or cwd, "cwd": cwd, "quando": int(quando)}
+
+
+def passadas(por_projeto: int = 10, projetos: int = 15) -> list[dict]:
+    """As conversas do Claude Code que não estão vivas, por projeto: os
+    [projetos] com atividade mais recente, até [por_projeto] conversas de cada
+    (as mais novas). Cada uma: id, título, pasta, cwd e quando (s); a lista vem
+    da mais recente para a mais velha."""
     vivas = {s["sessao"] for s in sessoes()}
-    arquivos = []
+    grupos: dict[Path, list[tuple[float, Path]]] = {}
     for p in (CLAUDE_DIR / "projects").glob("*/*.jsonl"):
         try:
-            arquivos.append((p.stat().st_mtime, p))
+            grupos.setdefault(p.parent, []).append((p.stat().st_mtime, p))
         except OSError:
             pass
-    arquivos.sort(reverse=True)
     achadas = []
-    for quando, p in arquivos:
-        if p.stem in vivas:
-            continue
-        ini = _inicio(p)
-        if not ini or ini["entrypoint"] not in ("", "cli") or not Path(ini["cwd"]).is_dir():
-            continue                    # o --resume roda na pasta da conversa: sem ela, não há onde
-        cwd = ini["cwd"]
-        nome = titulo({"sessao": p.stem, "cwd": cwd}) or ini.get("pedido", "")
-        if not nome:
-            continue                    # aberta e fechada sem conversa: nada a retomar
-        achadas.append({"id": p.stem, "titulo": nome, "pasta": Path(cwd).name or cwd,
-                        "cwd": cwd, "quando": int(quando)})
-        if len(achadas) >= limite:
-            break
+    contados = 0
+    for lista in sorted(grupos.values(), key=lambda l: max(l)[0], reverse=True):
+        lista.sort(reverse=True)
+        deste = 0
+        for quando, p in lista:
+            if p.stem in vivas:
+                continue
+            c = _conversa(p, quando)
+            if c is None:
+                continue
+            achadas.append(c)
+            deste += 1
+            if deste >= por_projeto:
+                break
+        if deste:
+            contados += 1
+            if contados >= projetos:
+                break
+    achadas.sort(key=lambda c: c["quando"], reverse=True)
     return achadas
+
+
+def passada(sid: str) -> dict | None:
+    """A conversa [sid], de qualquer projeto (o retomar do histórico)."""
+    for p in (CLAUDE_DIR / "projects").glob(f"*/{sid}.jsonl"):
+        try:
+            return _conversa(p, p.stat().st_mtime)
+        except OSError:
+            return None
+    return None
 
 
 def rotulo(s: dict) -> str:

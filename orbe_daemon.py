@@ -1978,7 +1978,7 @@ class Daemon:
         """As sessões passadas do agente de um orbe do relógio (a ação Histórico dos toques), para retomar."""
         tipo = agente or "claude"
         if tipo == "claude":
-            return {"agente": tipo, "sessoes": [{k: s[k] for k in ("id", "titulo", "pasta", "quando")}
+            return {"agente": tipo, "sessoes": [{k: s[k] for k in ("id", "titulo", "pasta", "cwd", "quando")}
                                                  for s in sessao.passadas()]}
         # o agente ACP já carregado serve; senão um sobe só para listar e sai
         ag, proprio = self.agente, False
@@ -1991,11 +1991,11 @@ class Daemon:
         try:
             if proprio:
                 ag.iniciar()
-            lista = ag.listar_sessoes()
+            lista = ag.listar_sessoes(limite=150)
             # a janela que retoma uma delas abre na pasta dela (o Gemini e o
             # OpenCode guardam as sessões por projeto)
             self._pastas_historico[tipo] = {s["id"]: s.get("cwd", "") for s in lista}
-            return {"agente": tipo, "sessoes": [{k: s[k] for k in ("id", "titulo", "pasta", "quando")}
+            return {"agente": tipo, "sessoes": [{k: s[k] for k in ("id", "titulo", "pasta", "cwd", "quando")}
                                                  for s in lista]}
         except acp.ErroACP as e:
             LOG.info("histórico de %s: %s", tipo, e)
@@ -2030,7 +2030,7 @@ class Daemon:
         tipo = agente or "claude"
         if tipo == "claude":
             # num terminal, na pasta da conversa, e na vaga do orbe de onde foi escolhida
-            s = next((x for x in sessao.passadas(500) if x["id"] == sid), None)
+            s = sessao.passada(sid)
             if s is None:
                 orb_cmd("line Essa conversa do Claude não está mais no histórico")
                 return
