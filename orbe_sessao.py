@@ -73,11 +73,18 @@ def _vivo(pid: int) -> bool:
         return True
 
 
+# As entradas de sessão interativa que o orbe acorda: o terminal e a extensão do
+# VS Code (o binário dela em stream-json; o asyncRewake do Stop a acorda parada,
+# medido em sessão descartável em 2026-10-07).
+ENTRADAS_VIVAS = ("cli", "claude-vscode")
+
+
 def _alcancavel(d: dict) -> bool:
-    """Sessão de terminal ou de segundo plano. O claude -p também se registra
-    como interactive, mas com a entrada do SDK: essa não tem a quem acordar."""
+    """Sessão de terminal, da extensão do VS Code ou de segundo plano. O claude -p
+    também se registra como interactive, mas com a entrada do SDK: essa não tem a
+    quem acordar."""
     kind = d.get("kind")
-    return kind == "bg" or (kind == "interactive" and d.get("entrypoint") == "cli")
+    return kind == "bg" or (kind == "interactive" and d.get("entrypoint") in ENTRADAS_VIVAS)
 
 
 def _registros() -> list[dict]:
@@ -117,6 +124,8 @@ def sessoes() -> list[dict]:
             "estado": "parada" if d.get("status") == "idle" else "trabalhando",
             "desde": d.get("startedAt") or 0,
             "canal": (canal.PASTA / f"{pid}.sock").exists(),
+            # aberta pela extensão do VS Code: o pedido do orbe abre o VS Code nela
+            "vscode": d.get("entrypoint") == "claude-vscode",
             "ouve": (pasta / f"{pid}.sock").exists(),
         })
     return sorted(vivas, key=lambda s: (s["desde"], s["pid"]))
@@ -550,13 +559,17 @@ def _hook() -> int:
     # espera por ele no fim: lá não há o que fazer, sai já.
     entrada = os.environ.get("CLAUDE_CODE_ENTRYPOINT", "")
     bg = os.environ.get("CLAUDE_CODE_SESSION_KIND") == "bg"
-    if entrada and entrada != "cli" and not bg:
+    if entrada and entrada not in ENTRADAS_VIVAS and not bg:
         return 0
     try:
         ent = json.loads(sys.stdin.read() or "{}")
     except ValueError:
         return 0
-    reg = _registro_de(str(ent.get("session_id") or ""), 5.0 if entrada == "cli" or bg else 0.0)
+    # na extensão do VS Code o acordar do SessionStart se perde (a sessão parada
+    # não acorda e o pedido some): a escuta arma só no Stop, a partir do 1º turno
+    if entrada == "claude-vscode" and ent.get("hook_event_name") != "Stop":
+        return 0
+    reg = _registro_de(str(ent.get("session_id") or ""), 5.0 if entrada in ENTRADAS_VIVAS or bg else 0.0)
     if reg is None or not _alcancavel(reg):
         return 0
     pasta = _pasta()
@@ -659,6 +672,7 @@ class AgenteSessao:
         self.modelos: list = []
         self.modelo_atual = ""
         self.cwd = ""
+        self.vscode = ""                # o id da conversa, se ela é da extensão do VS Code
         self._pasta = _pasta()
 
     def iniciar(self, teto: float = 0):
@@ -669,6 +683,7 @@ class AgenteSessao:
         if s is None:
             raise self._erro(f"a sessão {self.alvo} do Claude fechou")
         self.sessao, self.cwd = str(self.alvo), s["cwd"]
+        self.vscode = s["sessao"] if s.get("vscode") else ""
         return self.sessao
 
     def vivo(self) -> bool:
@@ -709,6 +724,8 @@ class AgenteSessao:
                 raise self._erro(f"a sessão {self.alvo} não ouve o orbe (falta o hook: "
                                  "orbe_sessao.py --instalar, ou ela ainda não terminou um turno)")
             tipo = (r or {}).get("tipo")
+            if tipo in ("aceito", "no_turno") and self.vscode:
+                focar_vscode(self.vscode)
             if tipo == "aceito":
                 break
             if tipo == "no_turno":
@@ -756,6 +773,28 @@ class AgenteSessao:
                 p.unlink()
         except (OSError, ValueError):
             pass
+
+
+def focar_vscode(sessao: str) -> bool:
+    """Abre o VS Code no chat da conversa [sessao] da extensão do Claude, pelo
+    endereço que ela atende (vscode://anthropic.claude-code/open?session=).
+    O `code --open-url` existe nos três sistemas; sem ele, o navegador padrão do
+    sistema entrega o endereço ao VS Code. Não espera: o pedido segue."""
+    import shutil
+    import subprocess
+    uri = f"vscode://anthropic.claude-code/open?session={sessao}"
+    code = shutil.which("code") or shutil.which("code.cmd")
+    try:
+        if code:
+            subprocess.Popen([code, "--open-url", uri], stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+        else:
+            import webbrowser
+            webbrowser.open(uri)
+        return True
+    except OSError:
+        return False
 
 
 def agente(pid: int = 0):
