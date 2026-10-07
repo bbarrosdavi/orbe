@@ -220,7 +220,9 @@ def aparencia() -> dict:
     """O que o relógio precisa para desenhar o orbe igual ao do PC."""
     o = vcfg.carregar()["orbe"]
     tam = (o.get("tamanhos") or {}).get(o["skin"])
-    return {"orbe": {"skin": o["skin"], "glitch": bool(o["glitch"]), "tamanho": o["tamanho"] if tam is None else tam},
+    gl = (o.get("glitches") or {}).get(o["skin"])
+    return {"orbe": {"skin": o["skin"], "glitch": bool(o["glitch"] if gl is None else gl),
+                     "tamanho": o["tamanho"] if tam is None else tam},
             "tema": tema(), "papel": papel(), **papel_imagem()}
 
 
@@ -322,6 +324,13 @@ def gravar_ajustes(novos: dict) -> bool:
             v = tamanhos.get(skin)
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 atual["tamanhos"][skin] = round(min(1.3, max(0.6, float(v))), 3)
+    glitches = novos.get("glitches")
+    if isinstance(glitches, dict):
+        atual.setdefault("glitches", {})
+        for skin in vcfg.SKINS:
+            v = glitches.get(skin, "falta")
+            if isinstance(v, bool) or v is None:
+                atual["glitches"][skin] = v
     agentes = novos.get("agentes")
     if isinstance(agentes, dict):
         for skin in atual["agentes"]:

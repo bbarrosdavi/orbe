@@ -24,7 +24,8 @@ Item {
     property real lado: 148
     property color corTema: "white"
     property color corAnel: "#0087fc"
-    property bool glitch: true
+    // o glitch de cada skin (OrbeConteudo.glitchDe): o principal que sai na troca leva o dele
+    property var glitchDe: function (sk) { return true }
     property real alfa: 1                  // o envelope da entrada e da saída do orbe
     property real t: 0
     property int quadro: 0
@@ -336,7 +337,7 @@ Item {
                     skin: lua.e.skin
                     // lua não tem glitch; o principal que sai na troca leva o dele
                     // apagando até zero
-                    glitch: sat.glitch && lua.entrando < 1
+                    glitch: sat.glitchDe(lua.e.skin) && lua.entrando < 1
                     glitchForca: 1 - lua.entrando
                     Component.onCompleted: {
                         // a lista nova pode recriar a lua do principal que saiu, já

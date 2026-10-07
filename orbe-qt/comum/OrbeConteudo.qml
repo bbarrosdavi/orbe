@@ -13,7 +13,14 @@ Item {
 
     // ── aparência (config.json → orbe; cores do matugen) ──
     property string skin: "ofanim"
-    property bool glitch: true
+    property bool glitch: true             // o comum (orbe.glitch)
+    // o de cada skin (orbe.glitches; null = o comum): vale o do orbe em uso
+    property var glitches: ({})
+    function glitchDe(sk) {
+        var g = glitches ? glitches[sk] : undefined
+        return g === undefined || g === null ? glitch : !!g
+    }
+    readonly property bool glitchEmUso: glitchDe(skinEmUso)
     property bool vidro: false             // sombra atrás do orbe (chave antiga do config)
     property real sombra: 0.45             // opacidade da sombra no centro
     property real tamanho: 1.0             // o comum (orbe.tamanho)
@@ -377,7 +384,7 @@ Item {
             movimento: orbe.luasMovimento
             corTema: orbe.corTema
             corAnel: orbe.accent
-            glitch: orbe.glitch
+            glitchDe: orbe.glitchDe
             alfa: orbe.envAlfa
 
             Loader {
@@ -403,7 +410,7 @@ Item {
         id: compFigura
         Figura {
             skin: orbe.skinEmUso
-            glitch: orbe.glitch
+            glitch: orbe.glitchEmUso
             glitchForca: orbe.trocaF
             peso: 1.4                       // o traço do menu some numa área de 148 px
             cor: orbe.corFigura
@@ -439,7 +446,7 @@ Item {
             envEsc: orbe.envEsc
             envAlfa: orbe.envAlfa
             esc: orbe.tamanhoEmUso
-            glitch: orbe.glitch
+            glitch: orbe.glitchEmUso
             accent: orbe.corAccent
         }
     }

@@ -40,6 +40,7 @@ ShellRoot {
         var sk = o.skin === "serafim" ? "serafim_gravura" : String(o.skin || "ofanim")
         conteudo.skin = ["ofanim", "ofanim_alado", "serafim_gravura", "serafim_positivo", "olho", "humana", "anel"].indexOf(sk) >= 0 ? sk : "ofanim"
         conteudo.glitch = o.glitch === undefined ? true : !!o.glitch
+        conteudo.glitches = o.glitches || {}
         conteudo.vidro = !!o.vidro
         var som = parseFloat(o.sombra)
         conteudo.sombra = isNaN(som) ? 0.45 : Math.min(1.0, Math.max(0.1, som))

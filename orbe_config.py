@@ -224,7 +224,9 @@ DEFAULTS = {
         # ofanim | ofanim_alado (orbe-qt/comum/Figura.qml) | serafim_gravura | serafim_positivo | olho | humana
         # (imagem recortada, orbe-qt/arte) | anel (rotoscope)
         "skin": "ofanim",
+        # o glitch de cada skin que ainda não tem o seu em "glitches" (null)
         "glitch": True,
+        "glitches": {"anel": None, "serafim_gravura": None, "serafim_positivo": None, "ofanim": None, "ofanim_alado": None, "olho": None, "humana": None},
         # sombra radial atrás do orbe (pos.frag); a chave guarda o nome antigo
         "vidro": False,
         # opacidade da sombra no centro (0.1 a 1.0); 0.45 era o valor fixo
@@ -286,7 +288,8 @@ DEFAULTS = {
             "microfone": True,    # segurando o orbe, a fala vem do relógio
             "vibrar": True,
             "texto": True,        # as linhas do raciocínio abaixo do orbe
-            "glitch": True,
+            "glitch": True,       # o de cada orbe do relógio que ainda não tem o seu em "glitches"
+            "glitches": {"anel": None, "serafim_gravura": None, "serafim_positivo": None, "ofanim": None, "ofanim_alado": None, "olho": None, "humana": None},
             "linhas": True,       # as linhas de TV (só no relógio; no PC elas vêm com o glitch)
             "tamanho": 1.0,
             # o orbe (aqui e no relógio) fala as etapas do agente enquanto ele

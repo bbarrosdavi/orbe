@@ -536,7 +536,8 @@ Item {
                                 skin: modelData
                                 nome: ponte.nomesSkin[modelData]
                                 marcado: raiz.skin === modelData
-                                glitch: rGlitch.ligado
+                                // cada cartão com o glitch do próprio orbe (o marcado segue a chave)
+                                glitch: raiz.skin === modelData ? rGlitch.ligado : raiz.glitchDe(modelData)
                                 onEscolhido: raiz.skin = modelData
                             }
                         }
@@ -552,7 +553,7 @@ Item {
                     LinhaSwitch {
                         id: rGlitch
                         titulo: "Glitch"
-                        subtitulo: "aberração cromática, faixas arrancadas e linhas de varredura"
+                        subtitulo: "deste orbe (cada um guarda o seu): aberração cromática, faixas arrancadas e linhas de varredura"
                     }
                     LinhaSwitch {
                         id: rVidro
@@ -1072,10 +1073,21 @@ Item {
         if (skinDoTamanho && Math.abs(tamanho.valor - tamanhoDe(skinDoTamanho)) > 0.001)
             tamanhos[skinDoTamanho] = tamanho.valor
     }
+    // o glitch de cada skin (orbe.glitches; null = o comum, orbe.glitch), como o tamanho
+    property var glitches: ({})
+    property bool glitchComum: true
+    property string skinDoGlitch: ""
+    function glitchDe(s) { var g = glitches[s]; return g === undefined || g === null ? glitchComum : !!g }
+    function guardarGlitch() {
+        if (skinDoGlitch && rGlitch.ligado !== glitchDe(skinDoGlitch)) glitches[skinDoGlitch] = rGlitch.ligado
+    }
     onSkinChanged: {
         guardarTamanho()
         skinDoTamanho = skin
         tamanho.definir(tamanhoDe(skin))
+        guardarGlitch()
+        skinDoGlitch = skin
+        rGlitch.ligado = glitchDe(skin)
         puxarAgenteDaSkin()
     }
     // O agente de cada skin mora na lista "Agente de cada orbe" (o mapa que o
@@ -1293,13 +1305,17 @@ Item {
         var o = c.orbe
         // antes da skin: trocá-la já põe o tamanho dela no slider
         skinDoTamanho = ""
+        skinDoGlitch = ""
+        glitchComum = o.glitch === undefined ? true : !!o.glitch
+        glitches = JSON.parse(JSON.stringify(o.glitches || {}))
         tamanhoComum = o.tamanho === undefined ? 1.0 : o.tamanho
         tamanhos = JSON.parse(JSON.stringify(o.tamanhos || {}))
         // o Seraphim desenhado saiu; quem o tinha fica com o da gravura (o
         // Shoggoth e a Entidade também saíram: Ophanim)
         var sk = o.skin === "serafim" ? "serafim_gravura" : o.skin
         skin = ["ofanim", "ofanim_alado", "serafim_gravura", "serafim_positivo", "olho", "humana", "anel"].indexOf(sk) >= 0 ? sk : "ofanim"
-        rGlitch.ligado = !!o.glitch
+        rGlitch.ligado = glitchDe(skin)
+        skinDoGlitch = skin
         rVidro.ligado = !!o.vidro
         rSombra.definir(o.sombra === undefined ? 0.45 : o.sombra)
         rTexto.valor = o.texto || "lado"
@@ -1361,7 +1377,12 @@ Item {
         t.gravacao_max_s = rTmax.valor
         cfg.diagnostico.rastro_niveis = rRastro.ligado
         cfg.orbe.skin = raiz.skin
-        cfg.orbe.glitch = rGlitch.ligado
+        guardarGlitch()
+        cfg.orbe.glitches = cfg.orbe.glitches || {}
+        for (var gs in raiz.glitches) {
+            if (raiz.glitches[gs] !== null && raiz.glitches[gs] !== undefined)
+                cfg.orbe.glitches[gs] = !!raiz.glitches[gs]
+        }
         cfg.orbe.vidro = rVidro.ligado
         cfg.orbe.sombra = rSombra.valor
         guardarTamanho()
