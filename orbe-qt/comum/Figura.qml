@@ -607,7 +607,8 @@ if (skin in polares) {
     Image {
         id: arteImg
         visible: false
-        source: raiz.skin in raiz.imagens ? Qt.resolvedUrl("../arte/" + (raiz.gravura ? "serafim_gravura" : raiz.skin) + ".png") : ""
+        // o positivo tem atlas próprio: sem os bolsões de papel que são fundo
+        source: raiz.skin in raiz.imagens ? Qt.resolvedUrl("../arte/" + raiz.skin + ".png") : ""
         mipmap: true
         smooth: true
     }
