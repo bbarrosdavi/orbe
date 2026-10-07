@@ -381,7 +381,7 @@ class PonteRelogio:
     def __init__(self, porta: int, token: str, ao_controle, ao_comando, ao_quadro=None,
                  host: str = "0.0.0.0", ao_fala_fim=None, voz: bool = False, voz_pc: bool = False,
                  agentes=None, abre_claude: bool = False, ao_historico=None, ao_retomar=None,
-                 ao_raciocinio=None):
+                 ao_raciocinio=None, ao_dizer=None):
         self.porta = int(porta)
         self.host = host
         self._token = token.strip().lower().encode()
@@ -395,6 +395,7 @@ class PonteRelogio:
         self._abre_claude = abre_claude       # falar numa instância sem sessão abre uma (o daemon)
         self._ao_historico = ao_historico     # agente → {"agente", "sessoes", "erro"}
         self._ao_raciocinio = ao_raciocinio   # agente → troca o nível de raciocínio dele
+        self._ao_dizer = ao_dizer             # texto → a voz do orbe fala (as instruções da calibração)
         self._ao_retomar = ao_retomar         # (agente, vaga, id): a sessão escolhida no histórico
         self._agente = ""             # o do orbe em tela no relógio ("agente <id>")
         self._orbe = ("", "")         # a skin e a cor dele ("orbe <skin> <#cor>"; "" = a do tema)
@@ -823,6 +824,8 @@ class PonteRelogio:
             self._historico(ws)
         elif linha == "raciocinio" and self._ao_raciocinio is not None:
             threading.Thread(target=self._ao_raciocinio, args=(self._agente,), name="raciocinio", daemon=True).start()
+        elif linha.startswith("dizer ") and self._ao_dizer is not None:
+            threading.Thread(target=self._ao_dizer, args=(linha[6:200],), name="dizer", daemon=True).start()
 
     def _historico(self, ws):
         """Lista fora do laço (um agente ACP pode subir para isso) e responde só a quem pediu."""

@@ -1967,7 +1967,7 @@ class Daemon:
                 ao_quadro=self._relogio_quadro if rc["microfone"] else None,
                 voz=True, voz_pc=True, agentes=agentes, abre_claude=True,
                 ao_historico=self._historico, ao_retomar=self._retomar,
-                ao_raciocinio=self._raciocinio)
+                ao_raciocinio=self._raciocinio, ao_dizer=self._speak)
             if ponte.iniciar():
                 _RELOGIO = ponte
         except Exception as e:
