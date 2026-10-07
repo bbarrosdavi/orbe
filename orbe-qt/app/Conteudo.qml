@@ -334,12 +334,28 @@ Item {
             Pagina {
                 Grupo {
                     titulo: "Transcrição"
-                    descricao: "Groq Whisper"
+                    LinhaCombo {
+                        id: rSttProv
+                        titulo: "Provedor"
+                        itens: [{ id: "", nome: "Automático (Groq, senão Gemini)" }, { id: "groq", nome: "Groq (Whisper)" },
+                                { id: "gemini", nome: "Gemini" }, { id: "compat", nome: "Compatível com OpenAI" }]
+                    }
                     LinhaCombo {
                         id: rStt
-                        titulo: "Modelo"
+                        titulo: "Modelo do Groq"
                         itens: [{ id: "whisper-large-v3-turbo", nome: "whisper-large-v3-turbo" },
                                 { id: "whisper-large-v3", nome: "whisper-large-v3" }]
+                        visible: rSttProv.efetivo === "" || rSttProv.efetivo === "groq"
+                    }
+                    LinhaEntrada {
+                        id: rSttUrl
+                        titulo: "URL base (ex.: https://api.openai.com/v1)"
+                        visible: rSttProv.efetivo === "compat"
+                    }
+                    LinhaEntrada {
+                        id: rSttModelo
+                        titulo: "Modelo (vazio = whisper-1)"
+                        visible: rSttProv.efetivo === "compat"
                     }
                     LinhaEntrada {
                         id: rIdioma
@@ -353,7 +369,30 @@ Item {
                         titulo: "Provedor"
                         itens: [{ id: "", nome: "O do perfil jarvis (" + ponte.ttsPerfil + ")" },
                                 { id: "gemini", nome: "Gemini" }, { id: "xai", nome: "xAI" },
-                                { id: "elevenlabs", nome: "ElevenLabs" }, { id: "piper", nome: "Piper (local)" }]
+                                { id: "elevenlabs", nome: "ElevenLabs" }, { id: "piper", nome: "Piper (local)" },
+                                { id: "compat", nome: "Compatível com OpenAI" }]
+                    }
+                    LinhaEntrada {
+                        id: rTtsUrl
+                        titulo: "URL base (ex.: https://api.openai.com/v1)"
+                        visible: raiz.ttsEfetivo === "compat"
+                    }
+                    LinhaEntrada {
+                        id: rTtsModelo
+                        titulo: "Modelo (vazio = tts-1)"
+                        visible: raiz.ttsEfetivo === "compat"
+                    }
+                    LinhaEntrada {
+                        id: rTtsVoz
+                        titulo: "Voz (vazio = alloy)"
+                        visible: raiz.ttsEfetivo === "compat"
+                    }
+                    LinhaSpin {
+                        id: rTtsTaxa
+                        titulo: "Taxa do PCM devolvido (Hz)"
+                        subtitulo: "24000 na OpenAI e no Kokoro"
+                        de: 8000; ate: 48000; passo: 1000
+                        visible: raiz.ttsEfetivo === "compat"
                     }
                     LinhaCombo {
                         id: rGvoz
@@ -1281,13 +1320,20 @@ Item {
             lm.valor = (a.modos || {})[lm.agente] || "terminal"
         }
 
+        rSttProv.valor = v.stt_provedor || ""
         rStt.valor = v.stt_modelo
+        rSttUrl.texto = v.stt_compat_url || ""
+        rSttModelo.texto = v.stt_compat_modelo || ""
         rIdioma.texto = v.stt_idioma
         rTts.valor = v.tts_provedor
         rGvoz.valor = v.gemini_voz
         rXvoz.texto = v.xai_voz
         rEvoz.texto = v.elevenlabs_voz
         rPvoz.valor = v.piper_voz
+        rTtsUrl.texto = v.tts_compat_url || ""
+        rTtsModelo.texto = v.tts_compat_modelo || ""
+        rTtsVoz.texto = v.tts_compat_voz || ""
+        rTtsTaxa.valor = v.tts_compat_taxa || 24000
         vozesOrbes = v.orbes || {}
 
         rBarge.ligado = !!cv.barge_in
@@ -1357,13 +1403,20 @@ Item {
         a.modos = Object.assign({}, a.modos || {})
         for (var m = 0; m < rModos.count; m++)
             a.modos[rModos.itemAt(m).agente] = rModos.itemAt(m).efetivo
+        v.stt_provedor = rSttProv.efetivo
         v.stt_modelo = rStt.efetivo
+        v.stt_compat_url = rSttUrl.texto.trim()
+        v.stt_compat_modelo = rSttModelo.texto.trim()
         v.stt_idioma = rIdioma.texto.trim() || "pt"
         v.tts_provedor = rTts.efetivo
         v.gemini_voz = rGvoz.efetivo
         v.xai_voz = rXvoz.texto.trim()
         v.elevenlabs_voz = rEvoz.texto.trim()
         v.piper_voz = rPvoz.efetivo
+        v.tts_compat_url = rTtsUrl.texto.trim()
+        v.tts_compat_modelo = rTtsModelo.texto.trim()
+        v.tts_compat_voz = rTtsVoz.texto.trim()
+        v.tts_compat_taxa = Math.round(rTtsTaxa.valor)
         v.orbes = coletarVozesOrbes()
         cv.barge_in = rBarge.ligado
         cv.barge_quadros = Math.round(rBq.valor)

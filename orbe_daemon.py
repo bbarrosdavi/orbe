@@ -431,9 +431,11 @@ _ACK_NORMS = frozenset(_normalize_utterance(p) for p in ACK_PHRASES)
 
 
 def _stt_provedor() -> str:
-    """groq | gemini: o do app, ou o que tiver chave (Groq primeiro)."""
+    """groq | gemini | compat: o do app, ou o que tiver chave (Groq primeiro)."""
     p = STT_PROVEDOR
     if p in ("groq", "gemini"):
+        return p
+    if p == "compat" and STT_COMPAT_URL:
         return p
     if GROQ_API_KEY:
         return "groq"
@@ -490,10 +492,43 @@ def transcribe_gemini(wav_path: str) -> str:
         return ""
 
 
+# o nome de cada provedor de transcrição no log
+NOMES_STT = {"groq": "Groq", "gemini": "Gemini", "compat": "a API compatível com OpenAI"}
+
+
+def transcribe_compat(wav_path: str) -> str:
+    """Mesmo contrato do transcribe_groq, por qualquer API no formato da OpenAI
+    (POST <url>/audio/transcriptions): a da OpenAI, outro serviço ou um servidor
+    local (whisper.cpp, faster-whisper-server, LocalAI). A chave é opcional."""
+    try:
+        import requests
+        chave = os.environ.get("STT_COMPAT_API_KEY", "").strip()
+        with open(wav_path, "rb") as f:
+            resp = requests.post(
+                f"{STT_COMPAT_URL}/audio/transcriptions",
+                headers={"Authorization": f"Bearer {chave}"} if chave else {},
+                files={"file": ("fala.wav", f, "audio/wav")},
+                data={"model": STT_COMPAT_MODELO or "whisper-1", "language": STT_IDIOMA,
+                      "response_format": "json", "temperature": 0.0},
+                timeout=30,
+            )
+        resp.raise_for_status()
+        text = str(resp.json().get("text", "")).strip()
+        if _is_whisper_phantom(text):
+            LOG.info("STT descartado (fantasma): %r", text)
+            return ""
+        return text
+    except Exception as e:
+        LOG.error("STT compatível com OpenAI (%s): %s", STT_COMPAT_URL, e)
+        return ""
+
+
 def transcribe_groq(wav_path: str) -> str:
     """Envia WAV para Groq Whisper API, retorna texto transcrito."""
     if _stt_provedor() == "gemini":
         return transcribe_gemini(wav_path)
+    if _stt_provedor() == "compat":
+        return transcribe_compat(wav_path)
     if not GROQ_API_KEY:
         LOG.error("GROQ_API_KEY não definida")
         return ""
@@ -1354,6 +1389,7 @@ def _aplicar_config():
     global INTERRUPT_SPEECH_FRAMES, INTERRUPT_MIN_RMS, RECORD_MAX_SEC
     global SESSION_IDLE_SEC, TOQUE_SEGURAR_SEC, RECORD_MAX_TOQUE_SEC
     global GROQ_MODEL, STT_IDIOMA, DEBUG_LEVELS, STT_PROVEDOR, STT_GEMINI_MODELO
+    global STT_COMPAT_URL, STT_COMPAT_MODELO
     c, t, v = VCFG["conversa"], VCFG["toque"], VCFG["voz"]
     SILENCE_TIMEOUT = float(c["silencio_fim_s"])
     MIN_SPEECH_RMS = int(c["fala_rms"])
@@ -1371,6 +1407,8 @@ def _aplicar_config():
     STT_IDIOMA = str(v["stt_idioma"]) or "pt"
     STT_PROVEDOR = str(v.get("stt_provedor") or "")
     STT_GEMINI_MODELO = str(v.get("stt_gemini_modelo") or "gemini-flash-lite-latest")
+    STT_COMPAT_URL = str(v.get("stt_compat_url") or "").strip().rstrip("/")
+    STT_COMPAT_MODELO = str(v.get("stt_compat_modelo") or "").strip()
     DEBUG_LEVELS = DEBUG_LEVELS or bool(VCFG["diagnostico"]["rastro_niveis"])
 
 
@@ -1378,6 +1416,8 @@ BARGE_IN = True
 STT_IDIOMA = "pt"
 STT_PROVEDOR = ""
 STT_GEMINI_MODELO = "gemini-flash-lite-latest"
+STT_COMPAT_URL = ""
+STT_COMPAT_MODELO = ""
 _aplicar_config()
 
 
@@ -1451,6 +1491,8 @@ class Daemon:
 
         if _stt_provedor() == "gemini":
             LOG.info("STT: Gemini (%s)", STT_GEMINI_MODELO)
+        elif _stt_provedor() == "compat":
+            LOG.info("STT: compatível com OpenAI (%s, %s)", STT_COMPAT_URL, STT_COMPAT_MODELO or "whisper-1")
         elif not GROQ_API_KEY:
             LOG.warning("GROQ_API_KEY não definida! STT via Groq não funcionará.")
 
@@ -3628,7 +3670,7 @@ class Daemon:
                 orb_cmd("state listening")
             return
 
-        stt = "Gemini" if _stt_provedor() == "gemini" else "Groq"
+        stt = NOMES_STT.get(_stt_provedor(), "Groq")
         LOG.info("Enviando para %s...", stt)
         t0 = time.time()
         text = transcribe_groq(wav_path)

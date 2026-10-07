@@ -116,13 +116,19 @@ def _jarvis_tts() -> dict:
             out["elevenlabs_voice"] = str(v["elevenlabs_voz"])
         if v.get("elevenlabs_modelo"):
             out["elevenlabs_model"] = str(v["elevenlabs_modelo"])
+        # compatível com OpenAI: qualquer servidor que fale o /audio/speech
+        out["compat_url"] = str(v.get("tts_compat_url") or "").strip().rstrip("/")
+        out["compat_model"] = str(v.get("tts_compat_modelo") or "").strip()
+        out["compat_voice"] = str(v.get("tts_compat_voz") or "").strip()
+        out["compat_rate"] = int(v.get("tts_compat_taxa") or RATE)
     except Exception as e:
         sys.stderr.write(f"cfg do app: {e}\n")
     return out
 
 
 # a chave da voz de cada provedor em _jarvis_tts
-_CHAVE_VOZ = {"gemini": "gemini_voice", "xai": "xai_voice", "piper": "piper_voice", "elevenlabs": "elevenlabs_voice"}
+_CHAVE_VOZ = {"gemini": "gemini_voice", "xai": "xai_voice", "piper": "piper_voice", "elevenlabs": "elevenlabs_voice",
+              "compat": "compat_voice"}
 
 
 def _voz_do_orbe(cfg: dict, skin: str) -> dict:
@@ -398,6 +404,64 @@ class Worker:
                 sys.stderr.write(f"ack cache fill {_ack_path(phrase).name} {len(r.content)}b\n")
             except Exception as e:
                 sys.stderr.write(f"ack cache fill {phrase!r}: {e}\n")
+
+    def compat(self, text: str, cfg: dict) -> bool:
+        """Qualquer API de voz no formato da OpenAI (POST <url>/audio/speech): a
+        da OpenAI, outro serviço ou um servidor local (Kokoro, LocalAI...). Pede
+        PCM de 16 bits mono, na taxa dos ajustes, e toca enquanto chega. A chave
+        (TTS_COMPAT_API_KEY) é opcional."""
+        import requests
+        url = cfg.get("compat_url") or ""
+        if not url:
+            sys.stderr.write("compat: sem a URL base nos ajustes\n")
+            return False
+        chave = os.environ.get("TTS_COMPAT_API_KEY", "").strip()
+        taxa = int(cfg.get("compat_rate") or RATE)
+        t0 = time.time()
+        r = requests.post(
+            f"{url}/audio/speech",
+            headers={"Authorization": f"Bearer {chave}"} if chave else {},
+            json={"model": cfg.get("compat_model") or "tts-1", "input": text,
+                  "voice": cfg.get("compat_voice") or "alloy", "response_format": "pcm"},
+            timeout=30, stream=True,
+        )
+        if r.status_code != 200:
+            sys.stderr.write(f"compat http {r.status_code} {r.text[:200]}\n")
+            return False
+        play = None
+        resto = b""
+        n = 0
+        try:
+            for bloco in r.iter_content(chunk_size=4800):
+                if self.cancel.is_set():
+                    self._kill_play()
+                    return True
+                if not bloco:
+                    continue
+                # amostras de 16 bits: um byte solto espera o próximo bloco
+                bloco = resto + bloco
+                corte = len(bloco) - len(bloco) % 2
+                bloco, resto = bloco[:corte], bloco[corte:]
+                if not bloco:
+                    continue
+                if play is None:
+                    play = self._open_play(taxa)
+                    sys.stderr.write(f"compat ttfa {time.time() - t0:.2f}s voz={cfg.get('compat_voice')}\n")
+                if not self._feed(play, bloco):
+                    return True
+                n += 1
+        finally:
+            if play and play.stdin:
+                try:
+                    play.stdin.close()
+                except OSError:
+                    pass
+            if play:
+                try:
+                    play.wait(timeout=8)
+                except Exception:
+                    pass
+        return n > 0
 
     def gemini(self, text: str, model: str, voice: str) -> bool:
         import requests
@@ -816,6 +880,8 @@ class Worker:
                 ok = self.piper(text, cfg.get("piper_voice") or PIPER_MODEL)
             elif provider == "elevenlabs":
                 ok = self.elevenlabs(text, cfg["elevenlabs_voice"], cfg["elevenlabs_model"])
+            elif provider == "compat":
+                ok = self.compat(text, cfg)
             else:
                 sys.stderr.write(f"provider {provider} não suportado no orb, tentando xai\n")
                 ok = self.xai(text, cfg["xai_voice"], cfg["xai_language"])

@@ -28,6 +28,8 @@ CHAVES = (
     ("ELEVENLABS_API_KEY", "ElevenLabs: voz"),
     ("GEMINI_API_KEY", "Gemini: voz"),
     ("XAI_API_KEY", "xAI: voz (sem o login do Hermes)"),
+    ("STT_COMPAT_API_KEY", "Transcrição compatível com OpenAI (vazia em servidor local sem chave)"),
+    ("TTS_COMPAT_API_KEY", "Voz compatível com OpenAI (vazia em servidor local sem chave)"),
 )
 
 # Modelos e dados (ativação, vozes do Piper, VAD, locutor): ORBE_DADOS, senão
@@ -181,8 +183,12 @@ DEFAULTS = {
         "atalho": "Ctrl+Alt+O" if MAC else "Mod+A",
     },
     "voz": {
-        # groq | gemini | "" (Groq se houver GROQ_API_KEY, senão Gemini)
+        # groq | gemini | compat | "" (Groq se houver GROQ_API_KEY, senão Gemini)
         "stt_provedor": "",
+        # compat: qualquer API no formato da OpenAI (/audio/transcriptions): a
+        # URL base (https://api.openai.com/v1, um servidor local...) e o modelo
+        "stt_compat_url": "",
+        "stt_compat_modelo": "",
         "stt_modelo": "whisper-large-v3-turbo",
         "stt_gemini_modelo": "gemini-flash-lite-latest",
         "stt_idioma": "pt",
@@ -195,6 +201,12 @@ DEFAULTS = {
         # é a ELEVENLABS_API_KEY (chaves.env do orbe, senão o .env do Hermes)
         "elevenlabs_voz": "",
         "elevenlabs_modelo": "eleven_flash_v2_5",
+        # compat: qualquer API no formato da OpenAI (/audio/speech, PCM de 16 bits
+        # mono): a URL base, o modelo, a voz e a taxa do PCM que ela devolve
+        "tts_compat_url": "",
+        "tts_compat_modelo": "",
+        "tts_compat_voz": "",
+        "tts_compat_taxa": 24000,
         # a voz de cada orbe, por provedor ({"gemini": {"olho": "Charon"}});
         # sem uma, o orbe fala com a voz de cima
         "orbes": {},
