@@ -26,7 +26,7 @@ HERMES_ENV = Path.home() / ".hermes" / ".env"
 CHAVES = (
     ("GROQ_API_KEY", "Groq: transcrição (Whisper)"),
     ("ELEVENLABS_API_KEY", "ElevenLabs: voz"),
-    ("GEMINI_API_KEY", "Gemini: voz"),
+    ("GEMINI_API_KEY", "Gemini: voz e transcrição"),
     ("XAI_API_KEY", "xAI: voz (sem o login do Hermes)"),
     ("STT_COMPAT_API_KEY", "Transcrição compatível com OpenAI (vazia em servidor local sem chave)"),
     ("TTS_COMPAT_API_KEY", "Voz compatível com OpenAI (vazia em servidor local sem chave)"),

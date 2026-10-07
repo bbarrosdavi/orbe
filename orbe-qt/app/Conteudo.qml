@@ -347,6 +347,17 @@ Item {
                                 { id: "whisper-large-v3", nome: "whisper-large-v3" }]
                         visible: rSttProv.efetivo === "" || rSttProv.efetivo === "groq"
                     }
+                    LinhaChave {
+                        // a chave aparece junto do provedor; na voz, se ela também for o Gemini
+                        id: rSttChaveG
+                        titulo: "Chave do Gemini (vale para voz e transcrição)"
+                        herda: raiz.chaveInfo("GEMINI_API_KEY").herda || ""
+                        visible: rSttProv.efetivo === "gemini" && raiz.ttsEfetivo !== "gemini"
+                        onVisibleChanged: if (visible) texto = raiz.chaveTexto("GEMINI_API_KEY")
+                        onTextoChanged: raiz.definirChave("GEMINI_API_KEY", texto)
+                        // já visível ao abrir: o valor vem depois que o grupo das chaves existir
+                        Component.onCompleted: Qt.callLater(function () { if (visible) texto = raiz.chaveTexto("GEMINI_API_KEY") })
+                    }
                     LinhaEntrada {
                         id: rSttUrl
                         titulo: "URL base (ex.: https://api.openai.com/v1)"
@@ -393,6 +404,16 @@ Item {
                         subtitulo: "24000 na OpenAI e no Kokoro"
                         de: 8000; ate: 48000; passo: 1000
                         visible: raiz.ttsEfetivo === "compat"
+                    }
+                    LinhaChave {
+                        id: rTtsChaveG
+                        titulo: "Chave do Gemini (vale para voz e transcrição)"
+                        herda: raiz.chaveInfo("GEMINI_API_KEY").herda || ""
+                        visible: raiz.ttsEfetivo === "gemini"
+                        onVisibleChanged: if (visible) texto = raiz.chaveTexto("GEMINI_API_KEY")
+                        onTextoChanged: raiz.definirChave("GEMINI_API_KEY", texto)
+                        // já visível ao abrir: o valor vem depois que o grupo das chaves existir
+                        Component.onCompleted: Qt.callLater(function () { if (visible) texto = raiz.chaveTexto("GEMINI_API_KEY") })
                     }
                     LinhaCombo {
                         id: rGvoz
@@ -458,6 +479,8 @@ Item {
                             titulo: modelData.nome
                             herda: modelData.herda
                             texto: modelData.propria
+                            // a do Gemini fica junto do provedor dele (Transcrição ou Síntese)
+                            visible: modelData.id !== "GEMINI_API_KEY"
                         }
                     }
                 }
@@ -1456,6 +1479,23 @@ Item {
         for (var i = 0; i < rChaves.count; i++)
             cfg.chaves[ponte.chaves[i].id] = rChaves.itemAt(i).texto.trim()
         return cfg
+    }
+    // as chaves de ponte.chaves pelo id: a linha do grupo geral guarda o valor
+    // que vai para o chaves.env, mesmo quando o campo visível é outro
+    function chaveInfo(id) {
+        for (var i = 0; i < ponte.chaves.length; i++)
+            if (ponte.chaves[i].id === id) return ponte.chaves[i]
+        return {}
+    }
+    function chaveTexto(id) {
+        for (var i = 0; i < rChaves.count; i++)
+            if (ponte.chaves[i].id === id && rChaves.itemAt(i)) return rChaves.itemAt(i).texto
+        return ""
+    }
+    function definirChave(id, texto) {
+        for (var i = 0; i < rChaves.count; i++)
+            if (ponte.chaves[i].id === id && rChaves.itemAt(i) && rChaves.itemAt(i).texto !== texto)
+                rChaves.itemAt(i).texto = texto
     }
     function aplicar() {
         var r = ponte.aplicar(coletar(), raiz.atalho)
