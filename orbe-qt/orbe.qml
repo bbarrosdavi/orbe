@@ -38,7 +38,7 @@ ShellRoot {
         // o Seraphim desenhado saiu; quem o tinha fica com o da gravura (o
         // Shoggoth e a Entidade também saíram: Ophanim)
         var sk = o.skin === "serafim" ? "serafim_gravura" : String(o.skin || "ofanim")
-        conteudo.skin = ["ofanim", "ofanim_alado", "serafim_gravura", "olho", "humana", "anel"].indexOf(sk) >= 0 ? sk : "ofanim"
+        conteudo.skin = ["ofanim", "ofanim_alado", "serafim_gravura", "serafim_positivo", "olho", "humana", "anel"].indexOf(sk) >= 0 ? sk : "ofanim"
         conteudo.glitch = o.glitch === undefined ? true : !!o.glitch
         conteudo.vidro = !!o.vidro
         var som = parseFloat(o.sombra)

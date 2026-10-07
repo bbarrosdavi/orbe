@@ -27,9 +27,10 @@ layout(std140, binding = 0) uniform buf {
     vec2 centro;     // onde fica o ponto OLHO da imagem
     vec2 olhar;      // para onde os olhos olham
     vec4 geo;        // R (já com o desdobrar), lim, t, peso
-    vec4 img;        // gravura: abertura das asas (1 = como desenhadas), batida (fração da dobra), escala extra, —
+    vec4 img;        // gravura: base das asas do meio, cotovelo delas, escala extra, base das de cima (rad)
                      // olho: giro da coroa de raios, —, escala extra, pupila (1 = como desenhada)
     vec4 img2;       // olho: —, quanto encara (0 = como desenhado), quanto as pálpebras fecham (0 a 1), —
+                     // gravura: joelho das asas de cima, joelho das de baixo, base das de baixo, — (rad)
     // as juntas das peças: na Humana, mi = (base, joelho, tornozelo, —) do membro i
     // e m(NL+b).x o giro do corpo b; no Olho, mi = (raiz, meio, quanto estica, —) do raio i
     vec4 m0;
@@ -109,11 +110,18 @@ const float RIMG = 222.0;                // R da figura, em px da imagem
 // com 6 px de folga para o filtro: fora da caixa a leitura dá zero e a camada
 // não muda o pixel
 const vec4 CAIXA[7] = vec4[7](
-    vec4(-6.0, -5.0, 197.0, 206.0), vec4(196.0, -5.0, 392.0, 206.0),
-    vec4(-6.0, 90.0, 151.0, 449.0), vec4(240.0, 119.0, 388.0, 396.0),
-    vec4(58.0, 231.0, 197.0, 441.0), vec4(196.0, 230.0, 317.0, 446.0),
+    vec4(-6.0, -5.0, 197.0, 208.0), vec4(194.0, -5.0, 392.0, 207.0),
+    vec4(-6.0, 90.0, 147.0, 449.0), vec4(244.0, 119.0, 388.0, 396.0),
+    vec4(58.0, 231.0, 197.0, 441.0), vec4(194.0, 230.0, 317.0, 446.0),
     vec4(99.0, 48.0, 291.0, 401.0));
 #endif
+// As articulações (em px da imagem, centro do texel i em i). Asas do meio: a
+// base (raiz, junto do olho do centro) e o cotovelo (a ponta de cima, onde
+// estão dobradas); o peso do cotovelo de cada pixel (0 no contorno em C e no
+// sovaco, 1 longe deles) está gravado no B do atlas. Asas de cima e de baixo:
+// a base e o joelho (o olho delas), uma dobradiça perpendicular ao eixo
+// raiz-joelho com o olho rígido. Nas bases, o giro cresce a partir da raiz
+// (leque), para a junção não abrir fresta.
 #endif
 
 #if IMG == 2
@@ -273,11 +281,76 @@ vec4 celula(float cel, vec2 q) {
     return v * step(0.0, q.x) * step(0.0, q.y) * step(q.x, TAM.x) * step(q.y, TAM.y);
 }
 
-// asa girada de ang em volta da raiz, com o olho dela seguindo o olhar
-void asa(float cel, vec2 q, vec2 raiz, float ang, vec2 olho, vec2 raio, vec2 desl) {
-    vec2 ql = raiz + girar(q - raiz, -ang);
-    camada(cel, iris(ql, olho, raio, desl));
+#if IMG == 1
+// a mesma camada, só onde m (sempre lida, pelas derivadas do ler())
+void camadaM(float cel, vec2 q, float m) {
+#ifdef RELOGIO
+    vec4 cx = CAIXA[int(cel)];
+    if (m <= 0.0 || q.x < cx.x || q.y < cx.y || q.x > cx.z || q.y > cx.w) return;
+#endif
+    vec2 qc = clamp(q, vec2(0.5), TAM - 0.5);
+    vec2 rg = ler((qc + vec2(cel * CELULA, 0.0)) / ATLAS, 1.0).rg * m;
+    rg *= step(0.0, q.x) * step(0.0, q.y) * step(q.x, TAM.x) * step(q.y, TAM.y);
+    accB = rg.r + accB * (1.0 - rg.g);
+    accA = rg.g + accA * (1.0 - rg.g);
 }
+
+float suave01(float t) {
+    t = clamp(t, 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+// o peso do cotovelo gravado no B da célula, no ponto p da imagem
+float pesoCotovelo(float cel, vec2 p) {
+    vec2 qc = clamp(p + 0.5, vec2(0.5), TAM - 0.5);
+    return textureLod(arte, (qc + vec2(cel * CELULA, 0.0)) / ATLAS, 0.0).b;
+}
+
+// asa do meio: o ponto de repouso que, girado na base (leque a partir da raiz
+// r) e no cotovelo e (peso do atlas), cai em p. Ponto fixo amortecido, 10
+// passos (o protótipo aprovado; sem amortecer, oscila)
+vec2 repousoMeio(vec2 p, vec2 r, vec2 e, float lado, float cel, float base, float cot) {
+    vec2 s = p;
+    for (int k = 0; k < 10; k++) {
+        float wb = suave01((length(s - r) - 25.0) / 35.0);
+        vec2 qb = r + girar(p - r, -base * lado * wb);
+        vec2 n = e + girar(qb - e, -cot * lado * pesoCotovelo(cel, s));
+        s += 0.7 * (n - s);
+    }
+    return s;
+}
+
+// asa de cima ou de baixo: base em leque a partir da raiz r e dobradiça no
+// joelho j (o olho, rígido)
+vec2 repousoVert(vec2 p, vec2 r, vec2 j, float sent, float base, float joe) {
+    vec2 u = normalize(j - r);
+    vec2 s = p;
+    for (int k = 0; k < 10; k++) {
+        float wb = suave01((length(s - r) - 20.0) / 30.0);
+        vec2 qb = r + girar(p - r, -base * sent * wb);
+        float w = suave01(dot(s - j, u) / 30.0) * clamp((length(s - j) - 8.0) / 7.0, 0.0, 1.0);
+        vec2 n = j + girar(qb - j, -joe * sent * w);
+        s += 0.7 * (n - s);
+    }
+    return s;
+}
+
+// o espinho da estrela que cruza a asa do meio (yc, x da ponta fina, x junto
+// da estrela): meia altura em x
+float meiaEspinho(float x, vec3 E) {
+    float f = clamp((x - E.y) / (E.z - E.y), 0.0, 1.0);
+    return f > 0.0 ? 0.8 + 2.2 * f : 0.0;
+}
+
+// o espinho fica parado: onde a leitura da asa em movimento cai nele, espelha
+// para a hachura vizinha
+vec2 espelhaEspinho(vec2 s, vec3 E) {
+    float hw = meiaEspinho(s.x, E);
+    float d = s.y - E.x;
+    float novo = E.x + (d >= -1e-6 ? 1.0 : -1.0) * (2.0 * hw - abs(d));
+    return vec2(s.x, abs(d) < hw ? novo : s.y);
+}
+#endif
 
 #if IMG >= 2
 // o gradiente do recorte por pixel, tirado uma vez fora dos desvios (as peças
@@ -424,17 +497,27 @@ void main() {
     // direção do olhar, saturada: longe, a íris vai até a borda
     vec2 g = olhar - centro;
     vec2 dg = g / (length(g) + geo.x * 0.6);
-    float dobra = 1.0 - img.x + img.y;    // fração da dobra aplicada a cada asa
-
 #if IMG == 1
-    // de trás para a frente: asas do meio, de cima, de baixo; o núcleo por cima
-    // (as raízes das asas passam por baixo da estrela)
-    asa(2.0, q, vec2(145.0, 214.0), -0.25 * dobra, vec2(74.0, 151.0), vec2(11.0, 6.0), dg * vec2(3.0, 0.8));
-    asa(3.0, q, vec2(246.0, 214.0), 0.25 * dobra, vec2(308.0, 150.0), vec2(11.0, 6.0), dg * vec2(3.0, 0.8));
-    asa(0.0, q, vec2(175.0, 184.0), 0.35 * dobra, vec2(162.0, 118.0), vec2(9.0, 9.0), dg * 3.0);
-    asa(1.0, q, vec2(216.0, 184.0), -0.35 * dobra, vec2(219.0, 117.0), vec2(9.0, 9.0), dg * 3.0);
-    asa(4.0, q, vec2(175.0, 254.0), -0.35 * dobra, vec2(157.0, 313.0), vec2(8.0, 9.0), dg * 2.5);
-    asa(5.0, q, vec2(216.0, 254.0), 0.35 * dobra, vec2(225.0, 313.0), vec2(8.0, 9.0), dg * 2.5);
+    // de trás para a frente: as asas de cima, as do meio (na frente delas: o
+    // contorno em C é das do meio), as de baixo; o núcleo por cima. p: o
+    // ponto no espaço do texel (o centro do texel i em i)
+    vec2 pp = q - 0.5;
+    vec2 s0 = repousoVert(pp, vec2(175.0, 184.0), vec2(162.0, 118.0), 1.0, img.w, img2.x) + 0.5;
+    camada(0.0, iris(s0, vec2(162.0, 118.0), vec2(9.0, 9.0), dg * 3.0));
+    vec2 s1 = repousoVert(pp, vec2(216.0, 184.0), vec2(219.0, 117.0), -1.0, img.w, img2.x) + 0.5;
+    camada(1.0, iris(s1, vec2(219.0, 117.0), vec2(9.0, 9.0), dg * 3.0));
+    const vec3 ESP_E = vec3(220.3, 25.0, 100.0);
+    const vec3 ESP_D = vec3(220.3, 367.0, 292.0);
+    vec2 s2 = espelhaEspinho(repousoMeio(pp, vec2(145.0, 214.0), vec2(110.0, 124.0), 1.0, 2.0, img.x, img.y), ESP_E) + 0.5;
+    camada(2.0, iris(s2, vec2(74.0, 151.0), vec2(11.0, 6.0), dg * vec2(3.0, 0.8)));
+    camadaM(2.0, q, step(abs(pp.y - ESP_E.x), meiaEspinho(pp.x, ESP_E) - 1e-6));
+    vec2 s3 = espelhaEspinho(repousoMeio(pp, vec2(246.0, 214.0), vec2(279.0, 128.0), -1.0, 3.0, img.x, img.y), ESP_D) + 0.5;
+    camada(3.0, iris(s3, vec2(308.0, 150.0), vec2(11.0, 6.0), dg * vec2(3.0, 0.8)));
+    camadaM(3.0, q, step(abs(pp.y - ESP_D.x), meiaEspinho(pp.x, ESP_D) - 1e-6));
+    vec2 s4 = repousoVert(pp, vec2(175.0, 254.0), vec2(157.0, 313.0), -1.0, img2.z, img2.y) + 0.5;
+    camada(4.0, iris(s4, vec2(157.0, 313.0), vec2(8.0, 9.0), dg * 2.5));
+    vec2 s5 = repousoVert(pp, vec2(216.0, 254.0), vec2(225.0, 313.0), 1.0, img2.z, img2.y) + 0.5;
+    camada(5.0, iris(s5, vec2(225.0, 313.0), vec2(8.0, 9.0), dg * 2.5));
     camada(6.0, iris(q, vec2(192.5, 220.5), vec2(32.0, 17.5), dg * vec2(9.0, 1.5)));
 #endif
 
@@ -531,7 +614,13 @@ void main() {
 #endif
 #endif
 
+#ifdef POSITIVO
+    // positivo (as cores da gravura): o papel sai como traço claro e a tinta
+    // como a massa escura por baixo
+    float A = clamp(accA - accB, 0.0, 1.0);
+#else
     float A = min(accB, accA);
+#endif
     float E = accA > A ? min((accA - A) / max(1.0 - A, 1e-4), 1.0) : 0.0;
     fragColor = vec4(A, E, 0.0, max(A, E)) * qt_Opacity;
 }

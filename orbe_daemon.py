@@ -1871,7 +1871,7 @@ class Daemon:
 
     # os nomes dos orbes, para a demonstração falar quem é quem
     NOMES_ORBE = {"anel": "anel", "ofanim": "Ophanim", "ofanim_alado": "Ophanim com asas",
-                  "serafim_gravura": "Seraphim", "olho": "Paranoia", "humana": "Rei dos Ratos"}
+                  "serafim_gravura": "Seraphim", "serafim_positivo": "Seraphim positivo", "olho": "Paranoia", "humana": "Rei dos Ratos"}
 
     def _demo_paralelo(self):
         """Só para ver a concorrência dos orbes em paralelo (comando

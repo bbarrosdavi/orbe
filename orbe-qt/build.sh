@@ -18,6 +18,8 @@ done
 for s in 1:serafim_gravura 2:olho 3:humana; do
     "$QSB" $ALVOS -DIMG="${s%%:*}" -o "figura_${s#*:}.frag.qsb" imagem.frag
 done
+# o Seraphim em positivo (as cores da gravura): o mesmo atlas, outra saída
+"$QSB" $ALVOS -DIMG=1 -DPOSITIVO -o figura_serafim_positivo.frag.qsb imagem.frag
 for f in pos anel nuvem; do
     [ -f "$f.frag" ] && "$QSB" $ALVOS -o "$f.frag.qsb" "$f.frag"
 done

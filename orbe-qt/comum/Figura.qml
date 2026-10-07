@@ -15,8 +15,11 @@ import QtQuick
 // falando, ondas a cada sílaba; ao despertar, as rodas desdobram de um ponto.
 // Skins de imagem (imagem.frag): a ilustração recortada em camadas num atlas
 // (arte/<skin>.png); as asas giram em volta da raiz e as íris seguem o olhar.
-// Seraphim (gravura): parado, meio recolhido; ouvindo, aberto como desenhado;
-// pensando, as asas batem; falando, tremulam com a voz.
+// Seraphim (gravura, em negativo ou positivo): as asas do meio abrem no
+// cotovelo enquanto as de cima fecham no joelho e as de baixo abrem, e depois
+// o contrário, com as bases batendo junto. Parado, meio recolhido e lento;
+// ouvindo, aberto e respirando; pensando, fundo e mais rápido; ferramentas,
+// acelerado; falando, segue a voz.
 // Olho e Humana (peças recortadas, como num Live2D; ver imagem.frag): cada
 // membro e cada raio é uma cadeia de juntas com molas, e a junta de fora
 // recebe o contrário da velocidade da de dentro, o que dá o chicote dos
@@ -31,7 +34,9 @@ import QtQuick
 Item {
     id: raiz
 
-    property string skin: "ofanim"         // ofanim | ofanim_alado | serafim_gravura | olho | humana
+    property string skin: "ofanim"         // ofanim | ofanim_alado | serafim_gravura | serafim_positivo | olho | humana
+    // o Seraphim, em negativo (como o orbe sempre mostrou) ou positivo (as cores da gravura)
+    readonly property bool gravura: skin === "serafim_gravura" || skin === "serafim_positivo"
     property bool glitch: true
     // a força da aberração do glitch (0 a 1): na troca do principal ela cresce
     // no que chega e some no que sai, sem salto de brilho
@@ -61,11 +66,12 @@ Item {
         ofanim: [1.55, 1.55, 1.25],
         ofanim_alado: [2.1, 1.55, 2.08],
         serafim_gravura: [1.15, 1.3, 1.4],
+        serafim_positivo: [1.15, 1.3, 1.4],
         olho: [1.1, 1.36, 1.36],
         humana: [1.18, 1.13, 1.27]
     })
     // skins de imagem: o atlas mora em arte/<skin>.png
-    readonly property var imagens: ({ serafim_gravura: true, olho: true, humana: true })
+    readonly property var imagens: ({ serafim_gravura: true, serafim_positivo: true, olho: true, humana: true })
     // as de peças: quantas cadeias, quantas juntas em cada e quantos corpos (imagem.frag)
     readonly property var polares: ({ olho: true, humana: true })
     readonly property var partes: ({ olho: { cadeias: 0, juntas: 0, corpos: 0 }, humana: { cadeias: 27, juntas: 3, corpos: 8 } })
@@ -128,7 +134,7 @@ Item {
             s.ultimaOnda = s.t
         }
         s.ondas = s.ondas.filter(function (o) { return s.t - o[0] < 1.3 })
-        if (skin === "serafim_gravura") evoluirGravura(dt)
+        if (gravura) evoluirGravura(dt)
         else if (skin in polares) evoluirPartes(dt)
         else {
             evoluirOfanim(dt)
@@ -173,9 +179,13 @@ Item {
         // a pose desenhada é a de ouvir; parado, as asas se recolhem
         var ab = mistura({ idle: 0.55, listening: 1.0, thinking: 0.85, tools: 0.9, speaking: 0.95 })
         s.abreAsa += (ab - s.abreAsa) * Math.min(1, dt * 3)
-        var amp = mistura({ idle: 0.06, listening: 0.0, thinking: 0.35, tools: 0.22, speaking: 0.12 }) + 0.3 * falar
+        // o ciclo das articulações (as do meio abrem enquanto as de cima fecham
+        // e as de baixo abrem; depois o contrário): amplitude e ritmo por estado.
+        // Ouvindo (o live) respira devagar, pensando vai mais fundo e mais
+        // rápido, nas ferramentas acelera, falando segue a voz
+        var amp = mistura({ idle: 0.45, listening: 0.7, thinking: 1.0, tools: 0.8, speaking: 0.75 }) + 0.25 * falar
         s.ampAsa += (amp - s.ampAsa) * Math.min(1, dt * 3)
-        s.faseAsa += dt * tau * (mistura({ idle: 0.2, listening: 0.1, thinking: 0.9, tools: 1.6, speaking: 0.6 }) + 0.8 * falar)
+        s.faseAsa += dt * tau * (mistura({ idle: 0.10, listening: 0.18, thinking: 0.35, tools: 0.6, speaking: 0.28 }) + 0.25 * falar)
     }
 
     function estadoPartes() {
@@ -379,7 +389,7 @@ if (skin in polares) {
                     }
                 }
             }
-        } else if (skin === "serafim_gravura") {
+        } else if (gravura) {
             var dG = suave(desperto)
             R = Rb * (0.3 + 0.7 * dG)
             gaze = olharAlvo ? [olharAlvo.x, olharAlvo.y] : vagar(cx, cy, R)
@@ -390,9 +400,24 @@ if (skin in polares) {
             }
             if (repouso) {
                 gaze = [cx, cy]
-                fx.img = v4(1, 0, 0, 0)
+                fx.img = zero4
+                fx.img2 = zero4
             } else {
-                fx.img = v4(s.abreAsa * dG, s.ampAsa * Math.sin(s.faseAsa), 0.025 * falar, 0)
+                // f: 0 com as do meio recolhidas, 1 abertas. As de cima fecham
+                // quando elas abrem, as de baixo fecham quando elas recolhem.
+                // dobra: o recolher do estado (parado, meio recolhido) e do
+                // despertar, nas bases (ver imagem.frag)
+                var fA = 0.5 * (1 - Math.cos(s.faseAsa))
+                var aA = s.ampAsa * dG
+                var dobra = 1 - s.abreAsa * dG
+                var grau = Math.PI / 180
+                fx.img = v4(5 * grau * (2 * fA - 1) * aA - 0.25 * dobra,   // base das do meio
+                            24 * grau * fA * aA,                           // cotovelo das do meio
+                            0.025 * falar,                                 // escala extra
+                            -7 * grau * fA * aA + 0.35 * dobra)            // base das de cima
+                fx.img2 = v4(-16 * grau * fA * aA,                         // joelho das de cima
+                             -16 * grau * (1 - fA) * aA,                   // joelho das de baixo
+                             -7 * grau * (1 - fA) * aA + 0.35 * dobra, 0)  // base das de baixo
             }
         } else {
             var d = desperto
@@ -582,7 +607,7 @@ if (skin in polares) {
     Image {
         id: arteImg
         visible: false
-        source: raiz.skin in raiz.imagens ? Qt.resolvedUrl("../arte/" + raiz.skin + ".png") : ""
+        source: raiz.skin in raiz.imagens ? Qt.resolvedUrl("../arte/" + (raiz.gravura ? "serafim_gravura" : raiz.skin) + ".png") : ""
         mipmap: true
         smooth: true
     }

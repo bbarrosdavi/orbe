@@ -530,7 +530,7 @@ Item {
                         spacing: 10
                         Repeater {
                             id: cartoes
-                            model: ["ofanim", "ofanim_alado", "serafim_gravura", "olho", "humana", "anel"]
+                            model: ["ofanim", "ofanim_alado", "serafim_gravura", "serafim_positivo", "olho", "humana", "anel"]
                             Cartao {
                                 width: (parent.width - 10) / 2
                                 skin: modelData
@@ -1008,7 +1008,7 @@ Item {
     // ── estado que outras linhas leem ──
     property string skin: "ofanim"
     // todos os orbes, e a voz de cada um por provedor (voz.orbes)
-    readonly property var skinsTodas: ["ofanim", "ofanim_alado", "serafim_gravura", "olho", "humana", "anel"]
+    readonly property var skinsTodas: ["ofanim", "ofanim_alado", "serafim_gravura", "serafim_positivo", "olho", "humana", "anel"]
     property var vozesOrbes: ({})
     function coletarVozesOrbes() {
         var m = JSON.parse(JSON.stringify(vozesOrbes || {}))
@@ -1031,7 +1031,7 @@ Item {
         onAccepted: raiz.papelRelogio = decodeURIComponent(String(selectedFile).replace(/^file:\/\//, ""))
     }
     // os orbes do relógio, na ordem da lista de lá
-    readonly property var skinsRelogio: ["anel", "serafim_gravura", "ofanim", "ofanim_alado", "olho", "humana"]
+    readonly property var skinsRelogio: ["anel", "serafim_gravura", "serafim_positivo", "ofanim", "ofanim_alado", "olho", "humana"]
     // o relógio já mandou os ajustes que só ele conhecia (os toques, a ordem, os gestos);
     // antes disso, essas linhas não aparecem e nada delas vai para lá
     property bool relogioConhecido: false
@@ -1298,7 +1298,7 @@ Item {
         // o Seraphim desenhado saiu; quem o tinha fica com o da gravura (o
         // Shoggoth e a Entidade também saíram: Ophanim)
         var sk = o.skin === "serafim" ? "serafim_gravura" : o.skin
-        skin = ["ofanim", "ofanim_alado", "serafim_gravura", "olho", "humana", "anel"].indexOf(sk) >= 0 ? sk : "ofanim"
+        skin = ["ofanim", "ofanim_alado", "serafim_gravura", "serafim_positivo", "olho", "humana", "anel"].indexOf(sk) >= 0 ? sk : "ofanim"
         rGlitch.ligado = !!o.glitch
         rVidro.ligado = !!o.vidro
         rSombra.definir(o.sombra === undefined ? 0.45 : o.sombra)
