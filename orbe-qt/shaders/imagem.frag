@@ -306,10 +306,17 @@ float pesoCotovelo(float cel, vec2 p) {
     return textureLod(arte, (qc + vec2(cel * CELULA, 0.0)) / ATLAS, 0.0).b;
 }
 
+// ponto fixo: o PC faz os 10 passos amortecidos do protótipo aprovado; o
+// relógio dá o primeiro passo inteiro e mais dois a 0,6 (o mesmo erro de 6
+// passos amortecidos, ~5 px do atlas no pior ângulo, pela metade do custo)
 #ifdef RELOGIO
-const int PASSOS = 6;     // no relógio: erro abaixo de 6 px do atlas no pior ângulo (~1-2 px na tela)
+const int PASSOS = 3;
+const float AMORT = 0.6;
+const float PRIMEIRO = 1.0;
 #else
 const int PASSOS = 10;
+const float AMORT = 0.7;
+const float PRIMEIRO = 0.7;
 #endif
 
 // perto da caixa da camada, com folga do maior deslocamento das articulações:
@@ -332,7 +339,7 @@ vec2 repousoMeio(vec2 p, vec2 r, vec2 e, float lado, float cel, float base, floa
         float wb = suave01((length(s - r) - 25.0) / 35.0);
         vec2 qb = r + girar(p - r, -base * lado * wb);
         vec2 n = e + girar(qb - e, -cot * lado * pesoCotovelo(cel, s));
-        s += 0.7 * (n - s);
+        s += (k == 0 ? PRIMEIRO : AMORT) * (n - s);
     }
     return s;
 }
@@ -347,7 +354,7 @@ vec2 repousoVert(vec2 p, vec2 r, vec2 j, float sent, float base, float joe) {
         vec2 qb = r + girar(p - r, -base * sent * wb);
         float w = suave01(dot(s - j, u) / 30.0) * clamp((length(s - j) - 8.0) / 7.0, 0.0, 1.0);
         vec2 n = j + girar(qb - j, -joe * sent * w);
-        s += 0.7 * (n - s);
+        s += (k == 0 ? PRIMEIRO : AMORT) * (n - s);
     }
     return s;
 }
